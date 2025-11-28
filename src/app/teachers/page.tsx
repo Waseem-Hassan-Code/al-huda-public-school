@@ -1,0 +1,980 @@
+"use client";
+
+import { useState, useEffect, useCallback } from "react";
+import {
+  Box,
+  Paper,
+  Typography,
+  Button,
+  TextField,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  IconButton,
+  Avatar,
+  Chip,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem,
+  Grid,
+  InputAdornment,
+  CircularProgress,
+  Tooltip,
+  Card,
+  CardContent,
+} from "@mui/material";
+import {
+  Add,
+  Edit,
+  Delete,
+  Search,
+  Phone,
+  Email,
+  Person,
+  School,
+  FilterList,
+  Refresh,
+  Close,
+  Visibility,
+} from "@mui/icons-material";
+import MainLayout from "@/components/layout/MainLayout";
+import { formatDate } from "@/lib/utils";
+import { toast } from "sonner";
+
+interface Teacher {
+  id: string;
+  employeeId: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone: string;
+  cnic: string;
+  gender: string;
+  dateOfBirth: string;
+  joiningDate: string;
+  qualification: string;
+  specialization: string | null;
+  address: string;
+  monthlySalary: number;
+  isActive: boolean;
+  subjects: { id: string; name: string }[];
+  classes: { id: string; name: string }[];
+}
+
+interface Subject {
+  id: string;
+  name: string;
+  code: string;
+}
+
+interface Class {
+  id: string;
+  name: string;
+  grade: number;
+}
+
+export default function TeachersPage() {
+  const [teachers, setTeachers] = useState<Teacher[]>([]);
+  const [subjects, setSubjects] = useState<Subject[]>([]);
+  const [classes, setClasses] = useState<Class[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [viewDialogOpen, setViewDialogOpen] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [selectedTeacher, setSelectedTeacher] = useState<Teacher | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [formData, setFormData] = useState({
+    firstName: "",
+    lastName: "",
+    email: "",
+    phone: "",
+    cnic: "",
+    gender: "MALE",
+    dateOfBirth: "",
+    joiningDate: new Date().toISOString().split("T")[0],
+    qualification: "",
+    specialization: "",
+    address: "",
+    monthlySalary: 0,
+    subjectIds: [] as string[],
+    classIds: [] as string[],
+  });
+
+  const fetchTeachers = useCallback(async () => {
+    setLoading(true);
+    try {
+      const params = new URLSearchParams({
+        page: page.toString(),
+        limit: "10",
+        ...(search && { search }),
+        ...(statusFilter !== "all" && { status: statusFilter }),
+      });
+
+      const res = await fetch(`/api/teachers?${params}`);
+      const data = await res.json();
+
+      if (res.ok) {
+        setTeachers(data.teachers);
+        setTotalPages(data.pagination.totalPages);
+      } else {
+        toast.error(data.error || "Failed to fetch teachers");
+      }
+    } catch (error) {
+      toast.error("Failed to fetch teachers");
+    } finally {
+      setLoading(false);
+    }
+  }, [page, search, statusFilter]);
+
+  const fetchSubjectsAndClasses = async () => {
+    try {
+      const [subjectsRes, classesRes] = await Promise.all([
+        fetch("/api/subjects"),
+        fetch("/api/classes"),
+      ]);
+
+      if (subjectsRes.ok) {
+        const subjectsData = await subjectsRes.json();
+        setSubjects(subjectsData.subjects || []);
+      }
+
+      if (classesRes.ok) {
+        const classesData = await classesRes.json();
+        setClasses(classesData.classes || []);
+      }
+    } catch (error) {
+      console.error("Failed to fetch subjects/classes", error);
+    }
+  };
+
+  useEffect(() => {
+    fetchTeachers();
+  }, [fetchTeachers]);
+
+  useEffect(() => {
+    fetchSubjectsAndClasses();
+  }, []);
+
+  const handleOpenDialog = (teacher?: Teacher) => {
+    if (teacher) {
+      setSelectedTeacher(teacher);
+      setFormData({
+        firstName: teacher.firstName,
+        lastName: teacher.lastName,
+        email: teacher.email,
+        phone: teacher.phone,
+        cnic: teacher.cnic,
+        gender: teacher.gender,
+        dateOfBirth: teacher.dateOfBirth?.split("T")[0] || "",
+        joiningDate: teacher.joiningDate?.split("T")[0] || "",
+        qualification: teacher.qualification,
+        specialization: teacher.specialization || "",
+        address: teacher.address,
+        monthlySalary: teacher.monthlySalary,
+        subjectIds: teacher.subjects?.map((s) => s.id) || [],
+        classIds: teacher.classes?.map((c) => c.id) || [],
+      });
+    } else {
+      setSelectedTeacher(null);
+      setFormData({
+        firstName: "",
+        lastName: "",
+        email: "",
+        phone: "",
+        cnic: "",
+        gender: "MALE",
+        dateOfBirth: "",
+        joiningDate: new Date().toISOString().split("T")[0],
+        qualification: "",
+        specialization: "",
+        address: "",
+        monthlySalary: 0,
+        subjectIds: [],
+        classIds: [],
+      });
+    }
+    setDialogOpen(true);
+  };
+
+  const handleCloseDialog = () => {
+    setDialogOpen(false);
+    setSelectedTeacher(null);
+  };
+
+  const handleSave = async () => {
+    if (
+      !formData.firstName ||
+      !formData.lastName ||
+      !formData.email ||
+      !formData.cnic
+    ) {
+      toast.error("Please fill all required fields");
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const url = selectedTeacher
+        ? `/api/teachers?id=${selectedTeacher.id}`
+        : "/api/teachers";
+      const method = selectedTeacher ? "PUT" : "POST";
+
+      const res = await fetch(url, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(formData),
+      });
+
+      const data = await res.json();
+
+      if (res.ok) {
+        toast.success(
+          selectedTeacher
+            ? "Teacher updated successfully"
+            : "Teacher added successfully"
+        );
+        handleCloseDialog();
+        fetchTeachers();
+      } else {
+        toast.error(data.error || "Failed to save teacher");
+      }
+    } catch (error) {
+      toast.error("Failed to save teacher");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!selectedTeacher) return;
+
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/teachers?id=${selectedTeacher.id}`, {
+        method: "DELETE",
+      });
+
+      if (res.ok) {
+        toast.success("Teacher deleted successfully");
+        setDeleteDialogOpen(false);
+        setSelectedTeacher(null);
+        fetchTeachers();
+      } else {
+        const data = await res.json();
+        toast.error(data.error || "Failed to delete teacher");
+      }
+    } catch (error) {
+      toast.error("Failed to delete teacher");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleView = (teacher: Teacher) => {
+    setSelectedTeacher(teacher);
+    setViewDialogOpen(true);
+  };
+
+  return (
+    <MainLayout>
+      <Box sx={{ p: 3 }}>
+        <Box
+          sx={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            mb: 3,
+          }}
+        >
+          <Typography variant="h4" fontWeight="bold">
+            Teachers Management
+          </Typography>
+          <Button
+            variant="contained"
+            startIcon={<Add />}
+            onClick={() => handleOpenDialog()}
+          >
+            Add Teacher
+          </Button>
+        </Box>
+
+        {/* Filters */}
+        <Paper sx={{ p: 2, mb: 3 }}>
+          <Grid container spacing={2} alignItems="center">
+            <Grid size={{ xs: 12, md: 5 }}>
+              <TextField
+                fullWidth
+                size="small"
+                placeholder="Search by name, email, or employee ID..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                InputProps={{
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <Search />
+                    </InputAdornment>
+                  ),
+                }}
+              />
+            </Grid>
+            <Grid size={{ xs: 12, md: 3 }}>
+              <FormControl fullWidth size="small">
+                <InputLabel>Status</InputLabel>
+                <Select
+                  value={statusFilter}
+                  label="Status"
+                  onChange={(e) => setStatusFilter(e.target.value)}
+                >
+                  <MenuItem value="all">All Status</MenuItem>
+                  <MenuItem value="active">Active</MenuItem>
+                  <MenuItem value="inactive">Inactive</MenuItem>
+                </Select>
+              </FormControl>
+            </Grid>
+            <Grid size={{ xs: 12, md: 4 }}>
+              <Box sx={{ display: "flex", gap: 1 }}>
+                <Button
+                  variant="outlined"
+                  startIcon={<FilterList />}
+                  onClick={() => {
+                    setSearch("");
+                    setStatusFilter("all");
+                  }}
+                >
+                  Clear Filters
+                </Button>
+                <Button
+                  variant="outlined"
+                  startIcon={<Refresh />}
+                  onClick={() => fetchTeachers()}
+                >
+                  Refresh
+                </Button>
+              </Box>
+            </Grid>
+          </Grid>
+        </Paper>
+
+        {/* Teachers List */}
+        {loading ? (
+          <Box sx={{ display: "flex", justifyContent: "center", py: 4 }}>
+            <CircularProgress />
+          </Box>
+        ) : teachers.length === 0 ? (
+          <Paper sx={{ p: 4, textAlign: "center" }}>
+            <Typography color="text.secondary">No teachers found</Typography>
+          </Paper>
+        ) : (
+          <Grid container spacing={3}>
+            {teachers.map((teacher) => (
+              <Grid size={{ xs: 12, sm: 6, md: 4, lg: 3 }} key={teacher.id}>
+                <Card sx={{ height: "100%" }}>
+                  <CardContent>
+                    <Box
+                      sx={{
+                        display: "flex",
+                        flexDirection: "column",
+                        alignItems: "center",
+                        mb: 2,
+                      }}
+                    >
+                      <Avatar
+                        sx={{
+                          width: 80,
+                          height: 80,
+                          mb: 1,
+                          bgcolor: "primary.main",
+                          fontSize: "1.5rem",
+                        }}
+                      >
+                        {teacher.firstName[0]}
+                        {teacher.lastName[0]}
+                      </Avatar>
+                      <Typography variant="h6" textAlign="center">
+                        {teacher.firstName} {teacher.lastName}
+                      </Typography>
+                      <Typography
+                        variant="body2"
+                        color="text.secondary"
+                        textAlign="center"
+                      >
+                        {teacher.employeeId}
+                      </Typography>
+                      <Chip
+                        size="small"
+                        label={teacher.isActive ? "Active" : "Inactive"}
+                        color={teacher.isActive ? "success" : "default"}
+                        sx={{ mt: 1 }}
+                      />
+                    </Box>
+
+                    <Box sx={{ mb: 2 }}>
+                      <Box
+                        sx={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 1,
+                          mb: 0.5,
+                        }}
+                      >
+                        <Email fontSize="small" color="action" />
+                        <Typography variant="body2" noWrap>
+                          {teacher.email}
+                        </Typography>
+                      </Box>
+                      <Box
+                        sx={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 1,
+                          mb: 0.5,
+                        }}
+                      >
+                        <Phone fontSize="small" color="action" />
+                        <Typography variant="body2">{teacher.phone}</Typography>
+                      </Box>
+                      <Box
+                        sx={{ display: "flex", alignItems: "center", gap: 1 }}
+                      >
+                        <School fontSize="small" color="action" />
+                        <Typography variant="body2">
+                          {teacher.qualification}
+                        </Typography>
+                      </Box>
+                    </Box>
+
+                    {teacher.subjects && teacher.subjects.length > 0 && (
+                      <Box sx={{ mb: 2 }}>
+                        <Typography variant="caption" color="text.secondary">
+                          Subjects
+                        </Typography>
+                        <Box
+                          sx={{ display: "flex", flexWrap: "wrap", gap: 0.5 }}
+                        >
+                          {teacher.subjects.slice(0, 3).map((subject) => (
+                            <Chip
+                              key={subject.id}
+                              label={subject.name}
+                              size="small"
+                              variant="outlined"
+                            />
+                          ))}
+                          {teacher.subjects.length > 3 && (
+                            <Chip
+                              label={`+${teacher.subjects.length - 3}`}
+                              size="small"
+                              variant="outlined"
+                            />
+                          )}
+                        </Box>
+                      </Box>
+                    )}
+
+                    <Box
+                      sx={{
+                        display: "flex",
+                        justifyContent: "center",
+                        gap: 1,
+                        pt: 1,
+                        borderTop: 1,
+                        borderColor: "divider",
+                      }}
+                    >
+                      <Tooltip title="View Details">
+                        <IconButton
+                          size="small"
+                          onClick={() => handleView(teacher)}
+                        >
+                          <Visibility />
+                        </IconButton>
+                      </Tooltip>
+                      <Tooltip title="Edit">
+                        <IconButton
+                          size="small"
+                          onClick={() => handleOpenDialog(teacher)}
+                        >
+                          <Edit />
+                        </IconButton>
+                      </Tooltip>
+                      <Tooltip title="Delete">
+                        <IconButton
+                          size="small"
+                          color="error"
+                          onClick={() => {
+                            setSelectedTeacher(teacher);
+                            setDeleteDialogOpen(true);
+                          }}
+                        >
+                          <Delete />
+                        </IconButton>
+                      </Tooltip>
+                    </Box>
+                  </CardContent>
+                </Card>
+              </Grid>
+            ))}
+          </Grid>
+        )}
+
+        {/* Pagination */}
+        {totalPages > 1 && (
+          <Box
+            sx={{ display: "flex", justifyContent: "center", mt: 3, gap: 1 }}
+          >
+            <Button disabled={page === 1} onClick={() => setPage((p) => p - 1)}>
+              Previous
+            </Button>
+            <Box sx={{ display: "flex", alignItems: "center", px: 2 }}>
+              Page {page} of {totalPages}
+            </Box>
+            <Button
+              disabled={page === totalPages}
+              onClick={() => setPage((p) => p + 1)}
+            >
+              Next
+            </Button>
+          </Box>
+        )}
+
+        {/* Add/Edit Dialog */}
+        <Dialog
+          open={dialogOpen}
+          onClose={handleCloseDialog}
+          maxWidth="md"
+          fullWidth
+        >
+          <DialogTitle>
+            <Box sx={{ display: "flex", justifyContent: "space-between" }}>
+              {selectedTeacher ? "Edit Teacher" : "Add New Teacher"}
+              <IconButton onClick={handleCloseDialog}>
+                <Close />
+              </IconButton>
+            </Box>
+          </DialogTitle>
+          <DialogContent dividers>
+            <Grid container spacing={2} sx={{ mt: 1 }}>
+              <Grid size={{ xs: 12, sm: 6 }}>
+                <TextField
+                  fullWidth
+                  label="First Name"
+                  value={formData.firstName}
+                  onChange={(e) =>
+                    setFormData({ ...formData, firstName: e.target.value })
+                  }
+                  required
+                />
+              </Grid>
+              <Grid size={{ xs: 12, sm: 6 }}>
+                <TextField
+                  fullWidth
+                  label="Last Name"
+                  value={formData.lastName}
+                  onChange={(e) =>
+                    setFormData({ ...formData, lastName: e.target.value })
+                  }
+                  required
+                />
+              </Grid>
+              <Grid size={{ xs: 12, sm: 6 }}>
+                <TextField
+                  fullWidth
+                  label="Email"
+                  type="email"
+                  value={formData.email}
+                  onChange={(e) =>
+                    setFormData({ ...formData, email: e.target.value })
+                  }
+                  required
+                />
+              </Grid>
+              <Grid size={{ xs: 12, sm: 6 }}>
+                <TextField
+                  fullWidth
+                  label="Phone"
+                  value={formData.phone}
+                  onChange={(e) =>
+                    setFormData({ ...formData, phone: e.target.value })
+                  }
+                />
+              </Grid>
+              <Grid size={{ xs: 12, sm: 6 }}>
+                <TextField
+                  fullWidth
+                  label="CNIC"
+                  value={formData.cnic}
+                  onChange={(e) =>
+                    setFormData({ ...formData, cnic: e.target.value })
+                  }
+                  required
+                  placeholder="XXXXX-XXXXXXX-X"
+                />
+              </Grid>
+              <Grid size={{ xs: 12, sm: 6 }}>
+                <FormControl fullWidth>
+                  <InputLabel>Gender</InputLabel>
+                  <Select
+                    value={formData.gender}
+                    label="Gender"
+                    onChange={(e) =>
+                      setFormData({ ...formData, gender: e.target.value })
+                    }
+                  >
+                    <MenuItem value="MALE">Male</MenuItem>
+                    <MenuItem value="FEMALE">Female</MenuItem>
+                    <MenuItem value="OTHER">Other</MenuItem>
+                  </Select>
+                </FormControl>
+              </Grid>
+              <Grid size={{ xs: 12, sm: 6 }}>
+                <TextField
+                  fullWidth
+                  label="Date of Birth"
+                  type="date"
+                  value={formData.dateOfBirth}
+                  onChange={(e) =>
+                    setFormData({ ...formData, dateOfBirth: e.target.value })
+                  }
+                  InputLabelProps={{ shrink: true }}
+                />
+              </Grid>
+              <Grid size={{ xs: 12, sm: 6 }}>
+                <TextField
+                  fullWidth
+                  label="Joining Date"
+                  type="date"
+                  value={formData.joiningDate}
+                  onChange={(e) =>
+                    setFormData({ ...formData, joiningDate: e.target.value })
+                  }
+                  InputLabelProps={{ shrink: true }}
+                />
+              </Grid>
+              <Grid size={{ xs: 12, sm: 6 }}>
+                <TextField
+                  fullWidth
+                  label="Qualification"
+                  value={formData.qualification}
+                  onChange={(e) =>
+                    setFormData({ ...formData, qualification: e.target.value })
+                  }
+                  placeholder="e.g., M.Sc, B.Ed"
+                />
+              </Grid>
+              <Grid size={{ xs: 12, sm: 6 }}>
+                <TextField
+                  fullWidth
+                  label="Specialization"
+                  value={formData.specialization}
+                  onChange={(e) =>
+                    setFormData({ ...formData, specialization: e.target.value })
+                  }
+                  placeholder="e.g., Mathematics"
+                />
+              </Grid>
+              <Grid size={{ xs: 12, sm: 6 }}>
+                <TextField
+                  fullWidth
+                  label="Monthly Salary"
+                  type="number"
+                  value={formData.monthlySalary}
+                  onChange={(e) =>
+                    setFormData({
+                      ...formData,
+                      monthlySalary: parseFloat(e.target.value) || 0,
+                    })
+                  }
+                  InputProps={{
+                    startAdornment: (
+                      <InputAdornment position="start">PKR</InputAdornment>
+                    ),
+                  }}
+                />
+              </Grid>
+              <Grid size={{ xs: 12 }}>
+                <TextField
+                  fullWidth
+                  label="Address"
+                  multiline
+                  rows={2}
+                  value={formData.address}
+                  onChange={(e) =>
+                    setFormData({ ...formData, address: e.target.value })
+                  }
+                />
+              </Grid>
+              <Grid size={{ xs: 12, sm: 6 }}>
+                <FormControl fullWidth>
+                  <InputLabel>Subjects</InputLabel>
+                  <Select
+                    multiple
+                    value={formData.subjectIds}
+                    label="Subjects"
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        subjectIds: e.target.value as string[],
+                      })
+                    }
+                    renderValue={(selected) =>
+                      subjects
+                        .filter((s) => selected.includes(s.id))
+                        .map((s) => s.name)
+                        .join(", ")
+                    }
+                  >
+                    {subjects.map((subject) => (
+                      <MenuItem key={subject.id} value={subject.id}>
+                        {subject.name} ({subject.code})
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+              </Grid>
+              <Grid size={{ xs: 12, sm: 6 }}>
+                <FormControl fullWidth>
+                  <InputLabel>Classes</InputLabel>
+                  <Select
+                    multiple
+                    value={formData.classIds}
+                    label="Classes"
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        classIds: e.target.value as string[],
+                      })
+                    }
+                    renderValue={(selected) =>
+                      classes
+                        .filter((c) => selected.includes(c.id))
+                        .map((c) => c.name)
+                        .join(", ")
+                    }
+                  >
+                    {classes.map((cls) => (
+                      <MenuItem key={cls.id} value={cls.id}>
+                        {cls.name}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+              </Grid>
+            </Grid>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={handleCloseDialog}>Cancel</Button>
+            <Button variant="contained" onClick={handleSave} disabled={saving}>
+              {saving ? <CircularProgress size={24} /> : "Save"}
+            </Button>
+          </DialogActions>
+        </Dialog>
+
+        {/* View Dialog */}
+        <Dialog
+          open={viewDialogOpen}
+          onClose={() => setViewDialogOpen(false)}
+          maxWidth="sm"
+          fullWidth
+        >
+          <DialogTitle>
+            <Box sx={{ display: "flex", justifyContent: "space-between" }}>
+              Teacher Details
+              <IconButton onClick={() => setViewDialogOpen(false)}>
+                <Close />
+              </IconButton>
+            </Box>
+          </DialogTitle>
+          <DialogContent dividers>
+            {selectedTeacher && (
+              <Box>
+                <Box
+                  sx={{
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "center",
+                    mb: 3,
+                  }}
+                >
+                  <Avatar
+                    sx={{
+                      width: 100,
+                      height: 100,
+                      mb: 2,
+                      bgcolor: "primary.main",
+                      fontSize: "2rem",
+                    }}
+                  >
+                    {selectedTeacher.firstName[0]}
+                    {selectedTeacher.lastName[0]}
+                  </Avatar>
+                  <Typography variant="h5">
+                    {selectedTeacher.firstName} {selectedTeacher.lastName}
+                  </Typography>
+                  <Typography color="text.secondary">
+                    {selectedTeacher.employeeId}
+                  </Typography>
+                </Box>
+
+                <Grid container spacing={2}>
+                  <Grid size={{ xs: 6 }}>
+                    <Typography variant="caption" color="text.secondary">
+                      Email
+                    </Typography>
+                    <Typography>{selectedTeacher.email}</Typography>
+                  </Grid>
+                  <Grid size={{ xs: 6 }}>
+                    <Typography variant="caption" color="text.secondary">
+                      Phone
+                    </Typography>
+                    <Typography>{selectedTeacher.phone}</Typography>
+                  </Grid>
+                  <Grid size={{ xs: 6 }}>
+                    <Typography variant="caption" color="text.secondary">
+                      CNIC
+                    </Typography>
+                    <Typography>{selectedTeacher.cnic}</Typography>
+                  </Grid>
+                  <Grid size={{ xs: 6 }}>
+                    <Typography variant="caption" color="text.secondary">
+                      Gender
+                    </Typography>
+                    <Typography>{selectedTeacher.gender}</Typography>
+                  </Grid>
+                  <Grid size={{ xs: 6 }}>
+                    <Typography variant="caption" color="text.secondary">
+                      Date of Birth
+                    </Typography>
+                    <Typography>
+                      {formatDate(selectedTeacher.dateOfBirth)}
+                    </Typography>
+                  </Grid>
+                  <Grid size={{ xs: 6 }}>
+                    <Typography variant="caption" color="text.secondary">
+                      Joining Date
+                    </Typography>
+                    <Typography>
+                      {formatDate(selectedTeacher.joiningDate)}
+                    </Typography>
+                  </Grid>
+                  <Grid size={{ xs: 6 }}>
+                    <Typography variant="caption" color="text.secondary">
+                      Qualification
+                    </Typography>
+                    <Typography>{selectedTeacher.qualification}</Typography>
+                  </Grid>
+                  <Grid size={{ xs: 6 }}>
+                    <Typography variant="caption" color="text.secondary">
+                      Specialization
+                    </Typography>
+                    <Typography>
+                      {selectedTeacher.specialization || "-"}
+                    </Typography>
+                  </Grid>
+                  <Grid size={{ xs: 6 }}>
+                    <Typography variant="caption" color="text.secondary">
+                      Monthly Salary
+                    </Typography>
+                    <Typography>
+                      PKR {selectedTeacher.monthlySalary?.toLocaleString()}
+                    </Typography>
+                  </Grid>
+                  <Grid size={{ xs: 6 }}>
+                    <Typography variant="caption" color="text.secondary">
+                      Status
+                    </Typography>
+                    <Box>
+                      <Chip
+                        size="small"
+                        label={selectedTeacher.isActive ? "Active" : "Inactive"}
+                        color={selectedTeacher.isActive ? "success" : "default"}
+                      />
+                    </Box>
+                  </Grid>
+                  <Grid size={{ xs: 12 }}>
+                    <Typography variant="caption" color="text.secondary">
+                      Address
+                    </Typography>
+                    <Typography>{selectedTeacher.address}</Typography>
+                  </Grid>
+                  {selectedTeacher.subjects &&
+                    selectedTeacher.subjects.length > 0 && (
+                      <Grid size={{ xs: 12 }}>
+                        <Typography variant="caption" color="text.secondary">
+                          Subjects
+                        </Typography>
+                        <Box
+                          sx={{ display: "flex", flexWrap: "wrap", gap: 0.5 }}
+                        >
+                          {selectedTeacher.subjects.map((subject) => (
+                            <Chip
+                              key={subject.id}
+                              label={subject.name}
+                              size="small"
+                              variant="outlined"
+                            />
+                          ))}
+                        </Box>
+                      </Grid>
+                    )}
+                  {selectedTeacher.classes &&
+                    selectedTeacher.classes.length > 0 && (
+                      <Grid size={{ xs: 12 }}>
+                        <Typography variant="caption" color="text.secondary">
+                          Classes
+                        </Typography>
+                        <Box
+                          sx={{ display: "flex", flexWrap: "wrap", gap: 0.5 }}
+                        >
+                          {selectedTeacher.classes.map((cls) => (
+                            <Chip
+                              key={cls.id}
+                              label={cls.name}
+                              size="small"
+                              variant="outlined"
+                            />
+                          ))}
+                        </Box>
+                      </Grid>
+                    )}
+                </Grid>
+              </Box>
+            )}
+          </DialogContent>
+        </Dialog>
+
+        {/* Delete Confirmation Dialog */}
+        <Dialog
+          open={deleteDialogOpen}
+          onClose={() => setDeleteDialogOpen(false)}
+        >
+          <DialogTitle>Confirm Delete</DialogTitle>
+          <DialogContent>
+            <Typography>
+              Are you sure you want to delete teacher{" "}
+              <strong>
+                {selectedTeacher?.firstName} {selectedTeacher?.lastName}
+              </strong>
+              ? This action cannot be undone.
+            </Typography>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setDeleteDialogOpen(false)}>Cancel</Button>
+            <Button
+              variant="contained"
+              color="error"
+              onClick={handleDelete}
+              disabled={saving}
+            >
+              {saving ? <CircularProgress size={24} /> : "Delete"}
+            </Button>
+          </DialogActions>
+        </Dialog>
+      </Box>
+    </MainLayout>
+  );
+}

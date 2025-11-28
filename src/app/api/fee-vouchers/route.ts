@@ -1,0 +1,240 @@
+import { NextRequest, NextResponse } from "next/server";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
+import { prisma } from "@/lib/prisma";
+import { hasPermission, Permission } from "@/lib/permissions";
+import { logTransaction } from "@/lib/transaction-log";
+import { getNextSequenceValue } from "@/lib/sequences";
+
+// GET - List fee vouchers with pagination and filtering
+export async function GET(request: NextRequest) {
+  try {
+    const session = await getServerSession(authOptions);
+
+    if (!session) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    if (!hasPermission(session.user.role, Permission.VIEW_FEES)) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
+    const searchParams = request.nextUrl.searchParams;
+    const page = parseInt(searchParams.get("page") || "1");
+    const limit = parseInt(searchParams.get("limit") || "10");
+    const search = searchParams.get("search") || "";
+    const studentId = searchParams.get("studentId");
+    const status = searchParams.get("status");
+    const month = searchParams.get("month");
+    const year = searchParams.get("year");
+    const sortBy = searchParams.get("sortBy") || "dueDate";
+    const sortOrder = searchParams.get("sortOrder") || "desc";
+
+    const skip = (page - 1) * limit;
+
+    const where: any = {};
+
+    if (search) {
+      where.OR = [
+        { voucherNumber: { contains: search, mode: "insensitive" } },
+        { student: { firstName: { contains: search, mode: "insensitive" } } },
+        { student: { lastName: { contains: search, mode: "insensitive" } } },
+        { student: { studentId: { contains: search, mode: "insensitive" } } },
+      ];
+    }
+
+    if (studentId) {
+      where.studentId = studentId;
+    }
+
+    if (status) {
+      where.status = status;
+    }
+
+    if (month && year) {
+      const startDate = new Date(parseInt(year), parseInt(month) - 1, 1);
+      const endDate = new Date(parseInt(year), parseInt(month), 0);
+      where.dueDate = {
+        gte: startDate,
+        lte: endDate,
+      };
+    }
+
+    const [vouchers, total] = await Promise.all([
+      prisma.feeVoucher.findMany({
+        where,
+        include: {
+          student: {
+            include: {
+              class: true,
+              section: true,
+            },
+          },
+          payments: {
+            orderBy: { paymentDate: "desc" },
+          },
+        },
+        skip,
+        take: limit,
+        orderBy: { [sortBy]: sortOrder },
+      }),
+      prisma.feeVoucher.count({ where }),
+    ]);
+
+    return NextResponse.json({
+      data: vouchers,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+      },
+    });
+  } catch (error) {
+    console.error("Fee Vouchers GET Error:", error);
+    return NextResponse.json(
+      { error: "Failed to fetch fee vouchers" },
+      { status: 500 }
+    );
+  }
+}
+
+// POST - Generate fee vouchers (manual trigger for single student or batch)
+export async function POST(request: NextRequest) {
+  try {
+    const session = await getServerSession(authOptions);
+
+    if (!session) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    if (!hasPermission(session.user.role, Permission.CREATE_FEE_VOUCHER)) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
+    const body = await request.json();
+    const { studentId, studentIds, month, year, classId, sectionId } = body;
+
+    const targetMonth = month || new Date().getMonth() + 1;
+    const targetYear = year || new Date().getFullYear();
+    const dueDate = new Date(targetYear, targetMonth - 1, 10); // Due on 10th of month
+
+    let studentsToProcess: string[] = [];
+
+    if (studentId) {
+      // Single student
+      studentsToProcess = [studentId];
+    } else if (studentIds && studentIds.length > 0) {
+      // Multiple specific students
+      studentsToProcess = studentIds;
+    } else {
+      // Batch generate for class/section or all active students
+      const studentWhere: any = { status: "ACTIVE" };
+      if (classId) studentWhere.classId = classId;
+      if (sectionId) studentWhere.sectionId = sectionId;
+
+      const students = await prisma.student.findMany({
+        where: studentWhere,
+        select: { id: true },
+      });
+      studentsToProcess = students.map((s: { id: string }) => s.id);
+    }
+
+    // Generate vouchers for each student
+    const results = await Promise.all(
+      studentsToProcess.map(async (sid) => {
+        // Check if voucher already exists for this month
+        const existingVoucher = await prisma.feeVoucher.findFirst({
+          where: {
+            studentId: sid,
+            month: targetMonth,
+            year: targetYear,
+          },
+        });
+
+        if (existingVoucher) {
+          return {
+            studentId: sid,
+            status: "exists",
+            voucherId: existingVoucher.id,
+          };
+        }
+
+        // Get student's fees and previous balance
+        const [studentFees, lastVoucher] = await Promise.all([
+          prisma.studentFee.findMany({
+            where: { studentId: sid },
+            include: { feeStructure: true },
+          }),
+          prisma.feeVoucher.findFirst({
+            where: { studentId: sid },
+            orderBy: { createdAt: "desc" },
+          }),
+        ]);
+
+        if (studentFees.length === 0) {
+          return { studentId: sid, status: "no_fees" };
+        }
+
+        // Calculate total amount
+        const totalAmount = studentFees.reduce((sum: number, sf: any) => {
+          return sum + (sf.amount - sf.discount);
+        }, 0);
+
+        // Get previous balance (unpaid amount from last voucher)
+        const previousBalance = lastVoucher
+          ? lastVoucher.totalAmount - lastVoucher.paidAmount
+          : 0;
+
+        // Generate voucher number
+        const voucherNumber = await getNextSequenceValue("VOUCHER");
+
+        // Create voucher
+        const voucher = await prisma.feeVoucher.create({
+          data: {
+            voucherNumber,
+            studentId: sid,
+            month: targetMonth,
+            year: targetYear,
+            dueDate,
+            totalAmount: totalAmount + previousBalance,
+            previousBalance,
+            paidAmount: 0,
+            status: "PENDING",
+            generatedBy: session.user.id,
+          },
+        });
+
+        // Log transaction
+        await logTransaction({
+          action: "CREATE",
+          entityType: "FeeVoucher",
+          entityId: voucher.id,
+          userId: session.user.id,
+          details: {
+            voucherNumber,
+            studentId: sid,
+            amount: voucher.totalAmount,
+          },
+        });
+
+        return { studentId: sid, status: "created", voucherId: voucher.id };
+      })
+    );
+
+    const created = results.filter((r) => r.status === "created").length;
+    const exists = results.filter((r) => r.status === "exists").length;
+    const noFees = results.filter((r) => r.status === "no_fees").length;
+
+    return NextResponse.json({
+      message: `Generated ${created} vouchers. ${exists} already existed. ${noFees} students have no fee structure.`,
+      results,
+    });
+  } catch (error) {
+    console.error("Fee Vouchers POST Error:", error);
+    return NextResponse.json(
+      { error: "Failed to generate fee vouchers" },
+      { status: 500 }
+    );
+  }
+}
