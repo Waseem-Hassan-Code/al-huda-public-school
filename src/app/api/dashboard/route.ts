@@ -2,9 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-
-// Define the attendance status type locally
-type AttendanceStatus = "PRESENT" | "ABSENT" | "LATE" | "EXCUSED";
+import { FeeStatus, AttendanceStatus } from "@prisma/client";
 
 export async function GET(request: NextRequest) {
   try {
@@ -61,7 +59,7 @@ export async function GET(request: NextRequest) {
       // Pending fee vouchers
       prisma.feeVoucher.count({
         where: {
-          status: { in: ["PENDING", "PARTIAL"] },
+          status: { in: [FeeStatus.UNPAID, FeeStatus.PARTIAL] },
         },
       }),
 
@@ -87,7 +85,7 @@ export async function GET(request: NextRequest) {
                 select: {
                   id: true,
                   studentId: true,
-                  firstName: true,
+                  name: true,
                   lastName: true,
                 },
               },
@@ -101,7 +99,7 @@ export async function GET(request: NextRequest) {
         SELECT 
           DATE_TRUNC('month', "paymentDate") as month,
           SUM(amount) as total
-        FROM "FeePayment"
+        FROM "payments"
         WHERE "paymentDate" >= ${new Date(currentYear, currentMonth - 5, 1)}
         GROUP BY DATE_TRUNC('month', "paymentDate")
         ORDER BY month ASC
@@ -127,15 +125,12 @@ export async function GET(request: NextRequest) {
 
     // Calculate attendance percentages
     const totalAttendanceToday = attendanceToday.reduce(
-      (sum: number, a: { status: AttendanceStatus; _count: number }) =>
-        sum + a._count,
+      (sum: number, a: any) => sum + a._count,
       0
     );
     const presentToday =
-      attendanceToday.find(
-        (a: { status: AttendanceStatus; _count: number }) =>
-          a.status === "PRESENT"
-      )?._count || 0;
+      attendanceToday.find((a: any) => a.status === AttendanceStatus.PRESENT)
+        ?._count || 0;
     const attendancePercentage =
       totalAttendanceToday > 0
         ? Math.round((presentToday / totalAttendanceToday) * 100)

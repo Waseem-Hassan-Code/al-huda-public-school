@@ -52,7 +52,7 @@ export async function GET(request: NextRequest) {
             select: {
               id: true,
               teacherId: true,
-              firstName: true,
+              name: true,
               lastName: true,
               baseSalary: true,
             },
@@ -60,7 +60,7 @@ export async function GET(request: NextRequest) {
           processedBy: {
             select: {
               id: true,
-              firstName: true,
+              name: true,
               lastName: true,
             },
           },

@@ -47,7 +47,7 @@ export async function GET(request: NextRequest) {
             },
           },
           teachers: {
-            select: { id: true, firstName: true, lastName: true },
+            select: { id: true, name: true, lastName: true },
           },
         },
       }),

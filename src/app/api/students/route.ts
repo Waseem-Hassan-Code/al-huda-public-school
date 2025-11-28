@@ -37,7 +37,7 @@ export async function GET(request: NextRequest) {
 
     if (search) {
       where.OR = [
-        { firstName: { contains: search, mode: "insensitive" } },
+        { name: { contains: search, mode: "insensitive" } },
         { lastName: { contains: search, mode: "insensitive" } },
         { studentId: { contains: search, mode: "insensitive" } },
         { email: { contains: search, mode: "insensitive" } },
@@ -148,7 +148,7 @@ export async function POST(request: NextRequest) {
         if (!guardianRecord) {
           guardianRecord = await tx.guardian.create({
             data: {
-              firstName: guardian.firstName,
+              name: guardian.firstName,
               lastName: guardian.lastName,
               relationship: guardian.relationship,
               cnic: guardian.cnic,

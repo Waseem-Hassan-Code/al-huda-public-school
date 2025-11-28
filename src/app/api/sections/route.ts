@@ -28,7 +28,7 @@ export async function GET(request: NextRequest) {
           select: { id: true, name: true, grade: true },
         },
         classTeacher: {
-          select: { id: true, firstName: true, lastName: true },
+          select: { id: true, name: true, lastName: true },
         },
         _count: {
           select: { students: true },
@@ -100,7 +100,7 @@ export async function POST(request: NextRequest) {
           select: { id: true, name: true },
         },
         classTeacher: {
-          select: { id: true, firstName: true, lastName: true },
+          select: { id: true, name: true, lastName: true },
         },
       },
     });
@@ -178,7 +178,7 @@ export async function PUT(request: NextRequest) {
           select: { id: true, name: true },
         },
         classTeacher: {
-          select: { id: true, firstName: true, lastName: true },
+          select: { id: true, name: true, lastName: true },
         },
       },
     });

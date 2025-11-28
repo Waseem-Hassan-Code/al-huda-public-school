@@ -67,22 +67,24 @@ export async function GET(request: NextRequest) {
         student: {
           select: {
             id: true,
-            studentId: true,
-            firstName: true,
+            registrationNo: true,
+            name: true,
             lastName: true,
-            class: true,
-            section: true,
+            section: {
+              include: {
+                class: true,
+              },
+            },
           },
         },
         markedBy: {
           select: {
             id: true,
-            firstName: true,
-            lastName: true,
+            name: true,
           },
         },
       },
-      orderBy: [{ date: "desc" }, { student: { firstName: "asc" } }],
+      orderBy: [{ date: "desc" }],
     });
 
     // Group by date if getting multiple dates
@@ -170,10 +172,21 @@ export async function POST(request: NextRequest) {
             },
           });
         } else {
+          // Get student's section
+          const student = await prisma.student.findUnique({
+            where: { id: studentId },
+            select: { sectionId: true },
+          });
+
+          if (!student?.sectionId) {
+            throw new Error(`Student ${studentId} has no section assigned`);
+          }
+
           // Create new record
           return prisma.attendance.create({
             data: {
               studentId,
+              sectionId: student.sectionId,
               date: targetDate,
               status,
               remarks,

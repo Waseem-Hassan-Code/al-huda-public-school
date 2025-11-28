@@ -5,7 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { hasPermission, Permission } from "@/lib/permissions";
 import { logTransaction } from "@/lib/transaction-log";
 
-// GET - Get exam results
+// GET - Get student marks/results
 export async function GET(request: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
@@ -21,6 +21,7 @@ export async function GET(request: NextRequest) {
     const searchParams = request.nextUrl.searchParams;
     const examId = searchParams.get("examId");
     const studentId = searchParams.get("studentId");
+    const subjectId = searchParams.get("subjectId");
     const classId = searchParams.get("classId");
     const sectionId = searchParams.get("sectionId");
 
@@ -34,37 +35,87 @@ export async function GET(request: NextRequest) {
       where.studentId = studentId;
     }
 
-    if (classId) {
-      where.student = { classId };
+    if (subjectId) {
+      where.subjectId = subjectId;
     }
 
-    if (sectionId) {
-      where.student = { ...where.student, sectionId };
+    if (classId || sectionId) {
+      where.student = {};
+      if (classId) where.student.classId = classId;
+      if (sectionId) where.student.sectionId = sectionId;
     }
 
-    const results = await prisma.examResult.findMany({
+    const marks = await prisma.studentMark.findMany({
       where,
       include: {
-        exam: true,
+        exam: {
+          select: {
+            id: true,
+            name: true,
+            examType: true,
+            totalMarks: true,
+            passingMarks: true,
+            examDate: true,
+          },
+        },
         student: {
           select: {
             id: true,
-            studentId: true,
-            firstName: true,
+            registrationNo: true,
+            name: true,
             lastName: true,
-            class: true,
-            section: true,
+            classId: true,
+            sectionId: true,
+            section: {
+              include: { class: true },
+            },
           },
         },
-        subject: true,
+        subject: {
+          select: {
+            id: true,
+            code: true,
+            name: true,
+          },
+        },
+        enteredBy: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
       },
-      orderBy: [
-        { exam: { examDate: "desc" } },
-        { student: { firstName: "asc" } },
-      ],
+      orderBy: [{ exam: { examDate: "desc" } }, { student: { name: "asc" } }],
     });
 
-    return NextResponse.json({ data: results });
+    // Add calculated fields
+    const resultsWithGrades = marks.map((mark) => {
+      const percentage = mark.marksObtained
+        ? (mark.marksObtained / mark.totalMarks) * 100
+        : 0;
+      let grade = "F";
+      if (mark.isAbsent) grade = "AB";
+      else if (percentage >= 90) grade = "A+";
+      else if (percentage >= 80) grade = "A";
+      else if (percentage >= 70) grade = "B";
+      else if (percentage >= 60) grade = "C";
+      else if (percentage >= 50) grade = "D";
+      else if (percentage >= 33) grade = "E";
+
+      const isPassing =
+        !mark.isAbsent &&
+        mark.marksObtained !== null &&
+        mark.marksObtained >= mark.exam.passingMarks;
+
+      return {
+        ...mark,
+        percentage: Math.round(percentage * 100) / 100,
+        grade,
+        isPassing,
+      };
+    });
+
+    return NextResponse.json({ data: resultsWithGrades });
   } catch (error) {
     console.error("Results GET Error:", error);
     return NextResponse.json(
@@ -74,7 +125,7 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// POST - Enter exam results (bulk)
+// POST - Enter student marks (bulk)
 export async function POST(request: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
@@ -88,106 +139,92 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { examId, subjectId, results } = body;
+    const { examId, subjectId, marks } = body;
 
-    // results is array of { studentId, marksObtained, remarks }
+    // marks is array of { studentId, marksObtained, isAbsent, remarks }
 
-    if (!examId || !subjectId || !results || !Array.isArray(results)) {
+    if (!examId || !subjectId || !marks || !Array.isArray(marks)) {
       return NextResponse.json(
-        { error: "Exam ID, Subject ID, and results are required" },
+        { error: "Exam ID, Subject ID, and marks are required" },
         { status: 400 }
       );
     }
 
-    // Get exam and subject details for validation
-    const [exam, subject] = await Promise.all([
-      prisma.exam.findUnique({ where: { id: examId } }),
-      prisma.subject.findUnique({ where: { id: subjectId } }),
-    ]);
+    // Get exam details for validation
+    const exam = await prisma.exam.findUnique({
+      where: { id: examId },
+      select: { totalMarks: true, passingMarks: true },
+    });
 
-    if (!exam || !subject) {
-      return NextResponse.json(
-        { error: "Exam or Subject not found" },
-        { status: 404 }
-      );
+    if (!exam) {
+      return NextResponse.json({ error: "Exam not found" }, { status: 404 });
     }
 
-    // Upsert results
-    const savedResults = await Promise.all(
-      results.map(async (result: any) => {
-        const { studentId, marksObtained, remarks } = result;
+    // Upsert marks
+    const savedMarks = await Promise.all(
+      marks.map(async (mark: any) => {
+        const { studentId, marksObtained, isAbsent, remarks } = mark;
 
         // Validate marks
-        if (marksObtained > subject.totalMarks) {
+        if (
+          !isAbsent &&
+          marksObtained !== null &&
+          marksObtained > exam.totalMarks
+        ) {
           throw new Error(
-            `Marks for student ${studentId} exceed total marks (${subject.totalMarks})`
+            `Marks for student ${studentId} exceed total marks (${exam.totalMarks})`
           );
         }
 
-        // Calculate grade
-        const percentage = (marksObtained / subject.totalMarks) * 100;
-        let grade = "F";
-        if (percentage >= 90) grade = "A+";
-        else if (percentage >= 80) grade = "A";
-        else if (percentage >= 70) grade = "B";
-        else if (percentage >= 60) grade = "C";
-        else if (percentage >= 50) grade = "D";
-        else if (percentage >= subject.passingMarks) grade = "E";
-
-        const isPassing = marksObtained >= subject.passingMarks;
-
-        // Check for existing result
-        const existing = await prisma.examResult.findFirst({
-          where: { examId, subjectId, studentId },
-        });
-
-        if (existing) {
-          return prisma.examResult.update({
-            where: { id: existing.id },
-            data: {
-              marksObtained,
-              grade,
-              isPassing,
-              remarks,
-            },
-          });
-        } else {
-          return prisma.examResult.create({
-            data: {
+        // Upsert using unique constraint
+        return prisma.studentMark.upsert({
+          where: {
+            examId_studentId_subjectId: {
               examId,
-              subjectId,
               studentId,
-              marksObtained,
-              totalMarks: subject.totalMarks,
-              grade,
-              isPassing,
-              remarks,
+              subjectId,
             },
-          });
-        }
+          },
+          update: {
+            marksObtained: isAbsent ? null : marksObtained,
+            isAbsent: isAbsent || false,
+            remarks,
+            enteredById: session.user.id,
+          },
+          create: {
+            examId,
+            studentId,
+            subjectId,
+            marksObtained: isAbsent ? null : marksObtained,
+            totalMarks: exam.totalMarks,
+            isAbsent: isAbsent || false,
+            remarks,
+            enteredById: session.user.id,
+          },
+        });
       })
     );
 
     await logTransaction({
       action: "CREATE",
-      entityType: "ExamResult",
+      entityType: "StudentMark",
       entityId: `bulk-${examId}-${subjectId}`,
       userId: session.user.id,
       details: {
         examId,
         subjectId,
-        recordsCount: savedResults.length,
+        recordsCount: savedMarks.length,
       },
     });
 
     return NextResponse.json({
-      message: "Results saved successfully",
-      data: savedResults,
+      message: "Marks entered successfully",
+      count: savedMarks.length,
     });
-  } catch (error: any) {
+  } catch (error) {
     console.error("Results POST Error:", error);
     return NextResponse.json(
-      { error: error.message || "Failed to save results" },
+      { error: "Failed to enter marks" },
       { status: 500 }
     );
   }

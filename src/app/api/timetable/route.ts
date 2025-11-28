@@ -52,7 +52,7 @@ export async function GET(request: NextRequest) {
           select: {
             id: true,
             teacherId: true,
-            firstName: true,
+            name: true,
             lastName: true,
           },
         },
@@ -180,7 +180,7 @@ export async function POST(request: NextRequest) {
           select: {
             id: true,
             teacherId: true,
-            firstName: true,
+            name: true,
             lastName: true,
           },
         },

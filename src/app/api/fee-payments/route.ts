@@ -56,7 +56,7 @@ export async function GET(request: NextRequest) {
                 select: {
                   id: true,
                   studentId: true,
-                  firstName: true,
+                  name: true,
                   lastName: true,
                 },
               },
@@ -65,7 +65,7 @@ export async function GET(request: NextRequest) {
           receivedBy: {
             select: {
               id: true,
-              firstName: true,
+              name: true,
               lastName: true,
             },
           },

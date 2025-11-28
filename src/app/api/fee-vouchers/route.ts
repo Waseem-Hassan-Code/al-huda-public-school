@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { hasPermission, Permission } from "@/lib/permissions";
 import { logTransaction } from "@/lib/transaction-log";
 import { getNextSequenceValue } from "@/lib/sequences";
+import { FeeStatus, FeeType } from "@prisma/client";
 
 // GET - List fee vouchers with pagination and filtering
 export async function GET(request: NextRequest) {
@@ -37,7 +38,7 @@ export async function GET(request: NextRequest) {
     if (search) {
       where.OR = [
         { voucherNumber: { contains: search, mode: "insensitive" } },
-        { student: { firstName: { contains: search, mode: "insensitive" } } },
+        { student: { name: { contains: search, mode: "insensitive" } } },
         { student: { lastName: { contains: search, mode: "insensitive" } } },
         { student: { studentId: { contains: search, mode: "insensitive" } } },
       ];
@@ -160,11 +161,11 @@ export async function POST(request: NextRequest) {
           };
         }
 
-        // Get student's fees and previous balance
-        const [studentFees, lastVoucher] = await Promise.all([
-          prisma.studentFee.findMany({
-            where: { studentId: sid },
-            include: { feeStructure: true },
+        // Get student's monthly fee and previous balance
+        const [student, lastVoucher] = await Promise.all([
+          prisma.student.findUnique({
+            where: { id: sid },
+            select: { monthlyFee: true, classId: true },
           }),
           prisma.feeVoucher.findFirst({
             where: { studentId: sid },
@@ -172,14 +173,12 @@ export async function POST(request: NextRequest) {
           }),
         ]);
 
-        if (studentFees.length === 0) {
+        if (!student || student.monthlyFee === 0) {
           return { studentId: sid, status: "no_fees" };
         }
 
-        // Calculate total amount
-        const totalAmount = studentFees.reduce((sum: number, sf: any) => {
-          return sum + (sf.amount - sf.discount);
-        }, 0);
+        // Calculate total amount from monthly fee
+        const totalAmount = student.monthlyFee;
 
         // Get previous balance (unpaid amount from last voucher)
         const previousBalance = lastVoucher
@@ -187,21 +186,30 @@ export async function POST(request: NextRequest) {
           : 0;
 
         // Generate voucher number
-        const voucherNumber = await getNextSequenceValue("VOUCHER");
+        const voucherNo = await getNextSequenceValue("VOUCHER");
 
         // Create voucher
         const voucher = await prisma.feeVoucher.create({
           data: {
-            voucherNumber,
+            voucherNo,
             studentId: sid,
             month: targetMonth,
             year: targetYear,
             dueDate,
+            subtotal: totalAmount,
             totalAmount: totalAmount + previousBalance,
             previousBalance,
+            balanceDue: totalAmount + previousBalance,
             paidAmount: 0,
-            status: "PENDING",
-            generatedBy: session.user.id,
+            status: FeeStatus.UNPAID,
+            createdById: session.user.id,
+            feeItems: {
+              create: {
+                feeType: FeeType.MONTHLY_FEE,
+                description: `Monthly Fee - ${targetMonth}/${targetYear}`,
+                amount: totalAmount,
+              },
+            },
           },
         });
 

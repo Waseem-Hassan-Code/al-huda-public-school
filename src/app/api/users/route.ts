@@ -32,7 +32,7 @@ export async function GET(request: NextRequest) {
 
     if (search) {
       where.OR = [
-        { firstName: { contains: search, mode: "insensitive" } },
+        { name: { contains: search, mode: "insensitive" } },
         { lastName: { contains: search, mode: "insensitive" } },
         { email: { contains: search, mode: "insensitive" } },
       ];
@@ -52,11 +52,9 @@ export async function GET(request: NextRequest) {
         select: {
           id: true,
           email: true,
-          firstName: true,
-          lastName: true,
+          name: true,
           role: true,
           isActive: true,
-          permissions: true,
           createdAt: true,
           lastLogin: true,
         },
@@ -122,20 +120,17 @@ export async function POST(request: NextRequest) {
     const user = await prisma.user.create({
       data: {
         email,
+        username: email.split("@")[0],
         password: hashedPassword,
-        firstName,
-        lastName,
+        name: `${firstName} ${lastName}`.trim(),
         role,
-        permissions: userPermissions,
         isActive: true,
       },
       select: {
         id: true,
         email: true,
-        firstName: true,
-        lastName: true,
+        name: true,
         role: true,
-        permissions: true,
         isActive: true,
         createdAt: true,
       },
