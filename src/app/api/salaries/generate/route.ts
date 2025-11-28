@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
+import { getNextSequenceValue } from "@/lib/sequences";
 
 // POST - Generate salary records for all active teachers for a specific month
 export async function POST(request: NextRequest) {
@@ -24,6 +25,12 @@ export async function POST(request: NextRequest) {
     // Get all active teachers
     const teachers = await prisma.teacher.findMany({
       where: { isActive: true },
+      select: {
+        id: true,
+        basicSalary: true,
+        allowances: true,
+        deductions: true,
+      },
     });
 
     if (teachers.length === 0) {
@@ -58,26 +65,35 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Create salary records for all teachers
-    const salaryRecords = teachersToGenerate.map((teacher: any) => ({
-      teacherId: teacher.id,
-      month,
-      year,
-      baseSalary: teacher.monthlySalary,
-      allowances: 0,
-      deductions: 0,
-      bonuses: 0,
-      netSalary: teacher.monthlySalary,
-      status: "PENDING" as const,
-    }));
+    // Create salary records one by one to generate unique salaryNo
+    let createdCount = 0;
+    for (const teacher of teachersToGenerate) {
+      const salaryNo = await getNextSequenceValue("SALARY");
+      const netSalary =
+        teacher.basicSalary + teacher.allowances - teacher.deductions;
 
-    await prisma.teacherSalary.createMany({
-      data: salaryRecords,
-    });
+      await prisma.teacherSalary.create({
+        data: {
+          salaryNo,
+          teacherId: teacher.id,
+          month,
+          year,
+          basicSalary: teacher.basicSalary,
+          allowances: teacher.allowances,
+          deductions: teacher.deductions,
+          bonus: 0,
+          netSalary,
+          balanceDue: netSalary,
+          status: "PENDING",
+          createdById: session.user.id,
+        },
+      });
+      createdCount++;
+    }
 
     return NextResponse.json({
-      message: `Generated ${teachersToGenerate.length} salary records`,
-      count: teachersToGenerate.length,
+      message: `Generated ${createdCount} salary records`,
+      count: createdCount,
       skipped: existingSalaries.length,
     });
   } catch (error) {

@@ -28,10 +28,14 @@ export async function GET(
       select: {
         id: true,
         email: true,
-        firstName: true,
-        lastName: true,
+        name: true,
         role: true,
-        permissions: true,
+        permissions: {
+          select: {
+            id: true,
+            permission: true,
+          },
+        },
       },
     });
 
@@ -55,14 +59,17 @@ export async function GET(
     // Get default permissions for user's role
     const defaultPermissions = rolePermissions[user.role] || [];
 
+    // Extract permission strings from the relation
+    const currentPermissions = user.permissions.map((p) => p.permission);
+
     return NextResponse.json({
       user: {
         id: user.id,
         email: user.email,
-        name: `${user.firstName} ${user.lastName}`,
+        name: user.name,
         role: user.role,
       },
-      currentPermissions: user.permissions,
+      currentPermissions,
       defaultPermissions,
       allPermissions: groupedPermissions,
     });
@@ -126,16 +133,35 @@ export async function PUT(
       newPermissions = permissions;
     }
 
-    const updatedUser = await prisma.user.update({
+    // Update permissions by deleting existing and creating new ones
+    await prisma.$transaction([
+      // Delete existing permissions
+      prisma.userPermission.deleteMany({
+        where: { userId: id },
+      }),
+      // Create new permissions
+      prisma.userPermission.createMany({
+        data: newPermissions.map((permission: string) => ({
+          userId: id,
+          permission,
+        })),
+      }),
+    ]);
+
+    // Get updated user
+    const updatedUser = await prisma.user.findUnique({
       where: { id },
-      data: { permissions: newPermissions },
       select: {
         id: true,
         email: true,
-        firstName: true,
-        lastName: true,
+        name: true,
         role: true,
-        permissions: true,
+        permissions: {
+          select: {
+            id: true,
+            permission: true,
+          },
+        },
       },
     });
 
@@ -153,7 +179,10 @@ export async function PUT(
 
     return NextResponse.json({
       message: "Permissions updated successfully",
-      user: updatedUser,
+      user: {
+        ...updatedUser,
+        permissions: updatedUser?.permissions.map((p) => p.permission) || [],
+      },
     });
   } catch (error) {
     console.error("Permissions PUT Error:", error);

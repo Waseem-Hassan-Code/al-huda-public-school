@@ -27,12 +27,7 @@ export async function GET(
       include: {
         class: true,
         section: true,
-        guardian: true,
-        studentFees: {
-          include: {
-            feeStructure: true,
-          },
-        },
+        academicYear: true,
         feeVouchers: {
           orderBy: { dueDate: "desc" },
           take: 12,
@@ -40,11 +35,11 @@ export async function GET(
             payments: true,
           },
         },
-        attendances: {
+        attendance: {
           orderBy: { date: "desc" },
           take: 30,
         },
-        examResults: {
+        studentMarks: {
           include: {
             exam: true,
             subject: true,
@@ -222,7 +217,7 @@ export async function DELETE(
     await logDelete(
       "STUDENT",
       id,
-      { studentId: student.studentId },
+      { registrationNo: student.registrationNo },
       session.user.id
     );
 

@@ -64,7 +64,7 @@ export async function GET(request: NextRequest) {
         include: {
           class: true,
           section: true,
-          guardian: true,
+          academicYear: true,
         },
         skip,
         take: limit,

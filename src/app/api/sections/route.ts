@@ -22,13 +22,13 @@ export async function GET(request: NextRequest) {
 
     const sections = await prisma.section.findMany({
       where,
-      orderBy: [{ class: { grade: "asc" } }, { name: "asc" }],
+      orderBy: [{ class: { displayOrder: "asc" } }, { name: "asc" }],
       include: {
         class: {
-          select: { id: true, name: true, grade: true },
+          select: { id: true, name: true, displayOrder: true },
         },
         classTeacher: {
-          select: { id: true, name: true, lastName: true },
+          select: { id: true, firstName: true, lastName: true },
         },
         _count: {
           select: { students: true },
@@ -100,7 +100,7 @@ export async function POST(request: NextRequest) {
           select: { id: true, name: true },
         },
         classTeacher: {
-          select: { id: true, name: true, lastName: true },
+          select: { id: true, firstName: true, lastName: true },
         },
       },
     });
@@ -178,7 +178,7 @@ export async function PUT(request: NextRequest) {
           select: { id: true, name: true },
         },
         classTeacher: {
-          select: { id: true, name: true, lastName: true },
+          select: { id: true, firstName: true, lastName: true },
         },
       },
     });

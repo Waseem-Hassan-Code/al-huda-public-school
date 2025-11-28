@@ -30,13 +30,13 @@ export async function GET(request: NextRequest) {
 
     const skip = (page - 1) * limit;
 
-    const where: any = {};
+    const where: Record<string, unknown> = {};
 
     if (search) {
       where.OR = [
-        { name: { contains: search, mode: "insensitive" } },
+        { firstName: { contains: search, mode: "insensitive" } },
         { lastName: { contains: search, mode: "insensitive" } },
-        { teacherId: { contains: search, mode: "insensitive" } },
+        { employeeId: { contains: search, mode: "insensitive" } },
         { email: { contains: search, mode: "insensitive" } },
         { cnic: { contains: search, mode: "insensitive" } },
       ];
@@ -50,11 +50,9 @@ export async function GET(request: NextRequest) {
       prisma.teacher.findMany({
         where,
         include: {
-          teacherSubjects: {
+          subjects: {
             include: {
               subject: true,
-              class: true,
-              section: true,
             },
           },
           _count: {
@@ -105,6 +103,7 @@ export async function POST(request: NextRequest) {
     const {
       firstName,
       lastName,
+      fatherName,
       dateOfBirth,
       gender,
       cnic,
@@ -114,74 +113,90 @@ export async function POST(request: NextRequest) {
       city,
       photo,
       qualification,
+      specialization,
       experience,
       joiningDate,
-      baseSalary,
-      subjects, // Array of { classId, sectionId, subjectId }
+      designation,
+      basicSalary,
+      allowances,
+      deductions,
+      bankName,
+      bankAccountNo,
+      bankBranch,
+      subjects, // Array of subjectIds
     } = body;
 
-    // Generate teacher ID
-    const teacherId = await getNextSequenceValue("TEACHER");
+    // Generate employee ID
+    const employeeId = await getNextSequenceValue("TEACHER");
 
     // Create teacher in transaction
-    const result = await prisma.$transaction(async (tx: any) => {
+    const result = await prisma.$transaction(async (tx) => {
+      // Create user account for teacher if email provided
+      let userId: string | null = null;
+      if (email) {
+        const hashedPassword = await bcrypt.hash(employeeId, 10); // Default password is employee ID
+        const user = await tx.user.create({
+          data: {
+            email,
+            username: email.split("@")[0],
+            password: hashedPassword,
+            name: `${firstName} ${lastName}`,
+            role: "TEACHER",
+            isActive: true,
+            createdById: session.user.id,
+          },
+        });
+        userId = user.id;
+      }
+
       // Create teacher
       const teacher = await tx.teacher.create({
         data: {
-          teacherId,
+          employeeId,
+          userId,
           firstName,
           lastName,
+          fatherName,
           dateOfBirth: dateOfBirth ? new Date(dateOfBirth) : null,
           gender,
           cnic,
           phone,
           email,
           address,
-          city,
+          city: city || "Karachi",
           photo,
           qualification,
+          specialization,
           experience: experience || 0,
           joiningDate: joiningDate ? new Date(joiningDate) : new Date(),
-          baseSalary: baseSalary || 0,
+          designation: designation || "Teacher",
+          basicSalary: basicSalary || 0,
+          allowances: allowances || 0,
+          deductions: deductions || 0,
+          bankName,
+          bankAccountNo,
+          bankBranch,
           isActive: true,
+          createdById: session.user.id,
         },
       });
 
       // Assign subjects if provided
       if (subjects && subjects.length > 0) {
         await tx.teacherSubject.createMany({
-          data: subjects.map((s: any) => ({
+          data: subjects.map((subjectId: string) => ({
             teacherId: teacher.id,
-            classId: s.classId,
-            sectionId: s.sectionId,
-            subjectId: s.subjectId,
+            subjectId,
           })),
-        });
-      }
-
-      // Create user account for teacher if email provided
-      if (email) {
-        const hashedPassword = await bcrypt.hash(teacherId, 10); // Default password is teacher ID
-        await tx.user.create({
-          data: {
-            email,
-            password: hashedPassword,
-            firstName,
-            lastName,
-            role: "TEACHER",
-            isActive: true,
-          },
         });
       }
 
       return tx.teacher.findUnique({
         where: { id: teacher.id },
         include: {
-          teacherSubjects: {
+          subjects: {
             include: {
               subject: true,
-              class: true,
-              section: true,
             },
           },
         },
@@ -194,7 +209,7 @@ export async function POST(request: NextRequest) {
       entityType: "Teacher",
       entityId: result!.id,
       userId: session.user.id,
-      details: { teacherId, firstName, lastName },
+      details: { employeeId, firstName, lastName },
     });
 
     return NextResponse.json(result, { status: 201 });

@@ -27,7 +27,7 @@ export async function GET(request: NextRequest) {
     }
 
     if (classId) {
-      where.classes = {
+      where.classSubjects = {
         some: { classId },
       };
     }
@@ -39,15 +39,19 @@ export async function GET(request: NextRequest) {
         take: limit,
         orderBy: { name: "asc" },
         include: {
-          classes: {
+          classSubjects: {
             include: {
               class: {
-                select: { id: true, name: true, grade: true },
+                select: { id: true, name: true, displayOrder: true },
               },
             },
           },
-          teachers: {
-            select: { id: true, name: true, lastName: true },
+          teacherSubjects: {
+            include: {
+              teacher: {
+                select: { id: true, firstName: true, lastName: true },
+              },
+            },
           },
         },
       }),
@@ -55,9 +59,10 @@ export async function GET(request: NextRequest) {
     ]);
 
     return NextResponse.json({
-      subjects: subjects.map((s: any) => ({
+      subjects: subjects.map((s) => ({
         ...s,
-        classes: s.classes.map((c: any) => c.class),
+        classes: s.classSubjects.map((cs) => cs.class),
+        teachers: s.teacherSubjects.map((ts) => ts.teacher),
       })),
       pagination: {
         page,
@@ -84,7 +89,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { name, code, description, classIds } = body;
+    const { name, code, nameUrdu, description, classIds } = body;
 
     if (!name || !code) {
       return NextResponse.json(
@@ -109,15 +114,26 @@ export async function POST(request: NextRequest) {
       data: {
         name,
         code,
+        nameUrdu,
         description: description || null,
-        classes: classIds?.length
-          ? {
-              create: classIds.map((classId: string) => ({ classId })),
-            }
-          : undefined,
       },
+    });
+
+    // Create class-subject associations if classIds provided
+    if (classIds?.length) {
+      await prisma.classSubject.createMany({
+        data: classIds.map((classId: string) => ({
+          classId,
+          subjectId: subject.id,
+        })),
+      });
+    }
+
+    // Fetch updated subject with relations
+    const updatedSubject = await prisma.subject.findUnique({
+      where: { id: subject.id },
       include: {
-        classes: {
+        classSubjects: {
           include: {
             class: { select: { id: true, name: true } },
           },
@@ -127,8 +143,8 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       subject: {
-        ...subject,
-        classes: subject.classes.map((c: any) => c.class),
+        ...updatedSubject,
+        classes: updatedSubject?.classSubjects.map((cs) => cs.class) || [],
       },
     });
   } catch (error) {
@@ -159,7 +175,7 @@ export async function PUT(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { name, code, description, classIds } = body;
+    const { name, code, nameUrdu, description, classIds, isActive } = body;
 
     // Check if subject exists
     const existingSubject = await prisma.subject.findUnique({
@@ -170,7 +186,7 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: "Subject not found" }, { status: 404 });
     }
 
-    // Check if new code already exists for different subject
+    // Check if new code already exists
     if (code && code !== existingSubject.code) {
       const codeExists = await prisma.subject.findUnique({
         where: { code },
@@ -184,45 +200,53 @@ export async function PUT(request: NextRequest) {
       }
     }
 
-    // Update subject with class relationships
-    const subject = await prisma.$transaction(async (tx: any) => {
-      // Delete existing class relationships
-      if (classIds !== undefined) {
-        await tx.classSubject.deleteMany({
-          where: { subjectId: id },
+    // Update subject
+    const subject = await prisma.subject.update({
+      where: { id },
+      data: {
+        name: name || existingSubject.name,
+        code: code || existingSubject.code,
+        nameUrdu: nameUrdu !== undefined ? nameUrdu : existingSubject.nameUrdu,
+        description:
+          description !== undefined ? description : existingSubject.description,
+        isActive: isActive !== undefined ? isActive : existingSubject.isActive,
+      },
+    });
+
+    // Update class associations if classIds provided
+    if (classIds !== undefined) {
+      // Remove existing associations
+      await prisma.classSubject.deleteMany({
+        where: { subjectId: id },
+      });
+
+      // Create new associations
+      if (classIds.length > 0) {
+        await prisma.classSubject.createMany({
+          data: classIds.map((classId: string) => ({
+            classId,
+            subjectId: id,
+          })),
         });
       }
+    }
 
-      // Update subject
-      return tx.subject.update({
-        where: { id },
-        data: {
-          name: name || existingSubject.name,
-          code: code || existingSubject.code,
-          description:
-            description !== undefined
-              ? description
-              : existingSubject.description,
-          classes: classIds?.length
-            ? {
-                create: classIds.map((classId: string) => ({ classId })),
-              }
-            : undefined,
-        },
-        include: {
-          classes: {
-            include: {
-              class: { select: { id: true, name: true } },
-            },
+    // Fetch updated subject with relations
+    const updatedSubject = await prisma.subject.findUnique({
+      where: { id },
+      include: {
+        classSubjects: {
+          include: {
+            class: { select: { id: true, name: true } },
           },
         },
-      });
+      },
     });
 
     return NextResponse.json({
       subject: {
-        ...subject,
-        classes: subject.classes.map((c: any) => c.class),
+        ...updatedSubject,
+        classes: updatedSubject?.classSubjects.map((cs) => cs.class) || [],
       },
     });
   } catch (error) {
@@ -255,13 +279,41 @@ export async function DELETE(request: NextRequest) {
     // Check if subject exists
     const existingSubject = await prisma.subject.findUnique({
       where: { id },
+      include: {
+        _count: {
+          select: { timetables: true, studentMarks: true },
+        },
+      },
     });
 
     if (!existingSubject) {
       return NextResponse.json({ error: "Subject not found" }, { status: 404 });
     }
 
-    // Delete subject (cascade will handle relations)
+    // Check if subject has related data
+    if (
+      existingSubject._count.timetables > 0 ||
+      existingSubject._count.studentMarks > 0
+    ) {
+      return NextResponse.json(
+        {
+          error: "Cannot delete subject with existing timetable or exam data",
+        },
+        { status: 400 }
+      );
+    }
+
+    // Delete class associations first
+    await prisma.classSubject.deleteMany({
+      where: { subjectId: id },
+    });
+
+    // Delete teacher associations
+    await prisma.teacherSubject.deleteMany({
+      where: { subjectId: id },
+    });
+
+    // Delete subject
     await prisma.subject.delete({
       where: { id },
     });

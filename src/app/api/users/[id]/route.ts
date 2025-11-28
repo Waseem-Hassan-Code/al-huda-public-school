@@ -32,10 +32,14 @@ export async function GET(
       select: {
         id: true,
         email: true,
-        firstName: true,
-        lastName: true,
+        name: true,
         role: true,
-        permissions: true,
+        permissions: {
+          select: {
+            id: true,
+            permission: true,
+          },
+        },
         isActive: true,
         createdAt: true,
         lastLogin: true,
@@ -76,21 +80,12 @@ export async function PUT(
     }
 
     const body = await request.json();
-    const {
-      firstName,
-      lastName,
-      email,
-      password,
-      role,
-      permissions,
-      isActive,
-    } = body;
+    const { name, email, password, role, permissions, isActive } = body;
 
     const updateData: any = {};
 
     // Basic info can be updated by self or admin
-    if (firstName) updateData.firstName = firstName;
-    if (lastName) updateData.lastName = lastName;
+    if (name) updateData.name = name;
     if (email && !isSelf) updateData.email = email; // Email can only be changed by admin
 
     // Password change
@@ -111,10 +106,14 @@ export async function PUT(
       select: {
         id: true,
         email: true,
-        firstName: true,
-        lastName: true,
+        name: true,
         role: true,
-        permissions: true,
+        permissions: {
+          select: {
+            id: true,
+            permission: true,
+          },
+        },
         isActive: true,
       },
     });

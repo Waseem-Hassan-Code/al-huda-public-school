@@ -23,8 +23,9 @@ export async function GET(request: NextRequest) {
     const sectionId = searchParams.get("sectionId");
     const teacherId = searchParams.get("teacherId");
     const dayOfWeek = searchParams.get("dayOfWeek");
+    const academicYearId = searchParams.get("academicYearId");
 
-    const where: any = { isActive: true };
+    const where: Record<string, unknown> = { isActive: true };
 
     if (classId) {
       where.classId = classId;
@@ -39,7 +40,11 @@ export async function GET(request: NextRequest) {
     }
 
     if (dayOfWeek) {
-      where.dayOfWeek = parseInt(dayOfWeek);
+      where.dayOfWeek = dayOfWeek;
+    }
+
+    if (academicYearId) {
+      where.academicYearId = academicYearId;
     }
 
     const timetable = await prisma.timetable.findMany({
@@ -51,34 +56,43 @@ export async function GET(request: NextRequest) {
         teacher: {
           select: {
             id: true,
-            teacherId: true,
-            name: true,
+            employeeId: true,
+            firstName: true,
             lastName: true,
           },
         },
+        academicYear: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
       },
-      orderBy: [{ dayOfWeek: "asc" }, { startTime: "asc" }],
+      orderBy: [{ dayOfWeek: "asc" }, { periodNo: "asc" }],
     });
 
     // Group by day if getting full timetable
     if (!dayOfWeek) {
       const days = [
-        "Sunday",
-        "Monday",
-        "Tuesday",
-        "Wednesday",
-        "Thursday",
-        "Friday",
-        "Saturday",
+        "SUNDAY",
+        "MONDAY",
+        "TUESDAY",
+        "WEDNESDAY",
+        "THURSDAY",
+        "FRIDAY",
+        "SATURDAY",
       ];
-      const grouped = timetable.reduce((acc: any, slot: any) => {
-        const day = days[slot.dayOfWeek];
-        if (!acc[day]) {
-          acc[day] = [];
-        }
-        acc[day].push(slot);
-        return acc;
-      }, {});
+      const grouped = timetable.reduce(
+        (acc: Record<string, typeof timetable>, slot) => {
+          const day = slot.dayOfWeek;
+          if (!acc[day]) {
+            acc[day] = [];
+          }
+          acc[day].push(slot);
+          return acc;
+        },
+        {}
+      );
       return NextResponse.json({ data: grouped, type: "grouped" });
     }
 
@@ -107,69 +121,80 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json();
     const {
+      academicYearId,
       classId,
       sectionId,
       subjectId,
       teacherId,
       dayOfWeek,
+      periodNo,
       startTime,
       endTime,
-      roomNumber,
     } = body;
 
-    // Check for conflicts
-    const conflict = await prisma.timetable.findFirst({
+    // Validate required fields
+    if (
+      !academicYearId ||
+      !classId ||
+      !sectionId ||
+      !subjectId ||
+      !teacherId ||
+      !dayOfWeek ||
+      !periodNo ||
+      !startTime ||
+      !endTime
+    ) {
+      return NextResponse.json(
+        { error: "All fields are required" },
+        { status: 400 }
+      );
+    }
+
+    // Check for conflicts - same section, day, and period
+    const sectionConflict = await prisma.timetable.findFirst({
       where: {
         isActive: true,
+        sectionId,
         dayOfWeek,
-        OR: [
-          // Same class/section at same time
-          {
-            classId,
-            sectionId,
-            startTime: { lte: endTime },
-            endTime: { gte: startTime },
-          },
-          // Same teacher at same time
-          {
-            teacherId,
-            startTime: { lte: endTime },
-            endTime: { gte: startTime },
-          },
-          // Same room at same time
-          ...(roomNumber
-            ? [
-                {
-                  roomNumber,
-                  startTime: { lte: endTime },
-                  endTime: { gte: startTime },
-                },
-              ]
-            : []),
-        ],
+        periodNo,
       },
     });
 
-    if (conflict) {
+    if (sectionConflict) {
       return NextResponse.json(
-        {
-          error:
-            "Timetable conflict detected. Please check class, teacher, or room availability.",
-        },
+        { error: "This period is already assigned for this section" },
+        { status: 400 }
+      );
+    }
+
+    // Check for teacher conflict - same teacher, day, and period
+    const teacherConflict = await prisma.timetable.findFirst({
+      where: {
+        isActive: true,
+        teacherId,
+        dayOfWeek,
+        periodNo,
+      },
+    });
+
+    if (teacherConflict) {
+      return NextResponse.json(
+        { error: "Teacher is already assigned to another class at this time" },
         { status: 400 }
       );
     }
 
     const timetableEntry = await prisma.timetable.create({
       data: {
+        academicYearId,
         classId,
         sectionId,
         subjectId,
         teacherId,
         dayOfWeek,
+        periodNo,
         startTime,
         endTime,
-        roomNumber,
         isActive: true,
       },
       include: {
@@ -179,8 +204,8 @@ export async function POST(request: NextRequest) {
         teacher: {
           select: {
             id: true,
-            teacherId: true,
-            name: true,
+            employeeId: true,
+            firstName: true,
             lastName: true,
           },
         },
@@ -192,7 +217,7 @@ export async function POST(request: NextRequest) {
       entityType: "Timetable",
       entityId: timetableEntry.id,
       userId: session.user.id,
-      details: { classId, sectionId, dayOfWeek, startTime, endTime },
+      details: { classId, sectionId, dayOfWeek, periodNo },
     });
 
     return NextResponse.json(timetableEntry, { status: 201 });
@@ -205,7 +230,7 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// PUT - Bulk update timetable
+// PUT - Update timetable entry
 export async function PUT(request: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
@@ -218,55 +243,107 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
+    const searchParams = request.nextUrl.searchParams;
+    const id = searchParams.get("id");
+
+    if (!id) {
+      return NextResponse.json({ error: "ID is required" }, { status: 400 });
+    }
+
     const body = await request.json();
-    const { classId, sectionId, entries } = body;
+    const { subjectId, teacherId, startTime, endTime, isActive } = body;
 
-    // entries is array of { dayOfWeek, startTime, endTime, subjectId, teacherId, roomNumber }
+    const existing = await prisma.timetable.findUnique({
+      where: { id },
+    });
 
-    if (!classId || !sectionId || !entries) {
+    if (!existing) {
       return NextResponse.json(
-        { error: "Class, section, and entries are required" },
-        { status: 400 }
+        { error: "Timetable entry not found" },
+        { status: 404 }
       );
     }
 
-    // Delete existing timetable for this class/section
-    await prisma.timetable.updateMany({
-      where: { classId, sectionId },
-      data: { isActive: false },
-    });
+    const updateData: Record<string, unknown> = {};
+    if (subjectId !== undefined) updateData.subjectId = subjectId;
+    if (teacherId !== undefined) updateData.teacherId = teacherId;
+    if (startTime !== undefined) updateData.startTime = startTime;
+    if (endTime !== undefined) updateData.endTime = endTime;
+    if (isActive !== undefined) updateData.isActive = isActive;
 
-    // Create new entries
-    const created = await prisma.timetable.createMany({
-      data: entries.map((entry: any) => ({
-        classId,
-        sectionId,
-        subjectId: entry.subjectId,
-        teacherId: entry.teacherId,
-        dayOfWeek: entry.dayOfWeek,
-        startTime: entry.startTime,
-        endTime: entry.endTime,
-        roomNumber: entry.roomNumber,
-        isActive: true,
-      })),
+    const timetableEntry = await prisma.timetable.update({
+      where: { id },
+      data: updateData,
+      include: {
+        class: true,
+        section: true,
+        subject: true,
+        teacher: {
+          select: {
+            id: true,
+            employeeId: true,
+            firstName: true,
+            lastName: true,
+          },
+        },
+      },
     });
 
     await logTransaction({
       action: "UPDATE",
       entityType: "Timetable",
-      entityId: `bulk-${classId}-${sectionId}`,
+      entityId: id,
       userId: session.user.id,
-      details: { classId, sectionId, entriesCount: entries.length },
+      details: { updatedFields: Object.keys(updateData) },
     });
 
-    return NextResponse.json({
-      message: "Timetable updated successfully",
-      entriesCreated: created.count,
-    });
+    return NextResponse.json(timetableEntry);
   } catch (error) {
     console.error("Timetable PUT Error:", error);
     return NextResponse.json(
-      { error: "Failed to update timetable" },
+      { error: "Failed to update timetable entry" },
+      { status: 500 }
+    );
+  }
+}
+
+// DELETE - Delete timetable entry
+export async function DELETE(request: NextRequest) {
+  try {
+    const session = await getServerSession(authOptions);
+
+    if (!session) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    if (!hasPermission(session.user.role, Permission.DELETE_TIMETABLE)) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
+    const searchParams = request.nextUrl.searchParams;
+    const id = searchParams.get("id");
+
+    if (!id) {
+      return NextResponse.json({ error: "ID is required" }, { status: 400 });
+    }
+
+    await prisma.timetable.delete({
+      where: { id },
+    });
+
+    await logTransaction({
+      action: "DELETE",
+      entityType: "Timetable",
+      entityId: id,
+      userId: session.user.id,
+      details: {},
+    });
+
+    return NextResponse.json({ message: "Timetable entry deleted" });
+  } catch (error) {
+    console.error("Timetable DELETE Error:", error);
+    return NextResponse.json(
+      { error: "Failed to delete timetable entry" },
       { status: 500 }
     );
   }

@@ -29,7 +29,7 @@ export async function GET(request: NextRequest) {
 
     const skip = (page - 1) * limit;
 
-    const where: any = {};
+    const where: Record<string, unknown> = {};
 
     if (teacherId) {
       where.teacherId = teacherId;
@@ -51,17 +51,16 @@ export async function GET(request: NextRequest) {
           teacher: {
             select: {
               id: true,
-              teacherId: true,
-              name: true,
+              employeeId: true,
+              firstName: true,
               lastName: true,
-              baseSalary: true,
+              basicSalary: true,
             },
           },
-          processedBy: {
+          createdBy: {
             select: {
               id: true,
               name: true,
-              lastName: true,
             },
           },
         },
@@ -111,7 +110,6 @@ export async function POST(request: NextRequest) {
       year,
       allowances,
       deductions,
-      deductionReason,
     } = body;
 
     const targetMonth = month || new Date().getMonth() + 1;
@@ -146,12 +144,11 @@ export async function POST(request: NextRequest) {
         // Get teacher details
         const teacher = await prisma.teacher.findUnique({
           where: { id: tid },
-          include: {
-            teacherSubjects: {
-              include: {
-                class: true,
-              },
-            },
+          select: {
+            id: true,
+            basicSalary: true,
+            allowances: true,
+            deductions: true,
           },
         });
 
@@ -160,34 +157,28 @@ export async function POST(request: NextRequest) {
         }
 
         // Calculate salary components
-        const baseSalary = teacher.baseSalary;
+        const basicSalary = teacher.basicSalary;
+        const totalAllowances = (allowances || 0) + teacher.allowances;
+        const totalDeductions = (deductions || 0) + teacher.deductions;
+        const netSalary = basicSalary + totalAllowances - totalDeductions;
 
-        // Calculate class allowance (extra pay per class taught)
-        const uniqueClasses = new Set(
-          teacher.teacherSubjects.map((ts: { classId: string }) => ts.classId)
-        );
-        const classAllowance = uniqueClasses.size * 1000; // Rs 1000 per class
-
-        const totalAllowances = (allowances || 0) + classAllowance;
-        const totalDeductions = deductions || 0;
-        const netSalary = baseSalary + totalAllowances - totalDeductions;
-
-        // Generate salary slip number
-        const salarySlipNumber = await getNextSequenceValue("SALARY");
+        // Generate salary number
+        const salaryNo = await getNextSequenceValue("SALARY");
 
         const salary = await prisma.teacherSalary.create({
           data: {
-            salarySlipNumber,
+            salaryNo,
             teacherId: tid,
             month: targetMonth,
             year: targetYear,
-            baseSalary,
+            basicSalary,
             allowances: totalAllowances,
             deductions: totalDeductions,
-            deductionReason,
+            bonus: 0,
             netSalary,
+            balanceDue: netSalary,
             status: "PENDING",
-            processedById: session.user.id,
+            createdById: session.user.id,
           },
         });
 
@@ -196,7 +187,7 @@ export async function POST(request: NextRequest) {
           entityType: "TeacherSalary",
           entityId: salary.id,
           userId: session.user.id,
-          details: { salarySlipNumber, teacherId: tid, netSalary },
+          details: { salaryNo, teacherId: tid, netSalary },
         });
 
         return { teacherId: tid, status: "created", salaryId: salary.id };
@@ -233,17 +224,32 @@ export async function PUT(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { salaryId, paymentMethod, paymentDate, bankName, transactionId } =
-      body;
+    const { salaryId, paymentMethod, paidAmount, reference } = body;
+
+    const existingSalary = await prisma.teacherSalary.findUnique({
+      where: { id: salaryId },
+    });
+
+    if (!existingSalary) {
+      return NextResponse.json({ error: "Salary not found" }, { status: 404 });
+    }
+
+    const newPaidAmount =
+      (existingSalary.paidAmount || 0) +
+      (paidAmount || existingSalary.netSalary);
+    const newBalanceDue = existingSalary.netSalary - newPaidAmount;
+    const newStatus =
+      newBalanceDue <= 0 ? "PAID" : newPaidAmount > 0 ? "PARTIAL" : "PENDING";
 
     const salary = await prisma.teacherSalary.update({
       where: { id: salaryId },
       data: {
-        status: "PAID",
-        paidDate: paymentDate ? new Date(paymentDate) : new Date(),
+        status: newStatus,
+        paidAmount: newPaidAmount,
+        balanceDue: Math.max(0, newBalanceDue),
+        paymentDate: new Date(),
         paymentMethod,
-        bankName,
-        transactionId,
+        reference,
       },
     });
 
@@ -252,11 +258,11 @@ export async function PUT(request: NextRequest) {
       entityType: "TeacherSalary",
       entityId: salaryId,
       userId: session.user.id,
-      details: { action: "PAID", paymentMethod },
+      details: { action: newStatus, paymentMethod, paidAmount },
     });
 
     return NextResponse.json({
-      message: "Salary marked as paid",
+      message: `Salary marked as ${newStatus.toLowerCase()}`,
       data: salary,
     });
   } catch (error) {

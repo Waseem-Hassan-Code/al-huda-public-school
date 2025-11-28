@@ -156,7 +156,7 @@ export async function POST(request: NextRequest) {
           action: "CREATE",
           entityType: "FeeVoucher",
           entityId: voucher.id,
-          userId: null,
+          userId: "SYSTEM",
           details: {
             voucherNo,
             studentId: student.id,

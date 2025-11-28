@@ -63,20 +63,43 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { name, description, amount, frequency, classId, dueDay } = body;
+    const {
+      name,
+      description,
+      amount,
+      feeType,
+      academicYearId,
+      classId,
+      dueDay,
+      lateFeeAmount,
+      lateFeeAfterDays,
+      isRecurring,
+    } = body;
+
+    if (!name || !amount || !feeType || !academicYearId) {
+      return NextResponse.json(
+        { error: "Name, amount, feeType, and academicYearId are required" },
+        { status: 400 }
+      );
+    }
 
     const feeStructure = await prisma.feeStructure.create({
       data: {
         name,
         description,
         amount,
-        frequency: frequency || "MONTHLY",
+        feeType,
+        academicYearId,
         classId: classId || null,
         dueDay: dueDay || 10,
+        lateFeeAmount: lateFeeAmount || 0,
+        lateFeeAfterDays: lateFeeAfterDays || 15,
+        isRecurring: isRecurring || false,
         isActive: true,
       },
       include: {
         class: true,
+        academicYear: true,
       },
     });
 

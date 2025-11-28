@@ -20,17 +20,17 @@ export async function GET(request: NextRequest) {
 
     const searchParams = request.nextUrl.searchParams;
     const classId = searchParams.get("classId");
-    const academicYear = searchParams.get("academicYear");
+    const academicYearId = searchParams.get("academicYearId");
     const type = searchParams.get("type");
 
-    const where: any = {};
+    const where: Record<string, unknown> = {};
 
     if (classId) {
       where.classId = classId;
     }
 
-    if (academicYear) {
-      where.academicYear = academicYear;
+    if (academicYearId) {
+      where.academicYearId = academicYearId;
     }
 
     if (type) {
@@ -41,8 +41,18 @@ export async function GET(request: NextRequest) {
       where,
       include: {
         class: true,
+        section: true,
+        subject: true,
+        teacher: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+          },
+        },
+        academicYear: true,
         _count: {
-          select: { results: true },
+          select: { studentMarks: true, examResults: true },
         },
       },
       orderBy: { examDate: "desc" },
@@ -72,21 +82,52 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { name, examType, classId, examDate, academicYear, description } =
-      body;
+    const {
+      name,
+      examType,
+      academicYearId,
+      classId,
+      sectionId,
+      subjectId,
+      teacherId,
+      totalMarks,
+      passingMarks,
+      examDate,
+      startDate,
+      endDate,
+      remarks,
+    } = body;
+
+    if (!name || !examType || !academicYearId || !classId) {
+      return NextResponse.json(
+        { error: "Name, examType, academicYearId, and classId are required" },
+        { status: 400 }
+      );
+    }
 
     const exam = await prisma.exam.create({
       data: {
         name,
         examType,
+        academicYearId,
         classId,
-        examDate: new Date(examDate),
-        academicYear,
-        description,
+        sectionId,
+        subjectId,
+        teacherId,
+        totalMarks: totalMarks || 100,
+        passingMarks: passingMarks || 33,
+        examDate: examDate ? new Date(examDate) : null,
+        startDate: startDate ? new Date(startDate) : null,
+        endDate: endDate ? new Date(endDate) : null,
+        remarks,
         isPublished: false,
+        createdById: session.user.id,
       },
       include: {
         class: true,
+        section: true,
+        subject: true,
+        academicYear: true,
       },
     });
 

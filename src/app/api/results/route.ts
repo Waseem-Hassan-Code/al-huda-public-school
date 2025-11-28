@@ -62,7 +62,7 @@ export async function GET(request: NextRequest) {
           select: {
             id: true,
             registrationNo: true,
-            name: true,
+            firstName: true,
             lastName: true,
             classId: true,
             sectionId: true,
@@ -85,7 +85,10 @@ export async function GET(request: NextRequest) {
           },
         },
       },
-      orderBy: [{ exam: { examDate: "desc" } }, { student: { name: "asc" } }],
+      orderBy: [
+        { exam: { examDate: "desc" } },
+        { student: { firstName: "asc" } },
+      ],
     });
 
     // Add calculated fields

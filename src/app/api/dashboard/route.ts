@@ -84,8 +84,8 @@ export async function GET(request: NextRequest) {
               student: {
                 select: {
                   id: true,
-                  studentId: true,
-                  name: true,
+                  registrationNo: true,
+                  firstName: true,
                   lastName: true,
                 },
               },

@@ -220,7 +220,7 @@ export async function POST(request: NextRequest) {
           entityId: voucher.id,
           userId: session.user.id,
           details: {
-            voucherNumber,
+            voucherNo,
             studentId: sid,
             amount: voucher.totalAmount,
           },
