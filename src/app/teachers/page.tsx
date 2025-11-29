@@ -42,6 +42,7 @@ import {
   Visibility,
 } from "@mui/icons-material";
 import MainLayout from "@/components/layout/MainLayout";
+import ImageUpload from "@/components/common/ImageUpload";
 import {
   formatDate,
   maskCNIC,
@@ -75,6 +76,7 @@ interface Teacher {
   address: string;
   monthlySalary: number;
   isActive: boolean;
+  photo?: string | null;
   subjects: {
     id: string;
     subject: { id: string; name: string; code: string };
@@ -131,6 +133,7 @@ export default function TeachersPage() {
     specialization: "",
     address: "",
     monthlySalary: 0,
+    photo: "",
   });
 
   // Get available subjects for selected class
@@ -219,6 +222,7 @@ export default function TeachersPage() {
         specialization: teacher.specialization || "",
         address: teacher.address,
         monthlySalary: teacher.monthlySalary,
+        photo: teacher.photo || "",
       });
       // Extract class-subject assignments from teacher data
       const assignments: ClassSubjectAssignment[] = [];
@@ -255,6 +259,7 @@ export default function TeachersPage() {
         specialization: "",
         address: "",
         monthlySalary: 0,
+        photo: "",
       });
       setClassSubjectAssignments([]);
     }
@@ -484,6 +489,7 @@ export default function TeachersPage() {
                       }}
                     >
                       <Avatar
+                        src={teacher.photo || undefined}
                         sx={{
                           width: 80,
                           height: 80,
@@ -664,6 +670,20 @@ export default function TeachersPage() {
           </DialogTitle>
           <DialogContent dividers>
             <Grid container spacing={2} sx={{ mt: 1 }}>
+              <Grid
+                size={{ xs: 12 }}
+                sx={{ display: "flex", justifyContent: "center", mb: 2 }}
+              >
+                <ImageUpload
+                  value={formData.photo}
+                  onChange={(path) =>
+                    setFormData({ ...formData, photo: path || "" })
+                  }
+                  type="teacher"
+                  size={120}
+                  name={`${formData.firstName} ${formData.lastName}`.trim()}
+                />
+              </Grid>
               <Grid size={{ xs: 12, sm: 6 }}>
                 <TextField
                   fullWidth
@@ -975,6 +995,7 @@ export default function TeachersPage() {
                   }}
                 >
                   <Avatar
+                    src={selectedTeacher.photo || undefined}
                     sx={{
                       width: 100,
                       height: 100,

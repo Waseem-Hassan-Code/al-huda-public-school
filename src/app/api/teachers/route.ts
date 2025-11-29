@@ -53,7 +53,6 @@ export async function GET(request: NextRequest) {
           subjects: {
             include: {
               subject: true,
-              class: true,
             },
           },
           _count: {
@@ -210,7 +209,6 @@ export async function POST(request: NextRequest) {
           subjects: {
             include: {
               subject: true,
-              class: true,
             },
           },
         },
@@ -351,7 +349,6 @@ export async function PUT(request: NextRequest) {
           subjects: {
             include: {
               subject: true,
-              class: true,
             },
           },
         },

@@ -39,6 +39,7 @@ import {
   Delete as DeleteIcon,
 } from "@mui/icons-material";
 import MainLayout from "@/components/layout/MainLayout";
+import ImageUpload from "@/components/common/ImageUpload";
 import { formatCurrency, maskCNIC, maskPhone, isValidCNIC } from "@/lib/utils";
 import { toast } from "sonner";
 
@@ -339,6 +340,18 @@ export default function AdmissionPage() {
               <Typography variant="h6" gutterBottom>
                 Personal Information
               </Typography>
+            </Grid>
+            <Grid
+              size={{ xs: 12 }}
+              sx={{ display: "flex", justifyContent: "center", mb: 2 }}
+            >
+              <ImageUpload
+                value={formData.photo}
+                onChange={(path) => handleInputChange("photo", path || "")}
+                type="student"
+                size={120}
+                name={`${formData.firstName} ${formData.lastName}`.trim()}
+              />
             </Grid>
             <Grid size={{ xs: 12, md: 6 }}>
               <TextField
