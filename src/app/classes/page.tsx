@@ -548,29 +548,38 @@ export default function ClassesPage() {
                             sections • {cls.subjects?.length || 0} subjects
                           </Typography>
                         </Box>
-                        <Box sx={{ display: "flex", gap: 0.5 }}>
+                        <Box 
+                          sx={{ display: "flex", gap: 0.5 }}
+                          onClick={(e) => e.stopPropagation()}
+                          onFocus={(e) => e.stopPropagation()}
+                        >
                           <Tooltip title="Edit Class">
-                            <IconButton
-                              size="small"
+                            <Box
+                              component="span"
+                              sx={{ display: "inline-flex" }}
                               onClick={(e) => {
                                 e.stopPropagation();
                                 handleOpenClassDialog(cls);
                               }}
                             >
-                              <Edit />
-                            </IconButton>
+                              <IconButton size="small" component="span">
+                                <Edit />
+                              </IconButton>
+                            </Box>
                           </Tooltip>
                           <Tooltip title="Delete Class">
-                            <IconButton
-                              size="small"
-                              color="error"
+                            <Box
+                              component="span"
+                              sx={{ display: "inline-flex", color: "error.main" }}
                               onClick={(e) => {
                                 e.stopPropagation();
                                 openDeleteDialog("class", cls);
                               }}
                             >
-                              <Delete />
-                            </IconButton>
+                              <IconButton size="small" component="span" color="error">
+                                <Delete />
+                              </IconButton>
+                            </Box>
                           </Tooltip>
                         </Box>
                       </Box>

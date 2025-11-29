@@ -240,8 +240,8 @@ export default function StudentDetailPage({
                   {student.firstName} {student.lastName}
                 </Typography>
                 <Typography variant="body1" color="text.secondary">
-                  {student.studentId} • {student.class.name} -{" "}
-                  {student.section.name}
+                  {student.studentId} • {student.class?.name || "No Class"} -{" "}
+                  {student.section?.name || "No Section"}
                 </Typography>
                 <StatusBadge status={student.status} />
               </Box>
