@@ -548,7 +548,7 @@ export default function ClassesPage() {
                             sections • {cls.subjects?.length || 0} subjects
                           </Typography>
                         </Box>
-                        <Box 
+                        <Box
                           sx={{ display: "flex", gap: 0.5 }}
                           onClick={(e) => e.stopPropagation()}
                           onFocus={(e) => e.stopPropagation()}
@@ -570,13 +570,20 @@ export default function ClassesPage() {
                           <Tooltip title="Delete Class">
                             <Box
                               component="span"
-                              sx={{ display: "inline-flex", color: "error.main" }}
+                              sx={{
+                                display: "inline-flex",
+                                color: "error.main",
+                              }}
                               onClick={(e) => {
                                 e.stopPropagation();
                                 openDeleteDialog("class", cls);
                               }}
                             >
-                              <IconButton size="small" component="span" color="error">
+                              <IconButton
+                                size="small"
+                                component="span"
+                                color="error"
+                              >
                                 <Delete />
                               </IconButton>
                             </Box>
