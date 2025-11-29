@@ -39,7 +39,7 @@ import {
   Delete as DeleteIcon,
 } from "@mui/icons-material";
 import MainLayout from "@/components/layout/MainLayout";
-import { formatCurrency } from "@/lib/utils";
+import { formatCurrency, maskCNIC, maskPhone, isValidCNIC } from "@/lib/utils";
 import { toast } from "sonner";
 
 const steps = [
@@ -399,8 +399,11 @@ export default function AdmissionPage() {
                 label="CNIC / B-Form Number"
                 fullWidth
                 value={formData.cnic}
-                onChange={(e) => handleInputChange("cnic", e.target.value)}
+                onChange={(e) =>
+                  handleInputChange("cnic", maskCNIC(e.target.value))
+                }
                 placeholder="XXXXX-XXXXXXX-X"
+                helperText="Format: XXXXX-XXXXXXX-X"
               />
             </Grid>
             <Grid size={{ xs: 12, md: 6 }}>
@@ -675,10 +678,18 @@ export default function AdmissionPage() {
                 fullWidth
                 required
                 value={formData.guardian.cnic}
-                onChange={(e) => handleGuardianChange("cnic", e.target.value)}
+                onChange={(e) =>
+                  handleGuardianChange("cnic", maskCNIC(e.target.value))
+                }
                 placeholder="XXXXX-XXXXXXX-X"
-                error={!!errors["guardian.cnic"]}
-                helperText={errors["guardian.cnic"]}
+                error={
+                  !!errors["guardian.cnic"] ||
+                  (formData.guardian.cnic.length > 0 &&
+                    !isValidCNIC(formData.guardian.cnic))
+                }
+                helperText={
+                  errors["guardian.cnic"] || "Format: XXXXX-XXXXXXX-X"
+                }
               />
             </Grid>
             <Grid size={{ xs: 12, md: 6 }}>
@@ -687,10 +698,12 @@ export default function AdmissionPage() {
                 fullWidth
                 required
                 value={formData.guardian.phone}
-                onChange={(e) => handleGuardianChange("phone", e.target.value)}
+                onChange={(e) =>
+                  handleGuardianChange("phone", maskPhone(e.target.value))
+                }
                 placeholder="03XX-XXXXXXX"
                 error={!!errors["guardian.phone"]}
-                helperText={errors["guardian.phone"]}
+                helperText={errors["guardian.phone"] || "Format: 03XX-XXXXXXX"}
               />
             </Grid>
             <Grid size={{ xs: 12, md: 6 }}>
@@ -699,7 +712,9 @@ export default function AdmissionPage() {
                 type="email"
                 fullWidth
                 value={formData.guardian.email}
-                onChange={(e) => handleGuardianChange("email", e.target.value)}
+                onChange={(e) =>
+                  handleGuardianChange("email", e.target.value.toLowerCase())
+                }
               />
             </Grid>
             <Grid size={{ xs: 12, md: 6 }}>

@@ -40,7 +40,13 @@ import {
   Visibility,
 } from "@mui/icons-material";
 import MainLayout from "@/components/layout/MainLayout";
-import { formatDate } from "@/lib/utils";
+import {
+  formatDate,
+  maskCNIC,
+  maskPhone,
+  isValidCNIC,
+  isValidEmail,
+} from "@/lib/utils";
 import { toast } from "sonner";
 
 interface Teacher {
@@ -588,9 +594,20 @@ export default function TeachersPage() {
                   type="email"
                   value={formData.email}
                   onChange={(e) =>
-                    setFormData({ ...formData, email: e.target.value })
+                    setFormData({
+                      ...formData,
+                      email: e.target.value.toLowerCase(),
+                    })
                   }
                   required
+                  error={
+                    formData.email.length > 0 && !isValidEmail(formData.email)
+                  }
+                  helperText={
+                    formData.email.length > 0 && !isValidEmail(formData.email)
+                      ? "Invalid email format"
+                      : ""
+                  }
                 />
               </Grid>
               <Grid size={{ xs: 12, sm: 6 }}>
@@ -599,8 +616,13 @@ export default function TeachersPage() {
                   label="Phone"
                   value={formData.phone}
                   onChange={(e) =>
-                    setFormData({ ...formData, phone: e.target.value })
+                    setFormData({
+                      ...formData,
+                      phone: maskPhone(e.target.value),
+                    })
                   }
+                  placeholder="03XX-XXXXXXX"
+                  helperText="Format: 03XX-XXXXXXX or +92-3XX-XXXXXXX"
                 />
               </Grid>
               <Grid size={{ xs: 12, sm: 6 }}>
@@ -609,10 +631,14 @@ export default function TeachersPage() {
                   label="CNIC"
                   value={formData.cnic}
                   onChange={(e) =>
-                    setFormData({ ...formData, cnic: e.target.value })
+                    setFormData({ ...formData, cnic: maskCNIC(e.target.value) })
                   }
                   required
                   placeholder="XXXXX-XXXXXXX-X"
+                  helperText="Format: XXXXX-XXXXXXX-X"
+                  error={
+                    formData.cnic.length > 0 && !isValidCNIC(formData.cnic)
+                  }
                 />
               </Grid>
               <Grid size={{ xs: 12, sm: 6 }}>

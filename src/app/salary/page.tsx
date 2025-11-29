@@ -107,8 +107,8 @@ export default function SalaryPage() {
   const [salaries, setSalaries] = useState<Salary[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
-  const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1);
-  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
+  const [selectedMonth, setSelectedMonth] = useState<number>(0);
+  const [selectedYear, setSelectedYear] = useState<number>(0);
   const [statusFilter, setStatusFilter] = useState("");
   const [activeTab, setActiveTab] = useState(0);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -117,11 +117,12 @@ export default function SalaryPage() {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [selectedSalary, setSelectedSalary] = useState<Salary | null>(null);
   const [saving, setSaving] = useState(false);
+  const [mounted, setMounted] = useState(false);
 
   const [formData, setFormData] = useState({
     teacherId: "",
-    month: new Date().getMonth() + 1,
-    year: new Date().getFullYear(),
+    month: 0,
+    year: 0,
     baseSalary: 0,
     allowances: 0,
     deductions: 0,
@@ -135,9 +136,26 @@ export default function SalaryPage() {
   });
 
   const [generateData, setGenerateData] = useState({
-    month: new Date().getMonth() + 1,
-    year: new Date().getFullYear(),
+    month: 0,
+    year: 0,
   });
+
+  // Initialize date-dependent values only on client side to prevent hydration mismatch
+  useEffect(() => {
+    const now = new Date();
+    const currentMonth = now.getMonth() + 1;
+    const currentYear = now.getFullYear();
+
+    setSelectedMonth(currentMonth);
+    setSelectedYear(currentYear);
+    setFormData((prev) => ({
+      ...prev,
+      month: currentMonth,
+      year: currentYear,
+    }));
+    setGenerateData({ month: currentMonth, year: currentYear });
+    setMounted(true);
+  }, []);
 
   const fetchTeachers = async () => {
     try {
@@ -180,8 +198,11 @@ export default function SalaryPage() {
   }, []);
 
   useEffect(() => {
-    fetchSalaries();
-  }, [fetchSalaries]);
+    // Only fetch salaries after the component is mounted and values are initialized
+    if (mounted && selectedMonth > 0 && selectedYear > 0) {
+      fetchSalaries();
+    }
+  }, [fetchSalaries, mounted, selectedMonth, selectedYear]);
 
   const handleOpenDialog = (salary?: Salary) => {
     if (salary) {
@@ -389,6 +410,24 @@ export default function SalaryPage() {
 
   const totalPending = pendingSalaries.reduce((sum, s) => sum + s.netSalary, 0);
   const totalPaid = paidSalaries.reduce((sum, s) => sum + s.netSalary, 0);
+
+  // Prevent rendering until client-side hydration is complete
+  if (!mounted) {
+    return (
+      <MainLayout>
+        <Box
+          sx={{
+            display: "flex",
+            justifyContent: "center",
+            alignItems: "center",
+            height: "60vh",
+          }}
+        >
+          <CircularProgress />
+        </Box>
+      </MainLayout>
+    );
+  }
 
   return (
     <LocalizationProvider dateAdapter={AdapterDateFns}>

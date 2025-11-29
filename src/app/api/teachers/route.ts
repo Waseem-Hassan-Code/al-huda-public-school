@@ -69,7 +69,7 @@ export async function GET(request: NextRequest) {
     ]);
 
     return NextResponse.json({
-      data: teachers,
+      teachers,
       pagination: {
         page,
         limit,

@@ -133,6 +133,11 @@ export default function StudentDetailPage({
   const [loading, setLoading] = useState(true);
   const [student, setStudent] = useState<StudentDetail | null>(null);
   const [tabValue, setTabValue] = useState(0);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   useEffect(() => {
     if (status === "unauthenticated") {
@@ -163,7 +168,7 @@ export default function StudentDetailPage({
     }
   }, [status, id, router]);
 
-  if (status === "loading" || loading) {
+  if (!mounted || status === "loading" || loading) {
     return (
       <MainLayout>
         <Box
@@ -184,14 +189,15 @@ export default function StudentDetailPage({
     return null;
   }
 
-  const totalFees = student.studentFees.reduce(
+  const totalFees = (student.studentFees || []).reduce(
     (sum, f) => sum + f.amount - f.discount,
     0
   );
+  const studentAttendances = student.attendances || [];
   const attendanceStats = {
-    total: student.attendances.length,
-    present: student.attendances.filter((a) => a.status === "PRESENT").length,
-    absent: student.attendances.filter((a) => a.status === "ABSENT").length,
+    total: studentAttendances.length,
+    present: studentAttendances.filter((a) => a.status === "PRESENT").length,
+    absent: studentAttendances.filter((a) => a.status === "ABSENT").length,
   };
   const attendancePercentage =
     attendanceStats.total > 0
@@ -281,7 +287,7 @@ export default function StudentDetailPage({
             <Paper sx={{ p: 2, textAlign: "center" }}>
               <Typography variant="h4">
                 {
-                  student.feeVouchers.filter(
+                  (student.feeVouchers || []).filter(
                     (v) => v.status === "PENDING" || v.status === "OVERDUE"
                   ).length
                 }
@@ -569,7 +575,7 @@ export default function StudentDetailPage({
                   </TableRow>
                 </TableHead>
                 <TableBody>
-                  {student.feeVouchers.map((voucher) => (
+                  {(student.feeVouchers || []).map((voucher) => (
                     <TableRow key={voucher.id}>
                       <TableCell>{voucher.voucherNumber}</TableCell>
                       <TableCell>{`${voucher.month}/${voucher.year}`}</TableCell>
@@ -605,7 +611,7 @@ export default function StudentDetailPage({
                       </TableCell>
                     </TableRow>
                   ))}
-                  {student.feeVouchers.length === 0 && (
+                  {(student.feeVouchers || []).length === 0 && (
                     <TableRow>
                       <TableCell colSpan={8} align="center">
                         No fee vouchers found
@@ -686,7 +692,7 @@ export default function StudentDetailPage({
                   </TableRow>
                 </TableHead>
                 <TableBody>
-                  {student.examResults.map((result) => (
+                  {(student.examResults || []).map((result) => (
                     <TableRow key={result.id}>
                       <TableCell>{result.exam.name}</TableCell>
                       <TableCell>
@@ -712,7 +718,7 @@ export default function StudentDetailPage({
                       </TableCell>
                     </TableRow>
                   ))}
-                  {student.examResults.length === 0 && (
+                  {(student.examResults || []).length === 0 && (
                     <TableRow>
                       <TableCell colSpan={6} align="center">
                         No exam results found

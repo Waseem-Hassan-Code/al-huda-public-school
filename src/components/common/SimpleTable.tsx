@@ -20,22 +20,26 @@ export interface SimpleColumn<T = any> {
   id: string;
   label: string;
   minWidth?: number;
+  width?: number;
   align?: "left" | "right" | "center";
   renderCell?: (row: T) => React.ReactNode;
+  render?: (row: T) => React.ReactNode;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-interface SimpleTableProps<T = any> {
+export interface SimpleTableProps<T = any> {
   columns: SimpleColumn<T>[];
   rows: T[];
   loading?: boolean;
-  page: number;
-  pageSize: number;
-  total: number;
-  onPageChange: (page: number) => void;
-  onPageSizeChange: (size: number) => void;
+  page?: number;
+  pageSize?: number;
+  total?: number;
+  onPageChange?: (page: number) => void;
+  onPageSizeChange?: (size: number) => void;
   rowKey?: keyof T;
   onRowClick?: (row: T) => void;
+  emptyMessage?: string;
+  showPagination?: boolean;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -43,22 +47,26 @@ export default function SimpleTable<T = any>({
   columns,
   rows,
   loading = false,
-  page,
-  pageSize,
+  page = 1,
+  pageSize = 10,
   total,
   onPageChange,
   onPageSizeChange,
   rowKey = "id" as keyof T,
   onRowClick,
+  emptyMessage = "No data found",
+  showPagination = true,
 }: SimpleTableProps<T>) {
+  const actualTotal = total ?? rows.length;
+  const hasPagination = showPagination && onPageChange && onPageSizeChange;
   const handlePageChange = (event: unknown, newPage: number) => {
-    onPageChange(newPage + 1);
+    onPageChange?.(newPage + 1);
   };
 
   const handleRowsPerPageChange = (
     event: React.ChangeEvent<HTMLInputElement>
   ) => {
-    onPageSizeChange(parseInt(event.target.value, 10));
+    onPageSizeChange?.(parseInt(event.target.value, 10));
   };
 
   const getNestedValue = (obj: T, path: string): unknown => {
@@ -80,7 +88,7 @@ export default function SimpleTable<T = any>({
                 <TableCell
                   key={column.id}
                   align={column.align || "left"}
-                  style={{ minWidth: column.minWidth }}
+                  style={{ minWidth: column.minWidth, width: column.width }}
                   sx={{ fontWeight: "bold", backgroundColor: "#f8fafc" }}
                 >
                   {column.label}
@@ -106,7 +114,7 @@ export default function SimpleTable<T = any>({
                   align="center"
                   sx={{ py: 4 }}
                 >
-                  <Typography color="text.secondary">No data found</Typography>
+                  <Typography color="text.secondary">{emptyMessage}</Typography>
                 </TableCell>
               </TableRow>
             ) : (
@@ -119,11 +127,10 @@ export default function SimpleTable<T = any>({
                 >
                   {columns.map((column) => {
                     const value = getNestedValue(row, column.id);
+                    const renderer = column.render || column.renderCell;
                     return (
                       <TableCell key={column.id} align={column.align || "left"}>
-                        {column.renderCell
-                          ? column.renderCell(row)
-                          : String(value ?? "")}
+                        {renderer ? renderer(row) : String(value ?? "")}
                       </TableCell>
                     );
                   })}
@@ -134,15 +141,17 @@ export default function SimpleTable<T = any>({
         </Table>
       </TableContainer>
 
-      <TablePagination
-        rowsPerPageOptions={[5, 10, 25, 50, 100]}
-        component="div"
-        count={total}
-        rowsPerPage={pageSize}
-        page={page - 1}
-        onPageChange={handlePageChange}
-        onRowsPerPageChange={handleRowsPerPageChange}
-      />
+      {hasPagination && (
+        <TablePagination
+          rowsPerPageOptions={[5, 10, 25, 50, 100]}
+          component="div"
+          count={actualTotal}
+          rowsPerPage={pageSize}
+          page={page - 1}
+          onPageChange={handlePageChange}
+          onRowsPerPageChange={handleRowsPerPageChange}
+        />
+      )}
     </Paper>
   );
 }

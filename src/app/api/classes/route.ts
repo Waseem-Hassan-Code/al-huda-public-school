@@ -42,7 +42,7 @@ export async function GET(request: NextRequest) {
     });
 
     return NextResponse.json({
-      data: classes,
+      classes,
     });
   } catch (error) {
     console.error("Classes GET Error:", error);

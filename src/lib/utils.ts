@@ -48,6 +48,60 @@ export function formatCNIC(cnic: string): string {
   return cnic;
 }
 
+// Input masking for CNIC (XXXXX-XXXXXXX-X)
+export function maskCNIC(value: string): string {
+  // Remove all non-digits
+  const digits = value.replace(/\D/g, "");
+
+  // Apply mask
+  let masked = "";
+  for (let i = 0; i < digits.length && i < 13; i++) {
+    if (i === 5) masked += "-";
+    if (i === 12) masked += "-";
+    masked += digits[i];
+  }
+  return masked;
+}
+
+// Validate CNIC format
+export function isValidCNIC(cnic: string): boolean {
+  const pattern = /^\d{5}-\d{7}-\d{1}$/;
+  return pattern.test(cnic);
+}
+
+// Input masking for Pakistani phone (03XX-XXXXXXX or +92-3XX-XXXXXXX)
+export function maskPhone(value: string): string {
+  // Remove all non-digits except +
+  let digits = value.replace(/[^\d+]/g, "");
+
+  // Handle +92 prefix
+  if (digits.startsWith("+92")) {
+    digits = digits.substring(3);
+    const clean = digits.replace(/\D/g, "");
+    let masked = "+92-";
+    for (let i = 0; i < clean.length && i < 10; i++) {
+      if (i === 3) masked += "-";
+      masked += clean[i];
+    }
+    return masked;
+  }
+
+  // Handle local format (03XX-XXXXXXX)
+  const clean = digits.replace(/\D/g, "");
+  let masked = "";
+  for (let i = 0; i < clean.length && i < 11; i++) {
+    if (i === 4) masked += "-";
+    masked += clean[i];
+  }
+  return masked;
+}
+
+// Validate email format
+export function isValidEmail(email: string): boolean {
+  const pattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  return pattern.test(email);
+}
+
 export function getInitials(firstName: string, lastName: string): string {
   return `${firstName.charAt(0)}${lastName.charAt(0)}`.toUpperCase();
 }

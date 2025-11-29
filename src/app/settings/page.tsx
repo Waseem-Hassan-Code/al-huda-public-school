@@ -1,0 +1,735 @@
+"use client";
+
+import { useEffect, useState, useCallback } from "react";
+import { useSession } from "next-auth/react";
+import {
+  Box,
+  Typography,
+  Paper,
+  Grid,
+  TextField,
+  Button,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem,
+  Switch,
+  FormControlLabel,
+  Divider,
+  Card,
+  CardContent,
+  CardHeader,
+  Alert,
+} from "@mui/material";
+import {
+  Save as SaveIcon,
+  School as SchoolIcon,
+  Payment as PaymentIcon,
+  Schedule as ScheduleIcon,
+  Notifications as NotificationsIcon,
+} from "@mui/icons-material";
+import MainLayout from "@/components/layout/MainLayout";
+import { toast } from "sonner";
+
+interface SchoolSettings {
+  name: string;
+  nameUrdu: string;
+  address: string;
+  phone: string;
+  email: string;
+  website: string;
+  logo: string;
+  principalName: string;
+  academicYear: string;
+  sessionStartMonth: number;
+  sessionEndMonth: number;
+}
+
+interface FeeSettings {
+  defaultLateFee: number;
+  lateFeeAfterDays: number;
+  feeReminderDays: number;
+  allowPartialPayment: boolean;
+  generateMonthlyVouchers: boolean;
+  voucherGenerationDay: number;
+  voucherDueDay: number;
+}
+
+interface AttendanceSettings {
+  workingDays: string[];
+  schoolStartTime: string;
+  schoolEndTime: string;
+  lateThresholdMinutes: number;
+  halfDayThresholdHours: number;
+}
+
+interface NotificationSettings {
+  sendFeeReminders: boolean;
+  sendAttendanceAlerts: boolean;
+  sendResultNotifications: boolean;
+  smsEnabled: boolean;
+  emailEnabled: boolean;
+}
+
+const DAYS_OF_WEEK = [
+  { value: "MONDAY", label: "Monday" },
+  { value: "TUESDAY", label: "Tuesday" },
+  { value: "WEDNESDAY", label: "Wednesday" },
+  { value: "THURSDAY", label: "Thursday" },
+  { value: "FRIDAY", label: "Friday" },
+  { value: "SATURDAY", label: "Saturday" },
+  { value: "SUNDAY", label: "Sunday" },
+];
+
+const MONTHS = [
+  { value: 1, label: "January" },
+  { value: 2, label: "February" },
+  { value: 3, label: "March" },
+  { value: 4, label: "April" },
+  { value: 5, label: "May" },
+  { value: 6, label: "June" },
+  { value: 7, label: "July" },
+  { value: 8, label: "August" },
+  { value: 9, label: "September" },
+  { value: 10, label: "October" },
+  { value: 11, label: "November" },
+  { value: 12, label: "December" },
+];
+
+export default function SettingsPage() {
+  const { data: session, status } = useSession();
+  const [saving, setSaving] = useState(false);
+  const [schoolSettings, setSchoolSettings] = useState<SchoolSettings>({
+    name: "Al-Huda Public School",
+    nameUrdu: "الھدیٰ پبلک سکول",
+    address: "",
+    phone: "",
+    email: "",
+    website: "",
+    logo: "",
+    principalName: "",
+    academicYear: new Date().getFullYear().toString(),
+    sessionStartMonth: 4,
+    sessionEndMonth: 3,
+  });
+
+  const [feeSettings, setFeeSettings] = useState<FeeSettings>({
+    defaultLateFee: 500,
+    lateFeeAfterDays: 10,
+    feeReminderDays: 5,
+    allowPartialPayment: true,
+    generateMonthlyVouchers: true,
+    voucherGenerationDay: 1,
+    voucherDueDay: 10,
+  });
+
+  const [attendanceSettings, setAttendanceSettings] =
+    useState<AttendanceSettings>({
+      workingDays: [
+        "MONDAY",
+        "TUESDAY",
+        "WEDNESDAY",
+        "THURSDAY",
+        "FRIDAY",
+        "SATURDAY",
+      ],
+      schoolStartTime: "08:00",
+      schoolEndTime: "14:00",
+      lateThresholdMinutes: 15,
+      halfDayThresholdHours: 4,
+    });
+
+  const [notificationSettings, setNotificationSettings] =
+    useState<NotificationSettings>({
+      sendFeeReminders: true,
+      sendAttendanceAlerts: true,
+      sendResultNotifications: true,
+      smsEnabled: false,
+      emailEnabled: true,
+    });
+
+  // Load settings from localStorage on mount
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const savedSchoolSettings = localStorage.getItem("schoolSettings");
+      const savedFeeSettings = localStorage.getItem("feeSettings");
+      const savedAttendanceSettings =
+        localStorage.getItem("attendanceSettings");
+      const savedNotificationSettings = localStorage.getItem(
+        "notificationSettings"
+      );
+
+      if (savedSchoolSettings)
+        setSchoolSettings(JSON.parse(savedSchoolSettings));
+      if (savedFeeSettings) setFeeSettings(JSON.parse(savedFeeSettings));
+      if (savedAttendanceSettings)
+        setAttendanceSettings(JSON.parse(savedAttendanceSettings));
+      if (savedNotificationSettings)
+        setNotificationSettings(JSON.parse(savedNotificationSettings));
+    }
+  }, []);
+
+  const handleSaveSettings = async () => {
+    setSaving(true);
+    try {
+      // Save to localStorage (in production, this would go to API)
+      localStorage.setItem("schoolSettings", JSON.stringify(schoolSettings));
+      localStorage.setItem("feeSettings", JSON.stringify(feeSettings));
+      localStorage.setItem(
+        "attendanceSettings",
+        JSON.stringify(attendanceSettings)
+      );
+      localStorage.setItem(
+        "notificationSettings",
+        JSON.stringify(notificationSettings)
+      );
+
+      toast.success("Settings saved successfully");
+    } catch (error) {
+      toast.error("Failed to save settings");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleWorkingDaysChange = (day: string) => {
+    setAttendanceSettings((prev) => ({
+      ...prev,
+      workingDays: prev.workingDays.includes(day)
+        ? prev.workingDays.filter((d) => d !== day)
+        : [...prev.workingDays, day],
+    }));
+  };
+
+  if (status === "loading") {
+    return (
+      <MainLayout>
+        <Box
+          display="flex"
+          justifyContent="center"
+          alignItems="center"
+          minHeight="60vh"
+        >
+          <Typography>Loading...</Typography>
+        </Box>
+      </MainLayout>
+    );
+  }
+
+  return (
+    <MainLayout>
+      <Box sx={{ p: 3 }}>
+        <Box
+          sx={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            mb: 3,
+          }}
+        >
+          <Typography variant="h4" fontWeight="bold">
+            System Settings
+          </Typography>
+          <Button
+            variant="contained"
+            startIcon={<SaveIcon />}
+            onClick={handleSaveSettings}
+            disabled={saving}
+          >
+            {saving ? "Saving..." : "Save All Settings"}
+          </Button>
+        </Box>
+
+        <Alert severity="info" sx={{ mb: 3 }}>
+          Changes to settings will take effect immediately after saving.
+        </Alert>
+
+        <Grid container spacing={3}>
+          {/* School Information */}
+          <Grid size={{ xs: 12, lg: 6 }}>
+            <Card>
+              <CardHeader
+                avatar={<SchoolIcon color="primary" />}
+                title="School Information"
+                subheader="Basic school details and branding"
+              />
+              <CardContent>
+                <Grid container spacing={2}>
+                  <Grid size={{ xs: 12, sm: 6 }}>
+                    <TextField
+                      fullWidth
+                      label="School Name (English)"
+                      value={schoolSettings.name}
+                      onChange={(e) =>
+                        setSchoolSettings({
+                          ...schoolSettings,
+                          name: e.target.value,
+                        })
+                      }
+                    />
+                  </Grid>
+                  <Grid size={{ xs: 12, sm: 6 }}>
+                    <TextField
+                      fullWidth
+                      label="School Name (Urdu)"
+                      value={schoolSettings.nameUrdu}
+                      onChange={(e) =>
+                        setSchoolSettings({
+                          ...schoolSettings,
+                          nameUrdu: e.target.value,
+                        })
+                      }
+                      dir="rtl"
+                    />
+                  </Grid>
+                  <Grid size={{ xs: 12 }}>
+                    <TextField
+                      fullWidth
+                      label="Address"
+                      value={schoolSettings.address}
+                      onChange={(e) =>
+                        setSchoolSettings({
+                          ...schoolSettings,
+                          address: e.target.value,
+                        })
+                      }
+                      multiline
+                      rows={2}
+                    />
+                  </Grid>
+                  <Grid size={{ xs: 12, sm: 6 }}>
+                    <TextField
+                      fullWidth
+                      label="Phone"
+                      value={schoolSettings.phone}
+                      onChange={(e) =>
+                        setSchoolSettings({
+                          ...schoolSettings,
+                          phone: e.target.value,
+                        })
+                      }
+                    />
+                  </Grid>
+                  <Grid size={{ xs: 12, sm: 6 }}>
+                    <TextField
+                      fullWidth
+                      label="Email"
+                      type="email"
+                      value={schoolSettings.email}
+                      onChange={(e) =>
+                        setSchoolSettings({
+                          ...schoolSettings,
+                          email: e.target.value,
+                        })
+                      }
+                    />
+                  </Grid>
+                  <Grid size={{ xs: 12, sm: 6 }}>
+                    <TextField
+                      fullWidth
+                      label="Website"
+                      value={schoolSettings.website}
+                      onChange={(e) =>
+                        setSchoolSettings({
+                          ...schoolSettings,
+                          website: e.target.value,
+                        })
+                      }
+                    />
+                  </Grid>
+                  <Grid size={{ xs: 12, sm: 6 }}>
+                    <TextField
+                      fullWidth
+                      label="Principal Name"
+                      value={schoolSettings.principalName}
+                      onChange={(e) =>
+                        setSchoolSettings({
+                          ...schoolSettings,
+                          principalName: e.target.value,
+                        })
+                      }
+                    />
+                  </Grid>
+                  <Grid size={{ xs: 12, sm: 4 }}>
+                    <TextField
+                      fullWidth
+                      label="Academic Year"
+                      value={schoolSettings.academicYear}
+                      onChange={(e) =>
+                        setSchoolSettings({
+                          ...schoolSettings,
+                          academicYear: e.target.value,
+                        })
+                      }
+                    />
+                  </Grid>
+                  <Grid size={{ xs: 12, sm: 4 }}>
+                    <FormControl fullWidth>
+                      <InputLabel>Session Start Month</InputLabel>
+                      <Select
+                        value={schoolSettings.sessionStartMonth}
+                        label="Session Start Month"
+                        onChange={(e) =>
+                          setSchoolSettings({
+                            ...schoolSettings,
+                            sessionStartMonth: e.target.value as number,
+                          })
+                        }
+                      >
+                        {MONTHS.map((month) => (
+                          <MenuItem key={month.value} value={month.value}>
+                            {month.label}
+                          </MenuItem>
+                        ))}
+                      </Select>
+                    </FormControl>
+                  </Grid>
+                  <Grid size={{ xs: 12, sm: 4 }}>
+                    <FormControl fullWidth>
+                      <InputLabel>Session End Month</InputLabel>
+                      <Select
+                        value={schoolSettings.sessionEndMonth}
+                        label="Session End Month"
+                        onChange={(e) =>
+                          setSchoolSettings({
+                            ...schoolSettings,
+                            sessionEndMonth: e.target.value as number,
+                          })
+                        }
+                      >
+                        {MONTHS.map((month) => (
+                          <MenuItem key={month.value} value={month.value}>
+                            {month.label}
+                          </MenuItem>
+                        ))}
+                      </Select>
+                    </FormControl>
+                  </Grid>
+                </Grid>
+              </CardContent>
+            </Card>
+          </Grid>
+
+          {/* Fee Settings */}
+          <Grid size={{ xs: 12, lg: 6 }}>
+            <Card>
+              <CardHeader
+                avatar={<PaymentIcon color="primary" />}
+                title="Fee Settings"
+                subheader="Configure fee collection and voucher generation"
+              />
+              <CardContent>
+                <Grid container spacing={2}>
+                  <Grid size={{ xs: 12, sm: 6 }}>
+                    <TextField
+                      fullWidth
+                      type="number"
+                      label="Default Late Fee (PKR)"
+                      value={feeSettings.defaultLateFee}
+                      onChange={(e) =>
+                        setFeeSettings({
+                          ...feeSettings,
+                          defaultLateFee: parseFloat(e.target.value) || 0,
+                        })
+                      }
+                    />
+                  </Grid>
+                  <Grid size={{ xs: 12, sm: 6 }}>
+                    <TextField
+                      fullWidth
+                      type="number"
+                      label="Late Fee After (Days)"
+                      value={feeSettings.lateFeeAfterDays}
+                      onChange={(e) =>
+                        setFeeSettings({
+                          ...feeSettings,
+                          lateFeeAfterDays: parseInt(e.target.value) || 0,
+                        })
+                      }
+                    />
+                  </Grid>
+                  <Grid size={{ xs: 12, sm: 6 }}>
+                    <TextField
+                      fullWidth
+                      type="number"
+                      label="Fee Reminder Before (Days)"
+                      value={feeSettings.feeReminderDays}
+                      onChange={(e) =>
+                        setFeeSettings({
+                          ...feeSettings,
+                          feeReminderDays: parseInt(e.target.value) || 0,
+                        })
+                      }
+                    />
+                  </Grid>
+                  <Grid size={{ xs: 12, sm: 6 }}>
+                    <TextField
+                      fullWidth
+                      type="number"
+                      label="Voucher Generation Day"
+                      value={feeSettings.voucherGenerationDay}
+                      onChange={(e) =>
+                        setFeeSettings({
+                          ...feeSettings,
+                          voucherGenerationDay: parseInt(e.target.value) || 1,
+                        })
+                      }
+                      helperText="Day of month to generate vouchers"
+                    />
+                  </Grid>
+                  <Grid size={{ xs: 12, sm: 6 }}>
+                    <TextField
+                      fullWidth
+                      type="number"
+                      label="Voucher Due Day"
+                      value={feeSettings.voucherDueDay}
+                      onChange={(e) =>
+                        setFeeSettings({
+                          ...feeSettings,
+                          voucherDueDay: parseInt(e.target.value) || 10,
+                        })
+                      }
+                      helperText="Day of month when fee is due"
+                    />
+                  </Grid>
+                  <Grid size={{ xs: 12, sm: 6 }}>
+                    <FormControlLabel
+                      control={
+                        <Switch
+                          checked={feeSettings.allowPartialPayment}
+                          onChange={(e) =>
+                            setFeeSettings({
+                              ...feeSettings,
+                              allowPartialPayment: e.target.checked,
+                            })
+                          }
+                        />
+                      }
+                      label="Allow Partial Payment"
+                    />
+                  </Grid>
+                  <Grid size={{ xs: 12 }}>
+                    <FormControlLabel
+                      control={
+                        <Switch
+                          checked={feeSettings.generateMonthlyVouchers}
+                          onChange={(e) =>
+                            setFeeSettings({
+                              ...feeSettings,
+                              generateMonthlyVouchers: e.target.checked,
+                            })
+                          }
+                        />
+                      }
+                      label="Auto-generate Monthly Fee Vouchers"
+                    />
+                  </Grid>
+                </Grid>
+              </CardContent>
+            </Card>
+          </Grid>
+
+          {/* Attendance Settings */}
+          <Grid size={{ xs: 12, lg: 6 }}>
+            <Card>
+              <CardHeader
+                avatar={<ScheduleIcon color="primary" />}
+                title="Attendance Settings"
+                subheader="Configure school timings and attendance rules"
+              />
+              <CardContent>
+                <Grid container spacing={2}>
+                  <Grid size={{ xs: 12, sm: 6 }}>
+                    <TextField
+                      fullWidth
+                      type="time"
+                      label="School Start Time"
+                      value={attendanceSettings.schoolStartTime}
+                      onChange={(e) =>
+                        setAttendanceSettings({
+                          ...attendanceSettings,
+                          schoolStartTime: e.target.value,
+                        })
+                      }
+                      InputLabelProps={{ shrink: true }}
+                    />
+                  </Grid>
+                  <Grid size={{ xs: 12, sm: 6 }}>
+                    <TextField
+                      fullWidth
+                      type="time"
+                      label="School End Time"
+                      value={attendanceSettings.schoolEndTime}
+                      onChange={(e) =>
+                        setAttendanceSettings({
+                          ...attendanceSettings,
+                          schoolEndTime: e.target.value,
+                        })
+                      }
+                      InputLabelProps={{ shrink: true }}
+                    />
+                  </Grid>
+                  <Grid size={{ xs: 12, sm: 6 }}>
+                    <TextField
+                      fullWidth
+                      type="number"
+                      label="Late Threshold (Minutes)"
+                      value={attendanceSettings.lateThresholdMinutes}
+                      onChange={(e) =>
+                        setAttendanceSettings({
+                          ...attendanceSettings,
+                          lateThresholdMinutes: parseInt(e.target.value) || 0,
+                        })
+                      }
+                      helperText="Minutes after start time to mark as late"
+                    />
+                  </Grid>
+                  <Grid size={{ xs: 12, sm: 6 }}>
+                    <TextField
+                      fullWidth
+                      type="number"
+                      label="Half Day Threshold (Hours)"
+                      value={attendanceSettings.halfDayThresholdHours}
+                      onChange={(e) =>
+                        setAttendanceSettings({
+                          ...attendanceSettings,
+                          halfDayThresholdHours: parseInt(e.target.value) || 0,
+                        })
+                      }
+                      helperText="Hours present to count as half day"
+                    />
+                  </Grid>
+                  <Grid size={{ xs: 12 }}>
+                    <Typography variant="subtitle2" gutterBottom>
+                      Working Days
+                    </Typography>
+                    <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1 }}>
+                      {DAYS_OF_WEEK.map((day) => (
+                        <FormControlLabel
+                          key={day.value}
+                          control={
+                            <Switch
+                              checked={attendanceSettings.workingDays.includes(
+                                day.value
+                              )}
+                              onChange={() =>
+                                handleWorkingDaysChange(day.value)
+                              }
+                              size="small"
+                            />
+                          }
+                          label={day.label}
+                        />
+                      ))}
+                    </Box>
+                  </Grid>
+                </Grid>
+              </CardContent>
+            </Card>
+          </Grid>
+
+          {/* Notification Settings */}
+          <Grid size={{ xs: 12, lg: 6 }}>
+            <Card>
+              <CardHeader
+                avatar={<NotificationsIcon color="primary" />}
+                title="Notification Settings"
+                subheader="Configure alerts and reminders"
+              />
+              <CardContent>
+                <Grid container spacing={2}>
+                  <Grid size={{ xs: 12, sm: 6 }}>
+                    <FormControlLabel
+                      control={
+                        <Switch
+                          checked={notificationSettings.sendFeeReminders}
+                          onChange={(e) =>
+                            setNotificationSettings({
+                              ...notificationSettings,
+                              sendFeeReminders: e.target.checked,
+                            })
+                          }
+                        />
+                      }
+                      label="Send Fee Reminders"
+                    />
+                  </Grid>
+                  <Grid size={{ xs: 12, sm: 6 }}>
+                    <FormControlLabel
+                      control={
+                        <Switch
+                          checked={notificationSettings.sendAttendanceAlerts}
+                          onChange={(e) =>
+                            setNotificationSettings({
+                              ...notificationSettings,
+                              sendAttendanceAlerts: e.target.checked,
+                            })
+                          }
+                        />
+                      }
+                      label="Send Attendance Alerts"
+                    />
+                  </Grid>
+                  <Grid size={{ xs: 12, sm: 6 }}>
+                    <FormControlLabel
+                      control={
+                        <Switch
+                          checked={notificationSettings.sendResultNotifications}
+                          onChange={(e) =>
+                            setNotificationSettings({
+                              ...notificationSettings,
+                              sendResultNotifications: e.target.checked,
+                            })
+                          }
+                        />
+                      }
+                      label="Send Result Notifications"
+                    />
+                  </Grid>
+                  <Grid size={{ xs: 12 }}>
+                    <Divider sx={{ my: 2 }} />
+                    <Typography variant="subtitle2" gutterBottom>
+                      Notification Channels
+                    </Typography>
+                  </Grid>
+                  <Grid size={{ xs: 12, sm: 6 }}>
+                    <FormControlLabel
+                      control={
+                        <Switch
+                          checked={notificationSettings.smsEnabled}
+                          onChange={(e) =>
+                            setNotificationSettings({
+                              ...notificationSettings,
+                              smsEnabled: e.target.checked,
+                            })
+                          }
+                        />
+                      }
+                      label="SMS Notifications"
+                    />
+                  </Grid>
+                  <Grid size={{ xs: 12, sm: 6 }}>
+                    <FormControlLabel
+                      control={
+                        <Switch
+                          checked={notificationSettings.emailEnabled}
+                          onChange={(e) =>
+                            setNotificationSettings({
+                              ...notificationSettings,
+                              emailEnabled: e.target.checked,
+                            })
+                          }
+                        />
+                      }
+                      label="Email Notifications"
+                    />
+                  </Grid>
+                </Grid>
+              </CardContent>
+            </Card>
+          </Grid>
+        </Grid>
+      </Box>
+    </MainLayout>
+  );
+}
