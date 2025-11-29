@@ -31,6 +31,9 @@ export async function GET(request: NextRequest) {
         },
         subjects: {
           where: includeInactive ? {} : { isActive: true },
+          include: {
+            subject: true,
+          },
         },
         _count: {
           select: {

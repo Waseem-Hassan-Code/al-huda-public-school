@@ -324,12 +324,13 @@ model Class {
   updatedAt     DateTime @updatedAt
 
   // Relations
-  sections      Section[]
-  subjects      ClassSubject[]
-  feeStructures FeeStructure[]
-  timetables    Timetable[]
-  exams         Exam[]
-  students      Student[]
+  sections        Section[]
+  subjects        ClassSubject[]
+  feeStructures   FeeStructure[]
+  timetables      Timetable[]
+  exams           Exam[]
+  students        Student[]
+  teacherSubjects TeacherSubject[]
 
   @@map("classes")
 }
@@ -571,10 +572,12 @@ model TeacherSubject {
   teacher     Teacher  @relation(fields: [teacherId], references: [id], onDelete: Cascade)
   subjectId   String
   subject     Subject  @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  classId     String?  // Optional: links to which class this teacher teaches this subject
+  class       Class?   @relation(fields: [classId], references: [id], onDelete: Cascade)
   isActive    Boolean  @default(true)
   createdAt   DateTime @default(now())
 
-  @@unique([teacherId, subjectId])
+  @@unique([teacherId, subjectId, classId])
   @@map("teacher_subjects")
 }
 

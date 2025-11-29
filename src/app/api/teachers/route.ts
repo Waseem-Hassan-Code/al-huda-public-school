@@ -53,6 +53,7 @@ export async function GET(request: NextRequest) {
           subjects: {
             include: {
               subject: true,
+              class: true,
             },
           },
           _count: {
@@ -123,7 +124,8 @@ export async function POST(request: NextRequest) {
       bankName,
       bankAccountNo,
       bankBranch,
-      subjects, // Array of subjectIds
+      subjects, // Array of subjectIds (legacy support)
+      classSubjectAssignments, // Array of { classId, subjectId }
     } = body;
 
     // Generate employee ID
@@ -181,8 +183,19 @@ export async function POST(request: NextRequest) {
         },
       });
 
-      // Assign subjects if provided
-      if (subjects && subjects.length > 0) {
+      // Assign subjects if provided (with class assignments)
+      if (classSubjectAssignments && classSubjectAssignments.length > 0) {
+        await tx.teacherSubject.createMany({
+          data: classSubjectAssignments.map(
+            (assignment: { classId: string; subjectId: string }) => ({
+              teacherId: teacher.id,
+              subjectId: assignment.subjectId,
+              classId: assignment.classId,
+            })
+          ),
+        });
+      } else if (subjects && subjects.length > 0) {
+        // Legacy support: just subject IDs without class
         await tx.teacherSubject.createMany({
           data: subjects.map((subjectId: string) => ({
             teacherId: teacher.id,
@@ -197,6 +210,7 @@ export async function POST(request: NextRequest) {
           subjects: {
             include: {
               subject: true,
+              class: true,
             },
           },
         },
@@ -217,6 +231,200 @@ export async function POST(request: NextRequest) {
     console.error("Teachers POST Error:", error);
     return NextResponse.json(
       { error: "Failed to create teacher" },
+      { status: 500 }
+    );
+  }
+}
+
+// PUT - Update teacher
+export async function PUT(request: NextRequest) {
+  try {
+    const session = await getServerSession(authOptions);
+
+    if (!session) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    if (!hasPermission(session.user.role, Permission.UPDATE_TEACHER)) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
+    const id = request.nextUrl.searchParams.get("id");
+    if (!id) {
+      return NextResponse.json(
+        { error: "Teacher ID is required" },
+        { status: 400 }
+      );
+    }
+
+    const body = await request.json();
+    const {
+      firstName,
+      lastName,
+      fatherName,
+      dateOfBirth,
+      gender,
+      cnic,
+      phone,
+      email,
+      address,
+      city,
+      photo,
+      qualification,
+      specialization,
+      experience,
+      joiningDate,
+      designation,
+      basicSalary,
+      allowances,
+      deductions,
+      bankName,
+      bankAccountNo,
+      bankBranch,
+      isActive,
+      subjects, // Array of subjectIds (legacy support)
+      classSubjectAssignments, // Array of { classId, subjectId }
+    } = body;
+
+    // Update teacher in transaction
+    const result = await prisma.$transaction(async (tx) => {
+      // Update teacher
+      await tx.teacher.update({
+        where: { id },
+        data: {
+          firstName,
+          lastName,
+          fatherName,
+          dateOfBirth: dateOfBirth ? new Date(dateOfBirth) : undefined,
+          gender,
+          cnic,
+          phone,
+          email,
+          address,
+          city,
+          photo,
+          qualification,
+          specialization,
+          experience,
+          joiningDate: joiningDate ? new Date(joiningDate) : undefined,
+          designation,
+          basicSalary,
+          allowances,
+          deductions,
+          bankName,
+          bankAccountNo,
+          bankBranch,
+          isActive,
+          updatedById: session.user.id,
+        },
+      });
+
+      // Delete existing subject assignments
+      await tx.teacherSubject.deleteMany({
+        where: { teacherId: id },
+      });
+
+      // Recreate subject assignments
+      if (classSubjectAssignments && classSubjectAssignments.length > 0) {
+        await tx.teacherSubject.createMany({
+          data: classSubjectAssignments.map(
+            (assignment: { classId: string; subjectId: string }) => ({
+              teacherId: id,
+              subjectId: assignment.subjectId,
+              classId: assignment.classId,
+            })
+          ),
+        });
+      } else if (subjects && subjects.length > 0) {
+        // Legacy support: just subject IDs without class
+        await tx.teacherSubject.createMany({
+          data: subjects.map((subjectId: string) => ({
+            teacherId: id,
+            subjectId,
+          })),
+        });
+      }
+
+      return tx.teacher.findUnique({
+        where: { id },
+        include: {
+          subjects: {
+            include: {
+              subject: true,
+              class: true,
+            },
+          },
+        },
+      });
+    });
+
+    // Log the transaction
+    await logTransaction({
+      action: "UPDATE",
+      entityType: "Teacher",
+      entityId: id,
+      userId: session.user.id,
+      details: { firstName, lastName },
+    });
+
+    return NextResponse.json(result);
+  } catch (error) {
+    console.error("Teachers PUT Error:", error);
+    return NextResponse.json(
+      { error: "Failed to update teacher" },
+      { status: 500 }
+    );
+  }
+}
+
+// DELETE - Delete teacher
+export async function DELETE(request: NextRequest) {
+  try {
+    const session = await getServerSession(authOptions);
+
+    if (!session) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    if (!hasPermission(session.user.role, Permission.DELETE_TEACHER)) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
+    const id = request.nextUrl.searchParams.get("id");
+    if (!id) {
+      return NextResponse.json(
+        { error: "Teacher ID is required" },
+        { status: 400 }
+      );
+    }
+
+    // Delete teacher in transaction
+    await prisma.$transaction(async (tx) => {
+      // Delete subject assignments first
+      await tx.teacherSubject.deleteMany({
+        where: { teacherId: id },
+      });
+
+      // Delete teacher
+      await tx.teacher.delete({
+        where: { id },
+      });
+    });
+
+    // Log the transaction
+    await logTransaction({
+      action: "DELETE",
+      entityType: "Teacher",
+      entityId: id,
+      userId: session.user.id,
+      details: {},
+    });
+
+    return NextResponse.json({ message: "Teacher deleted successfully" });
+  } catch (error) {
+    console.error("Teachers DELETE Error:", error);
+    return NextResponse.json(
+      { error: "Failed to delete teacher" },
       { status: 500 }
     );
   }

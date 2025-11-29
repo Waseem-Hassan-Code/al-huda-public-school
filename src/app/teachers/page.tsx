@@ -24,6 +24,8 @@ import {
   Tooltip,
   Card,
   CardContent,
+  Autocomplete,
+  Divider,
 } from "@mui/material";
 import {
   Add,
@@ -49,6 +51,14 @@ import {
 } from "@/lib/utils";
 import { toast } from "sonner";
 
+// Interface for class-subject assignment
+interface ClassSubjectAssignment {
+  classId: string;
+  className: string;
+  subjectId: string;
+  subjectName: string;
+}
+
 interface Teacher {
   id: string;
   employeeId: string;
@@ -65,7 +75,12 @@ interface Teacher {
   address: string;
   monthlySalary: number;
   isActive: boolean;
-  subjects: { id: string; name: string }[];
+  subjects: {
+    id: string;
+    subject: { id: string; name: string; code: string };
+    classId?: string;
+    class?: { id: string; name: string } | null;
+  }[];
   classes: { id: string; name: string }[];
 }
 
@@ -78,7 +93,8 @@ interface Subject {
 interface Class {
   id: string;
   name: string;
-  grade: number;
+  displayOrder?: number;
+  subjects?: { id: string; subjectId: string; subject: Subject }[];
 }
 
 export default function TeachersPage() {
@@ -95,6 +111,13 @@ export default function TeachersPage() {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [selectedTeacher, setSelectedTeacher] = useState<Teacher | null>(null);
   const [saving, setSaving] = useState(false);
+  const [classSubjectAssignments, setClassSubjectAssignments] = useState<
+    ClassSubjectAssignment[]
+  >([]);
+  const [selectedClass, setSelectedClass] = useState<Class | null>(null);
+  const [availableSubjectsForClass, setAvailableSubjectsForClass] = useState<
+    Subject[]
+  >([]);
   const [formData, setFormData] = useState({
     firstName: "",
     lastName: "",
@@ -108,9 +131,22 @@ export default function TeachersPage() {
     specialization: "",
     address: "",
     monthlySalary: 0,
-    subjectIds: [] as string[],
-    classIds: [] as string[],
   });
+
+  // Get available subjects for selected class
+  const getSubjectsForClass = useCallback((cls: Class | null): Subject[] => {
+    if (!cls || !cls.subjects) return [];
+    return cls.subjects.map((cs) => cs.subject);
+  }, []);
+
+  // Update available subjects when class changes
+  useEffect(() => {
+    if (selectedClass) {
+      setAvailableSubjectsForClass(getSubjectsForClass(selectedClass));
+    } else {
+      setAvailableSubjectsForClass([]);
+    }
+  }, [selectedClass, getSubjectsForClass]);
 
   const fetchTeachers = useCallback(async () => {
     setLoading(true);
@@ -183,9 +219,27 @@ export default function TeachersPage() {
         specialization: teacher.specialization || "",
         address: teacher.address,
         monthlySalary: teacher.monthlySalary,
-        subjectIds: teacher.subjects?.map((s) => s.id) || [],
-        classIds: teacher.classes?.map((c) => c.id) || [],
       });
+      // Extract class-subject assignments from teacher data
+      const assignments: ClassSubjectAssignment[] = [];
+      if (teacher.subjects) {
+        teacher.subjects.forEach((ts) => {
+          if (ts.classId && ts.subject) {
+            // Use included class data or fall back to looking up in classes list
+            const className =
+              ts.class?.name ||
+              classes.find((c) => c.id === ts.classId)?.name ||
+              "Unknown Class";
+            assignments.push({
+              classId: ts.classId,
+              className,
+              subjectId: ts.subject.id,
+              subjectName: ts.subject.name,
+            });
+          }
+        });
+      }
+      setClassSubjectAssignments(assignments);
     } else {
       setSelectedTeacher(null);
       setFormData({
@@ -201,16 +255,52 @@ export default function TeachersPage() {
         specialization: "",
         address: "",
         monthlySalary: 0,
-        subjectIds: [],
-        classIds: [],
       });
+      setClassSubjectAssignments([]);
     }
+    setSelectedClass(null);
     setDialogOpen(true);
   };
 
   const handleCloseDialog = () => {
     setDialogOpen(false);
     setSelectedTeacher(null);
+    setClassSubjectAssignments([]);
+    setSelectedClass(null);
+  };
+
+  // Add a class-subject assignment
+  const handleAddAssignment = (subject: Subject) => {
+    if (!selectedClass) return;
+
+    // Check if this assignment already exists
+    const exists = classSubjectAssignments.some(
+      (a) => a.classId === selectedClass.id && a.subjectId === subject.id
+    );
+
+    if (exists) {
+      toast.error("This subject is already assigned for this class");
+      return;
+    }
+
+    setClassSubjectAssignments([
+      ...classSubjectAssignments,
+      {
+        classId: selectedClass.id,
+        className: selectedClass.name,
+        subjectId: subject.id,
+        subjectName: subject.name,
+      },
+    ]);
+  };
+
+  // Remove a class-subject assignment
+  const handleRemoveAssignment = (classId: string, subjectId: string) => {
+    setClassSubjectAssignments(
+      classSubjectAssignments.filter(
+        (a) => !(a.classId === classId && a.subjectId === subjectId)
+      )
+    );
   };
 
   const handleSave = async () => {
@@ -234,7 +324,10 @@ export default function TeachersPage() {
       const res = await fetch(url, {
         method,
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(formData),
+        body: JSON.stringify({
+          ...formData,
+          classSubjectAssignments,
+        }),
       });
 
       const data = await res.json();
@@ -458,15 +551,21 @@ export default function TeachersPage() {
                     {teacher.subjects && teacher.subjects.length > 0 && (
                       <Box sx={{ mb: 2 }}>
                         <Typography variant="caption" color="text.secondary">
-                          Subjects
+                          Teaching
                         </Typography>
                         <Box
                           sx={{ display: "flex", flexWrap: "wrap", gap: 0.5 }}
                         >
-                          {teacher.subjects.slice(0, 3).map((subject) => (
+                          {teacher.subjects.slice(0, 3).map((ts) => (
                             <Chip
-                              key={subject.id}
-                              label={subject.name}
+                              key={ts.id}
+                              label={
+                                ts.class
+                                  ? `${ts.subject?.name || "Subject"} (${
+                                      ts.class.name
+                                    })`
+                                  : ts.subject?.name || "Subject"
+                              }
                               size="small"
                               variant="outlined"
                             />
@@ -734,61 +833,110 @@ export default function TeachersPage() {
                   }
                 />
               </Grid>
-              <Grid size={{ xs: 12, sm: 6 }}>
-                <FormControl fullWidth>
-                  <InputLabel>Subjects</InputLabel>
-                  <Select
-                    multiple
-                    value={formData.subjectIds}
-                    label="Subjects"
-                    onChange={(e) =>
-                      setFormData({
-                        ...formData,
-                        subjectIds: e.target.value as string[],
-                      })
-                    }
-                    renderValue={(selected) =>
-                      subjects
-                        .filter((s) => selected.includes(s.id))
-                        .map((s) => s.name)
-                        .join(", ")
-                    }
-                  >
-                    {subjects.map((subject) => (
-                      <MenuItem key={subject.id} value={subject.id}>
-                        {subject.name} ({subject.code})
-                      </MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
+
+              {/* Class-Subject Assignments Section */}
+              <Grid size={{ xs: 12 }}>
+                <Divider sx={{ my: 2 }} />
+                <Typography variant="subtitle1" gutterBottom fontWeight="bold">
+                  Class & Subject Assignments
+                </Typography>
+                <Typography
+                  variant="body2"
+                  color="text.secondary"
+                  sx={{ mb: 2 }}
+                >
+                  Select a class first, then add subjects that this teacher will
+                  teach in that class.
+                </Typography>
               </Grid>
+
               <Grid size={{ xs: 12, sm: 6 }}>
-                <FormControl fullWidth>
-                  <InputLabel>Classes</InputLabel>
-                  <Select
-                    multiple
-                    value={formData.classIds}
-                    label="Classes"
-                    onChange={(e) =>
-                      setFormData({
-                        ...formData,
-                        classIds: e.target.value as string[],
-                      })
+                <Autocomplete
+                  options={classes}
+                  getOptionLabel={(option) => option.name}
+                  value={selectedClass}
+                  onChange={(_, newValue) => setSelectedClass(newValue)}
+                  renderInput={(params) => (
+                    <TextField
+                      {...params}
+                      label="Select Class"
+                      placeholder="Search classes..."
+                    />
+                  )}
+                  renderOption={(props, option) => (
+                    <li {...props} key={option.id}>
+                      {option.name}
+                    </li>
+                  )}
+                />
+              </Grid>
+
+              <Grid size={{ xs: 12, sm: 6 }}>
+                <Autocomplete
+                  options={availableSubjectsForClass}
+                  getOptionLabel={(option) => `${option.name} (${option.code})`}
+                  disabled={!selectedClass}
+                  onChange={(_, newValue) => {
+                    if (newValue) {
+                      handleAddAssignment(newValue);
                     }
-                    renderValue={(selected) =>
-                      classes
-                        .filter((c) => selected.includes(c.id))
-                        .map((c) => c.name)
-                        .join(", ")
-                    }
+                  }}
+                  value={null}
+                  renderInput={(params) => (
+                    <TextField
+                      {...params}
+                      label="Add Subject"
+                      placeholder={
+                        selectedClass
+                          ? "Search subjects..."
+                          : "Select a class first"
+                      }
+                    />
+                  )}
+                  renderOption={(props, option) => (
+                    <li {...props} key={option.id}>
+                      {option.name} ({option.code})
+                    </li>
+                  )}
+                />
+              </Grid>
+
+              <Grid size={{ xs: 12 }}>
+                <Paper variant="outlined" sx={{ p: 2, minHeight: 100 }}>
+                  <Typography
+                    variant="body2"
+                    color="text.secondary"
+                    sx={{ mb: 1 }}
                   >
-                    {classes.map((cls) => (
-                      <MenuItem key={cls.id} value={cls.id}>
-                        {cls.name}
-                      </MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
+                    Assigned Classes & Subjects:
+                  </Typography>
+                  {classSubjectAssignments.length === 0 ? (
+                    <Typography
+                      variant="body2"
+                      color="text.disabled"
+                      sx={{ textAlign: "center", py: 2 }}
+                    >
+                      No assignments yet. Select a class and add subjects above.
+                    </Typography>
+                  ) : (
+                    <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1 }}>
+                      {classSubjectAssignments.map((assignment) => (
+                        <Chip
+                          key={`${assignment.classId}-${assignment.subjectId}`}
+                          label={`${assignment.className} - ${assignment.subjectName}`}
+                          onDelete={() =>
+                            handleRemoveAssignment(
+                              assignment.classId,
+                              assignment.subjectId
+                            )
+                          }
+                          color="primary"
+                          variant="outlined"
+                        />
+                      ))}
+                    </Box>
+                  )}
+                </Paper>
               </Grid>
             </Grid>
           </DialogContent>
@@ -931,15 +1079,21 @@ export default function TeachersPage() {
                     selectedTeacher.subjects.length > 0 && (
                       <Grid size={{ xs: 12 }}>
                         <Typography variant="caption" color="text.secondary">
-                          Subjects
+                          Teaching Assignments
                         </Typography>
                         <Box
                           sx={{ display: "flex", flexWrap: "wrap", gap: 0.5 }}
                         >
-                          {selectedTeacher.subjects.map((subject) => (
+                          {selectedTeacher.subjects.map((ts) => (
                             <Chip
-                              key={subject.id}
-                              label={subject.name}
+                              key={ts.id}
+                              label={
+                                ts.class
+                                  ? `${ts.subject?.name || "Subject"} (${
+                                      ts.class.name
+                                    })`
+                                  : ts.subject?.name || "Subject"
+                              }
                               size="small"
                               variant="outlined"
                             />

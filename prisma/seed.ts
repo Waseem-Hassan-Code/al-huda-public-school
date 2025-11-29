@@ -113,7 +113,6 @@ async function main() {
   });
   console.log("✅ Super Admin created");
 
-  // Create other users
   const users = [
     {
       email: "principal@alhudapublicschool.edu.pk",
