@@ -20,6 +20,19 @@ import {
   CardContent,
   CardHeader,
   Alert,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  Chip,
+  IconButton,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  CircularProgress,
 } from "@mui/material";
 import {
   Save as SaveIcon,
@@ -27,9 +40,25 @@ import {
   Payment as PaymentIcon,
   Schedule as ScheduleIcon,
   Notifications as NotificationsIcon,
+  CalendarMonth as CalendarIcon,
+  Add as AddIcon,
+  Edit as EditIcon,
+  Delete as DeleteIcon,
+  CheckCircle,
 } from "@mui/icons-material";
+import { DatePicker, LocalizationProvider } from "@mui/x-date-pickers";
+import { AdapterDateFns } from "@mui/x-date-pickers/AdapterDateFns";
 import MainLayout from "@/components/layout/MainLayout";
 import { toast } from "sonner";
+
+interface AcademicYear {
+  id: string;
+  name: string;
+  startDate: string;
+  endDate: string;
+  isCurrent: boolean;
+  isActive: boolean;
+}
 
 interface SchoolSettings {
   name: string;
@@ -148,6 +177,40 @@ export default function SettingsPage() {
       emailEnabled: true,
     });
 
+  // Academic Year state
+  const [academicYears, setAcademicYears] = useState<AcademicYear[]>([]);
+  const [loadingAcademicYears, setLoadingAcademicYears] = useState(true);
+  const [academicYearDialogOpen, setAcademicYearDialogOpen] = useState(false);
+  const [selectedAcademicYear, setSelectedAcademicYear] =
+    useState<AcademicYear | null>(null);
+  const [academicYearForm, setAcademicYearForm] = useState({
+    name: "",
+    startDate: null as Date | null,
+    endDate: null as Date | null,
+    isCurrent: false,
+  });
+  const [savingAcademicYear, setSavingAcademicYear] = useState(false);
+
+  // Fetch academic years
+  const fetchAcademicYears = useCallback(async () => {
+    try {
+      setLoadingAcademicYears(true);
+      const res = await fetch("/api/academic-years");
+      const data = await res.json();
+      if (res.ok) {
+        setAcademicYears(data.data || []);
+      }
+    } catch (error) {
+      console.error("Failed to fetch academic years", error);
+    } finally {
+      setLoadingAcademicYears(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchAcademicYears();
+  }, [fetchAcademicYears]);
+
   // Load settings from localStorage on mount
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -199,6 +262,127 @@ export default function SettingsPage() {
         ? prev.workingDays.filter((d) => d !== day)
         : [...prev.workingDays, day],
     }));
+  };
+
+  // Academic Year functions
+  const handleOpenAcademicYearDialog = (academicYear?: AcademicYear) => {
+    if (academicYear) {
+      setSelectedAcademicYear(academicYear);
+      setAcademicYearForm({
+        name: academicYear.name,
+        startDate: new Date(academicYear.startDate),
+        endDate: new Date(academicYear.endDate),
+        isCurrent: academicYear.isCurrent,
+      });
+    } else {
+      setSelectedAcademicYear(null);
+      const now = new Date();
+      const nextYear = new Date(
+        now.getFullYear() + 1,
+        now.getMonth(),
+        now.getDate()
+      );
+      setAcademicYearForm({
+        name: `${now.getFullYear()}-${now.getFullYear() + 1}`,
+        startDate: now,
+        endDate: nextYear,
+        isCurrent: academicYears.length === 0,
+      });
+    }
+    setAcademicYearDialogOpen(true);
+  };
+
+  const handleSaveAcademicYear = async () => {
+    if (
+      !academicYearForm.name ||
+      !academicYearForm.startDate ||
+      !academicYearForm.endDate
+    ) {
+      toast.error("Please fill in all required fields");
+      return;
+    }
+
+    setSavingAcademicYear(true);
+    try {
+      const url = "/api/academic-years";
+      const method = selectedAcademicYear ? "PUT" : "POST";
+      const body = selectedAcademicYear
+        ? { id: selectedAcademicYear.id, ...academicYearForm }
+        : academicYearForm;
+
+      const res = await fetch(url, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+
+      const data = await res.json();
+
+      if (res.ok) {
+        toast.success(
+          selectedAcademicYear
+            ? "Academic year updated"
+            : "Academic year created"
+        );
+        setAcademicYearDialogOpen(false);
+        fetchAcademicYears();
+      } else {
+        toast.error(data.error || "Failed to save academic year");
+      }
+    } catch (error) {
+      toast.error("Failed to save academic year");
+    } finally {
+      setSavingAcademicYear(false);
+    }
+  };
+
+  const handleSetCurrentSession = async (academicYear: AcademicYear) => {
+    try {
+      const res = await fetch("/api/academic-years", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: academicYear.id, isCurrent: true }),
+      });
+
+      if (res.ok) {
+        toast.success(`${academicYear.name} is now the active session`);
+        fetchAcademicYears();
+      } else {
+        const data = await res.json();
+        toast.error(data.error || "Failed to update session");
+      }
+    } catch (error) {
+      toast.error("Failed to update session");
+    }
+  };
+
+  const handleDeleteAcademicYear = async (id: string) => {
+    if (!confirm("Are you sure you want to delete this academic year?")) return;
+
+    try {
+      const res = await fetch(`/api/academic-years?id=${id}`, {
+        method: "DELETE",
+      });
+
+      const data = await res.json();
+
+      if (res.ok) {
+        toast.success("Academic year deleted");
+        fetchAcademicYears();
+      } else {
+        toast.error(data.error || "Failed to delete academic year");
+      }
+    } catch (error) {
+      toast.error("Failed to delete academic year");
+    }
+  };
+
+  const formatDate = (dateString: string) => {
+    return new Date(dateString).toLocaleDateString("en-PK", {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+    });
   };
 
   if (status === "loading") {
@@ -728,7 +912,231 @@ export default function SettingsPage() {
               </CardContent>
             </Card>
           </Grid>
+
+          {/* Academic Sessions */}
+          <Grid size={{ xs: 12 }}>
+            <Card>
+              <CardHeader
+                avatar={<CalendarIcon color="primary" />}
+                title="Academic Sessions"
+                subheader="Manage academic years and set the active session"
+                action={
+                  <Button
+                    variant="contained"
+                    startIcon={<AddIcon />}
+                    onClick={() => handleOpenAcademicYearDialog()}
+                    size="small"
+                  >
+                    Add Session
+                  </Button>
+                }
+              />
+              <CardContent>
+                {loadingAcademicYears ? (
+                  <Box
+                    sx={{ display: "flex", justifyContent: "center", py: 3 }}
+                  >
+                    <CircularProgress />
+                  </Box>
+                ) : academicYears.length === 0 ? (
+                  <Box sx={{ textAlign: "center", py: 3 }}>
+                    <Typography color="text.secondary" gutterBottom>
+                      No academic sessions found
+                    </Typography>
+                    <Button
+                      variant="outlined"
+                      startIcon={<AddIcon />}
+                      onClick={() => handleOpenAcademicYearDialog()}
+                    >
+                      Create First Session
+                    </Button>
+                  </Box>
+                ) : (
+                  <TableContainer>
+                    <Table>
+                      <TableHead>
+                        <TableRow>
+                          <TableCell>Session Name</TableCell>
+                          <TableCell>Start Date</TableCell>
+                          <TableCell>End Date</TableCell>
+                          <TableCell>Status</TableCell>
+                          <TableCell align="center">Actions</TableCell>
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
+                        {academicYears.map((year) => (
+                          <TableRow key={year.id} hover>
+                            <TableCell>
+                              <Typography
+                                fontWeight={year.isCurrent ? "bold" : "normal"}
+                              >
+                                {year.name}
+                              </Typography>
+                            </TableCell>
+                            <TableCell>{formatDate(year.startDate)}</TableCell>
+                            <TableCell>{formatDate(year.endDate)}</TableCell>
+                            <TableCell>
+                              {year.isCurrent ? (
+                                <Chip
+                                  icon={<CheckCircle />}
+                                  label="Active Session"
+                                  color="success"
+                                  size="small"
+                                />
+                              ) : year.isActive ? (
+                                <Chip label="Inactive" size="small" />
+                              ) : (
+                                <Chip
+                                  label="Archived"
+                                  size="small"
+                                  color="default"
+                                />
+                              )}
+                            </TableCell>
+                            <TableCell align="center">
+                              <Box
+                                sx={{
+                                  display: "flex",
+                                  justifyContent: "center",
+                                  gap: 0.5,
+                                }}
+                              >
+                                {!year.isCurrent && year.isActive && (
+                                  <Button
+                                    size="small"
+                                    variant="outlined"
+                                    color="success"
+                                    onClick={() =>
+                                      handleSetCurrentSession(year)
+                                    }
+                                  >
+                                    Set Active
+                                  </Button>
+                                )}
+                                <IconButton
+                                  size="small"
+                                  onClick={() =>
+                                    handleOpenAcademicYearDialog(year)
+                                  }
+                                >
+                                  <EditIcon fontSize="small" />
+                                </IconButton>
+                                {!year.isCurrent && (
+                                  <IconButton
+                                    size="small"
+                                    color="error"
+                                    onClick={() =>
+                                      handleDeleteAcademicYear(year.id)
+                                    }
+                                  >
+                                    <DeleteIcon fontSize="small" />
+                                  </IconButton>
+                                )}
+                              </Box>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </TableContainer>
+                )}
+              </CardContent>
+            </Card>
+          </Grid>
         </Grid>
+
+        {/* Academic Year Dialog */}
+        <LocalizationProvider dateAdapter={AdapterDateFns}>
+          <Dialog
+            open={academicYearDialogOpen}
+            onClose={() => setAcademicYearDialogOpen(false)}
+            maxWidth="sm"
+            fullWidth
+          >
+            <DialogTitle>
+              {selectedAcademicYear
+                ? "Edit Academic Session"
+                : "Create Academic Session"}
+            </DialogTitle>
+            <DialogContent dividers>
+              <Grid container spacing={2} sx={{ mt: 1 }}>
+                <Grid size={{ xs: 12 }}>
+                  <TextField
+                    fullWidth
+                    label="Session Name"
+                    value={academicYearForm.name}
+                    onChange={(e) =>
+                      setAcademicYearForm({
+                        ...academicYearForm,
+                        name: e.target.value,
+                      })
+                    }
+                    placeholder="e.g., 2024-2025"
+                    required
+                  />
+                </Grid>
+                <Grid size={{ xs: 12, sm: 6 }}>
+                  <DatePicker
+                    label="Start Date"
+                    value={academicYearForm.startDate}
+                    onChange={(date) =>
+                      setAcademicYearForm({
+                        ...academicYearForm,
+                        startDate: date,
+                      })
+                    }
+                    slotProps={{
+                      textField: { fullWidth: true, required: true },
+                    }}
+                  />
+                </Grid>
+                <Grid size={{ xs: 12, sm: 6 }}>
+                  <DatePicker
+                    label="End Date"
+                    value={academicYearForm.endDate}
+                    onChange={(date) =>
+                      setAcademicYearForm({
+                        ...academicYearForm,
+                        endDate: date,
+                      })
+                    }
+                    slotProps={{
+                      textField: { fullWidth: true, required: true },
+                    }}
+                  />
+                </Grid>
+                <Grid size={{ xs: 12 }}>
+                  <FormControlLabel
+                    control={
+                      <Switch
+                        checked={academicYearForm.isCurrent}
+                        onChange={(e) =>
+                          setAcademicYearForm({
+                            ...academicYearForm,
+                            isCurrent: e.target.checked,
+                          })
+                        }
+                      />
+                    }
+                    label="Set as active session (this will deactivate other sessions)"
+                  />
+                </Grid>
+              </Grid>
+            </DialogContent>
+            <DialogActions>
+              <Button onClick={() => setAcademicYearDialogOpen(false)}>
+                Cancel
+              </Button>
+              <Button
+                variant="contained"
+                onClick={handleSaveAcademicYear}
+                disabled={savingAcademicYear}
+              >
+                {savingAcademicYear ? <CircularProgress size={24} /> : "Save"}
+              </Button>
+            </DialogActions>
+          </Dialog>
+        </LocalizationProvider>
       </Box>
     </MainLayout>
   );

@@ -32,6 +32,7 @@ import {
   Tabs,
   Tab,
   Avatar,
+  Divider,
 } from "@mui/material";
 import {
   Add,
@@ -67,18 +68,21 @@ interface Teacher {
 
 interface Salary {
   id: string;
+  salaryNo: string;
   teacherId: string;
   month: number;
   year: number;
-  baseSalary: number;
+  basicSalary: number;
   allowances: number;
   deductions: number;
-  bonuses: number;
+  bonus: number;
   netSalary: number;
+  paidAmount: number;
+  balanceDue: number;
   status: string;
-  paidAt: string | null;
+  paymentDate: string | null;
   paymentMethod: string | null;
-  remarks: string | null;
+  reference: string | null;
   teacher: {
     id: string;
     employeeId: string;
@@ -132,6 +136,7 @@ export default function SalaryPage() {
 
   const [paymentData, setPaymentData] = useState({
     paymentMethod: "BANK_TRANSFER",
+    amount: 0,
     remarks: "",
   });
 
@@ -175,6 +180,7 @@ export default function SalaryPage() {
       const params = new URLSearchParams({
         month: selectedMonth.toString(),
         year: selectedYear.toString(),
+        limit: "100",
         ...(statusFilter && { status: statusFilter }),
       });
 
@@ -182,7 +188,7 @@ export default function SalaryPage() {
       const data = await res.json();
 
       if (res.ok) {
-        setSalaries(data.salaries || []);
+        setSalaries(data.data || []);
       } else {
         toast.error(data.error || "Failed to fetch salaries");
       }
@@ -211,11 +217,11 @@ export default function SalaryPage() {
         teacherId: salary.teacherId,
         month: salary.month,
         year: salary.year,
-        baseSalary: salary.baseSalary,
+        baseSalary: salary.basicSalary,
         allowances: salary.allowances,
         deductions: salary.deductions,
-        bonuses: salary.bonuses,
-        remarks: salary.remarks || "",
+        bonuses: salary.bonus,
+        remarks: salary.reference || "",
       });
     } else {
       setSelectedSalary(null);
@@ -315,19 +321,19 @@ export default function SalaryPage() {
 
     setSaving(true);
     try {
-      const res = await fetch(`/api/salaries?id=${selectedSalary.id}`, {
+      const res = await fetch(`/api/salaries`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          status: "PAID",
-          paidAt: new Date().toISOString(),
+          salaryId: selectedSalary.id,
           paymentMethod: paymentData.paymentMethod,
-          remarks: paymentData.remarks,
+          paidAmount: paymentData.amount || selectedSalary.balanceDue,
+          reference: paymentData.remarks,
         }),
       });
 
       if (res.ok) {
-        toast.success("Salary marked as paid");
+        toast.success("Payment recorded successfully");
         setPayDialogOpen(false);
         setSelectedSalary(null);
         fetchSalaries();
@@ -373,6 +379,8 @@ export default function SalaryPage() {
         return "success";
       case "PENDING":
         return "warning";
+      case "PARTIAL":
+        return "info";
       case "CANCELLED":
         return "error";
       default:
@@ -386,6 +394,8 @@ export default function SalaryPage() {
         return <CheckCircle color="success" />;
       case "PENDING":
         return <PendingActions color="warning" />;
+      case "PARTIAL":
+        return <Payment color="info" />;
       case "CANCELLED":
         return <Cancel color="error" />;
       default:
@@ -603,6 +613,7 @@ export default function SalaryPage() {
                   >
                     <MenuItem value="">All Status</MenuItem>
                     <MenuItem value="PENDING">Pending</MenuItem>
+                    <MenuItem value="PARTIAL">Partial</MenuItem>
                     <MenuItem value="PAID">Paid</MenuItem>
                     <MenuItem value="CANCELLED">Cancelled</MenuItem>
                   </Select>
@@ -664,11 +675,13 @@ export default function SalaryPage() {
                   <TableRow sx={{ bgcolor: "grey.100" }}>
                     <TableCell>Employee</TableCell>
                     <TableCell>Month/Year</TableCell>
-                    <TableCell align="right">Base Salary</TableCell>
+                    <TableCell align="right">Basic Salary</TableCell>
                     <TableCell align="right">Allowances</TableCell>
                     <TableCell align="right">Deductions</TableCell>
-                    <TableCell align="right">Bonuses</TableCell>
+                    <TableCell align="right">Bonus</TableCell>
                     <TableCell align="right">Net Salary</TableCell>
+                    <TableCell align="right">Paid</TableCell>
+                    <TableCell align="right">Balance</TableCell>
                     <TableCell>Status</TableCell>
                     <TableCell align="center">Actions</TableCell>
                   </TableRow>
@@ -702,7 +715,7 @@ export default function SalaryPage() {
                         {MONTHS[salary.month - 1]} {salary.year}
                       </TableCell>
                       <TableCell align="right">
-                        {formatCurrency(salary.baseSalary)}
+                        {formatCurrency(salary.basicSalary)}
                       </TableCell>
                       <TableCell align="right" sx={{ color: "success.main" }}>
                         +{formatCurrency(salary.allowances)}
@@ -711,12 +724,26 @@ export default function SalaryPage() {
                         -{formatCurrency(salary.deductions)}
                       </TableCell>
                       <TableCell align="right" sx={{ color: "info.main" }}>
-                        +{formatCurrency(salary.bonuses)}
+                        +{formatCurrency(salary.bonus)}
                       </TableCell>
                       <TableCell align="right">
                         <Typography fontWeight="bold">
                           {formatCurrency(salary.netSalary)}
                         </Typography>
+                      </TableCell>
+                      <TableCell align="right" sx={{ color: "success.main" }}>
+                        {formatCurrency(salary.paidAmount || 0)}
+                      </TableCell>
+                      <TableCell
+                        align="right"
+                        sx={{
+                          color:
+                            salary.balanceDue > 0
+                              ? "error.main"
+                              : "success.main",
+                        }}
+                      >
+                        {formatCurrency(salary.balanceDue || 0)}
                       </TableCell>
                       <TableCell>
                         <Chip
@@ -733,13 +760,13 @@ export default function SalaryPage() {
                               | "default"
                           }
                         />
-                        {salary.paidAt && (
+                        {salary.paymentDate && (
                           <Typography
                             variant="caption"
                             display="block"
                             color="text.secondary"
                           >
-                            Paid: {formatDate(salary.paidAt)}
+                            Paid: {formatDate(salary.paymentDate)}
                           </Typography>
                         )}
                       </TableCell>
@@ -751,7 +778,8 @@ export default function SalaryPage() {
                             gap: 0.5,
                           }}
                         >
-                          {salary.status === "PENDING" && (
+                          {(salary.status === "PENDING" ||
+                            salary.status === "PARTIAL") && (
                             <Tooltip title="Mark as Paid">
                               <IconButton
                                 size="small"
@@ -760,12 +788,13 @@ export default function SalaryPage() {
                                   setSelectedSalary(salary);
                                   setPaymentData({
                                     paymentMethod: "BANK_TRANSFER",
+                                    amount: 0,
                                     remarks: "",
                                   });
                                   setPayDialogOpen(true);
                                 }}
                               >
-                                <CheckCircle />
+                                <Payment />
                               </IconButton>
                             </Tooltip>
                           )}
@@ -1086,12 +1115,12 @@ export default function SalaryPage() {
           <Dialog
             open={payDialogOpen}
             onClose={() => setPayDialogOpen(false)}
-            maxWidth="xs"
+            maxWidth="sm"
             fullWidth
           >
             <DialogTitle>
               <Box sx={{ display: "flex", justifyContent: "space-between" }}>
-                Mark Salary as Paid
+                Pay Salary
                 <IconButton onClick={() => setPayDialogOpen(false)}>
                   <Close />
                 </IconButton>
@@ -1099,17 +1128,83 @@ export default function SalaryPage() {
             </DialogTitle>
             <DialogContent dividers>
               {selectedSalary && (
-                <Box sx={{ mb: 2 }}>
-                  <Typography variant="body2" color="text.secondary">
+                <Box sx={{ mb: 3 }}>
+                  <Typography variant="h6" gutterBottom>
                     {selectedSalary.teacher.firstName}{" "}
                     {selectedSalary.teacher.lastName}
                   </Typography>
-                  <Typography variant="h6">
-                    {formatCurrency(selectedSalary.netSalary)}
+                  <Typography
+                    variant="body2"
+                    color="text.secondary"
+                    gutterBottom
+                  >
+                    {selectedSalary.teacher.employeeId} |{" "}
+                    {MONTHS[selectedSalary.month - 1]} {selectedSalary.year}
                   </Typography>
+                  <Divider sx={{ my: 2 }} />
+                  <Grid container spacing={2}>
+                    <Grid size={{ xs: 6 }}>
+                      <Typography variant="caption" color="text.secondary">
+                        Net Salary
+                      </Typography>
+                      <Typography variant="body1" fontWeight="bold">
+                        {formatCurrency(selectedSalary.netSalary)}
+                      </Typography>
+                    </Grid>
+                    <Grid size={{ xs: 6 }}>
+                      <Typography variant="caption" color="text.secondary">
+                        Already Paid
+                      </Typography>
+                      <Typography variant="body1" color="success.main">
+                        {formatCurrency(selectedSalary.paidAmount || 0)}
+                      </Typography>
+                    </Grid>
+                    <Grid size={{ xs: 12 }}>
+                      <Typography variant="caption" color="text.secondary">
+                        Balance Due
+                      </Typography>
+                      <Typography
+                        variant="h5"
+                        color="error.main"
+                        fontWeight="bold"
+                      >
+                        {formatCurrency(selectedSalary.balanceDue)}
+                      </Typography>
+                    </Grid>
+                  </Grid>
+                  <Divider sx={{ my: 2 }} />
                 </Box>
               )}
               <Grid container spacing={2}>
+                <Grid size={{ xs: 12 }}>
+                  <TextField
+                    fullWidth
+                    label="Payment Amount"
+                    type="number"
+                    value={paymentData.amount || ""}
+                    onChange={(e) =>
+                      setPaymentData({
+                        ...paymentData,
+                        amount: parseFloat(e.target.value) || 0,
+                      })
+                    }
+                    placeholder={
+                      selectedSalary ? `Max: ${selectedSalary.balanceDue}` : ""
+                    }
+                    InputProps={{
+                      startAdornment: (
+                        <InputAdornment position="start">Rs.</InputAdornment>
+                      ),
+                    }}
+                    helperText={
+                      selectedSalary
+                        ? `Leave empty to pay full balance (${formatCurrency(
+                            selectedSalary.balanceDue
+                          )})`
+                        : ""
+                    }
+                  />
+                </Grid>
                 <Grid size={{ xs: 12 }}>
                   <FormControl fullWidth>
                     <InputLabel>Payment Method</InputLabel>
@@ -1126,15 +1221,15 @@ export default function SalaryPage() {
                       <MenuItem value="BANK_TRANSFER">Bank Transfer</MenuItem>
                       <MenuItem value="CASH">Cash</MenuItem>
                       <MenuItem value="CHEQUE">Cheque</MenuItem>
+                      <MenuItem value="EASYPAISA">Easypaisa</MenuItem>
+                      <MenuItem value="JAZZCASH">JazzCash</MenuItem>
                     </Select>
                   </FormControl>
                 </Grid>
                 <Grid size={{ xs: 12 }}>
                   <TextField
                     fullWidth
-                    label="Remarks"
-                    multiline
-                    rows={2}
+                    label="Reference / Transaction ID"
                     value={paymentData.remarks}
                     onChange={(e) =>
                       setPaymentData({
@@ -1142,7 +1237,7 @@ export default function SalaryPage() {
                         remarks: e.target.value,
                       })
                     }
-                    placeholder="Transaction ID, reference, etc."
+                    placeholder="Transaction ID, cheque number, etc."
                   />
                 </Grid>
               </Grid>
@@ -1154,6 +1249,7 @@ export default function SalaryPage() {
                 color="success"
                 onClick={handleMarkAsPaid}
                 disabled={saving}
+                startIcon={<Payment />}
               >
                 {saving ? <CircularProgress size={24} /> : "Confirm Payment"}
               </Button>

@@ -22,6 +22,7 @@ export async function GET(request: NextRequest) {
     const classId = searchParams.get("classId");
     const academicYearId = searchParams.get("academicYearId");
     const type = searchParams.get("type");
+    const all = searchParams.get("all"); // If "true", return all exams regardless of session
 
     const where: Record<string, unknown> = {};
 
@@ -31,6 +32,14 @@ export async function GET(request: NextRequest) {
 
     if (academicYearId) {
       where.academicYearId = academicYearId;
+    } else if (all !== "true") {
+      // Default to current academic year if not specified
+      const currentYear = await prisma.academicYear.findFirst({
+        where: { isCurrent: true },
+      });
+      if (currentYear) {
+        where.academicYearId = currentYear.id;
+      }
     }
 
     if (type) {
@@ -98,9 +107,27 @@ export async function POST(request: NextRequest) {
       remarks,
     } = body;
 
-    if (!name || !examType || !academicYearId || !classId) {
+    // Get the academic year - use provided or default to current
+    let targetAcademicYearId = academicYearId;
+    if (!targetAcademicYearId) {
+      const currentYear = await prisma.academicYear.findFirst({
+        where: { isCurrent: true },
+      });
+      if (!currentYear) {
+        return NextResponse.json(
+          {
+            error:
+              "No active academic session found. Please create one in settings.",
+          },
+          { status: 400 }
+        );
+      }
+      targetAcademicYearId = currentYear.id;
+    }
+
+    if (!name || !examType || !classId) {
       return NextResponse.json(
-        { error: "Name, examType, academicYearId, and classId are required" },
+        { error: "Name, examType, and classId are required" },
         { status: 400 }
       );
     }
@@ -109,7 +136,7 @@ export async function POST(request: NextRequest) {
       data: {
         name,
         examType,
-        academicYearId,
+        academicYearId: targetAcademicYearId,
         classId,
         sectionId,
         subjectId,
