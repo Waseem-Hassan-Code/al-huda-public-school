@@ -94,7 +94,7 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// POST - Record a fee payment (supports partial payments)
+// POST - Record a fee payment (supports partial payments and auto-pays previous vouchers)
 export async function POST(request: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
@@ -119,10 +119,19 @@ export async function POST(request: NextRequest) {
       chequeNumber,
     } = body;
 
-    // Get the voucher
+    // Get the voucher with student details
     const voucher = await prisma.feeVoucher.findUnique({
       where: { id: voucherId },
-      include: { student: true },
+      include: {
+        student: {
+          select: {
+            id: true,
+            registrationNo: true,
+            firstName: true,
+            lastName: true,
+          },
+        },
+      },
     });
 
     if (!voucher) {
@@ -146,56 +155,107 @@ export async function POST(request: NextRequest) {
     // Create payment and update voucher in transaction
     const result = await prisma.$transaction(async (tx: any) => {
       // Create payment record
-      const payment = await tx.feePayment.create({
+      const payment = await tx.payment.create({
         data: {
-          receiptNumber,
+          receiptNo: receiptNumber,
+          studentId: voucher.studentId,
           voucherId,
           amount,
           paymentMethod: paymentMethod || "CASH",
           paymentDate: paymentDate ? new Date(paymentDate) : new Date(),
-          notes,
-          bankName,
-          transactionId,
-          chequeNumber,
-          receivedById: session.user.id,
+          reference: transactionId || chequeNumber || null,
+          remarks: notes,
+          createdById: session.user.id,
         },
       });
 
-      // Update voucher
+      // Calculate new amounts
       const newPaidAmount = voucher.paidAmount + amount;
+      const newBalanceDue = Math.max(0, voucher.totalAmount - newPaidAmount);
       const newStatus =
-        newPaidAmount >= voucher.totalAmount ? "PAID" : "PARTIAL";
+        newBalanceDue <= 0 ? "PAID" : newPaidAmount > 0 ? "PARTIAL" : "UNPAID";
 
+      // Update current voucher
       await tx.feeVoucher.update({
         where: { id: voucherId },
         data: {
           paidAmount: newPaidAmount,
+          balanceDue: newBalanceDue,
           status: newStatus,
-          paidDate: newStatus === "PAID" ? new Date() : null,
         },
       });
 
-      return payment;
+      // If voucher is fully paid and has previous balance, mark previous vouchers as paid
+      if (newStatus === "PAID" && voucher.previousBalance > 0) {
+        // Get all unpaid/partial vouchers for this student that are older than current
+        const previousUnpaidVouchers = await tx.feeVoucher.findMany({
+          where: {
+            studentId: voucher.studentId,
+            status: { in: ["UNPAID", "PARTIAL"] },
+            id: { not: voucherId },
+            createdAt: { lt: voucher.createdAt },
+          },
+          orderBy: { createdAt: "asc" },
+        });
+
+        // Mark all previous vouchers as paid (since current voucher included their balance)
+        for (const prevVoucher of previousUnpaidVouchers) {
+          await tx.feeVoucher.update({
+            where: { id: prevVoucher.id },
+            data: {
+              paidAmount: prevVoucher.totalAmount,
+              balanceDue: 0,
+              status: "PAID",
+            },
+          });
+
+          // Log the auto-payment of previous voucher
+          await logTransaction({
+            action: "PAYMENT_RECEIVED",
+            entityType: "FEE",
+            entityId: prevVoucher.id,
+            userId: session.user.id,
+            details: {
+              voucherNo: prevVoucher.voucherNo,
+              autoPayment: true,
+              paidViaVoucher: voucher.voucherNo,
+              paidViaReceiptNo: receiptNumber,
+              message: `Auto-marked as paid via payment on ${voucher.voucherNo}`,
+            },
+          });
+        }
+      }
+
+      return { payment, newStatus, newBalanceDue };
     });
 
-    // Log transaction
+    // Log the main payment transaction
     await logTransaction({
-      action: "CREATE",
-      entityType: "FeePayment",
-      entityId: result.id,
+      action: "PAYMENT_RECEIVED",
+      entityType: "PAYMENT",
+      entityId: result.payment.id,
       userId: session.user.id,
       details: {
-        receiptNumber,
-        amount,
-        voucherId,
+        receiptNo: receiptNumber,
+        voucherNo: voucher.voucherNo,
         studentId: voucher.studentId,
+        studentName: `${voucher.student.firstName} ${voucher.student.lastName}`,
+        registrationNo: voucher.student.registrationNo,
+        amount,
+        paymentMethod: paymentMethod || "CASH",
+        previousBalance: voucher.previousBalance,
+        newVoucherStatus: result.newStatus,
+        remainingBalance: result.newBalanceDue,
+        reference: transactionId || chequeNumber || null,
       },
     });
 
     return NextResponse.json(
       {
-        ...result,
+        ...result.payment,
         message: `Payment of ${amount} recorded successfully. Receipt: ${receiptNumber}`,
+        newStatus: result.newStatus,
+        remainingBalance: result.newBalanceDue,
       },
       { status: 201 }
     );

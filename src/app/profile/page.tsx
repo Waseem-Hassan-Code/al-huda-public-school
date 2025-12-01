@@ -38,8 +38,11 @@ import {
 } from "@mui/icons-material";
 import MainLayout from "@/components/layout/MainLayout";
 import ImageUpload from "@/components/common/ImageUpload";
+import UserAvatar from "@/components/common/UserAvatar";
 import { formatDate } from "@/lib/utils";
 import { toast } from "sonner";
+import { useAppDispatch } from "@/store";
+import { updateUserAvatar } from "@/store/authSlice";
 
 interface UserProfile {
   id: string;
@@ -73,6 +76,7 @@ interface UserProfile {
 export default function ProfilePage() {
   const { data: session, status } = useSession();
   const router = useRouter();
+  const dispatch = useAppDispatch();
   const [loading, setLoading] = useState(true);
   const [mounted, setMounted] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -145,6 +149,11 @@ export default function ProfilePage() {
       });
 
       if (response.ok) {
+        const data = await response.json();
+        // Update avatar in Redux store if it changed
+        if (formData.avatar !== profile?.avatar) {
+          dispatch(updateUserAvatar(formData.avatar));
+        }
         toast.success("Profile updated successfully");
         setEditMode(false);
         fetchProfile();
@@ -289,18 +298,14 @@ export default function ProfilePage() {
               position: "relative",
             }}
           >
-            <Avatar
-              src={profile?.avatar || undefined}
+            <UserAvatar
+              src={profile?.avatar}
+              name={profile?.name}
+              size={100}
               sx={{
-                width: 100,
-                height: 100,
                 border: "4px solid rgba(255,255,255,0.3)",
-                fontSize: "2.5rem",
-                bgcolor: "rgba(255,255,255,0.2)",
               }}
-            >
-              {profile?.name?.charAt(0) || "U"}
-            </Avatar>
+            />
             <Box>
               <Typography variant="h4" fontWeight={700}>
                 {profile?.name || "Loading..."}
@@ -359,9 +364,10 @@ export default function ProfilePage() {
                     <ImageUpload
                       value={formData.avatar}
                       onChange={(url) =>
-                        setFormData({ ...formData, avatar: url })
+                        setFormData({ ...formData, avatar: url || "" })
                       }
-                      label="Profile Picture"
+                      type="user"
+                      name={profile?.name || undefined}
                     />
                   </Box>
                 )}

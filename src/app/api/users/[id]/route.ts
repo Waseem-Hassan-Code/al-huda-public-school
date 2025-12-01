@@ -33,6 +33,8 @@ export async function GET(
         id: true,
         email: true,
         name: true,
+        avatar: true,
+        phone: true,
         role: true,
         permissions: {
           select: {
@@ -80,13 +82,38 @@ export async function PUT(
     }
 
     const body = await request.json();
-    const { name, email, password, role, permissions, isActive } = body;
+    const {
+      name,
+      email,
+      password,
+      role,
+      permissions,
+      isActive,
+      avatar,
+      phone,
+      firstName,
+      lastName,
+    } = body;
 
     const updateData: any = {};
 
     // Basic info can be updated by self or admin
-    if (name) updateData.name = name;
+    if (name) {
+      updateData.name = name;
+    } else if (firstName || lastName) {
+      // Handle firstName/lastName format
+      const currentUser = await prisma.user.findUnique({
+        where: { id },
+        select: { name: true },
+      });
+      const parts = currentUser?.name?.split(" ") || ["", ""];
+      const fName = firstName || parts[0] || "";
+      const lName = lastName || parts.slice(1).join(" ") || "";
+      updateData.name = `${fName} ${lName}`.trim();
+    }
     if (email && !isSelf) updateData.email = email; // Email can only be changed by admin
+    if (avatar !== undefined) updateData.avatar = avatar || null;
+    if (phone !== undefined) updateData.phone = phone || null;
 
     // Password change
     if (password) {

@@ -53,10 +53,17 @@ export async function GET(request: NextRequest) {
           id: true,
           email: true,
           name: true,
+          avatar: true,
+          phone: true,
           role: true,
           isActive: true,
           createdAt: true,
           lastLogin: true,
+          permissions: {
+            select: {
+              permission: true,
+            },
+          },
         },
         skip,
         take: limit,
@@ -97,7 +104,16 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { email, password, firstName, lastName, role, permissions } = body;
+    const {
+      email,
+      password,
+      firstName,
+      lastName,
+      role,
+      permissions,
+      avatar,
+      phone,
+    } = body;
 
     // Check if email already exists
     const existing = await prisma.user.findUnique({
@@ -124,12 +140,15 @@ export async function POST(request: NextRequest) {
         password: hashedPassword,
         name: `${firstName} ${lastName}`.trim(),
         role,
+        avatar: avatar || null,
+        phone: phone || null,
         isActive: true,
       },
       select: {
         id: true,
         email: true,
         name: true,
+        avatar: true,
         role: true,
         isActive: true,
         createdAt: true,

@@ -89,12 +89,11 @@ body {
 
 [data-sonner-toast] {
   padding: 14px 16px !important;
-  padding-right: 40px !important;
   border-radius: 12px !important;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15) !important;
   border: none !important;
   position: relative !important;
-  overflow: visible !important;
+  overflow: hidden !important;
 }
 
 [data-sonner-toast][data-type="success"] {

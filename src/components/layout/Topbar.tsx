@@ -28,6 +28,7 @@ import {
 import { signOut } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { useTranslation } from "react-i18next";
+import UserAvatar from "@/components/common/UserAvatar";
 import { useAppDispatch, useAppSelector } from "@/store";
 import {
   toggleSidebar,
@@ -198,17 +199,14 @@ export default function Topbar() {
           {/* User Menu */}
           <Tooltip title="Account">
             <IconButton onClick={handleMenuOpen} sx={{ p: 0, ml: 1 }}>
-              <Avatar
-                src={user?.avatar || undefined}
-                alt={user?.name || "User"}
+              <UserAvatar
+                src={user?.avatar}
+                name={user?.name}
+                size={40}
                 sx={{
-                  width: 40,
-                  height: 40,
                   border: "2px solid rgba(255,255,255,0.5)",
                 }}
-              >
-                {user?.name?.charAt(0) || "U"}
-              </Avatar>
+              />
             </IconButton>
           </Tooltip>
         </Box>

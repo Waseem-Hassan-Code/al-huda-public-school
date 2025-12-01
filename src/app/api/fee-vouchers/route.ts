@@ -165,14 +165,23 @@ export async function POST(request: NextRequest) {
           };
         }
 
-        // Get student's monthly fee and previous balance
-        const [student, lastVoucher] = await Promise.all([
+        // Get student's monthly fee and previous unpaid vouchers
+        const [student, unpaidVouchers] = await Promise.all([
           prisma.student.findUnique({
             where: { id: sid },
-            select: { monthlyFee: true, classId: true },
+            select: {
+              monthlyFee: true,
+              classId: true,
+              firstName: true,
+              lastName: true,
+              registrationNo: true,
+            },
           }),
-          prisma.feeVoucher.findFirst({
-            where: { studentId: sid },
+          prisma.feeVoucher.findMany({
+            where: {
+              studentId: sid,
+              status: { in: [FeeStatus.UNPAID, FeeStatus.PARTIAL] },
+            },
             orderBy: { createdAt: "desc" },
           }),
         ]);
@@ -182,17 +191,24 @@ export async function POST(request: NextRequest) {
         }
 
         // Calculate total amount from monthly fee
-        const totalAmount = student.monthlyFee;
+        const subtotal = student.monthlyFee;
 
-        // Get previous balance (unpaid amount from last voucher)
-        const previousBalance = lastVoucher
-          ? lastVoucher.totalAmount - lastVoucher.paidAmount
-          : 0;
+        // Calculate previous balance from ALL unpaid/partial vouchers
+        const previousBalance = unpaidVouchers.reduce(
+          (sum, v) => sum + v.balanceDue,
+          0
+        );
+
+        // Get the most recent unpaid voucher for reference linking
+        const lastUnpaidVoucher = unpaidVouchers[0] || null;
 
         // Generate voucher number
         const voucherNo = await getNextSequenceValue("VOUCHER");
 
-        // Create voucher
+        // Total amount = current month fee + all previous unpaid balances
+        const totalAmount = subtotal + previousBalance;
+
+        // Create voucher with proper linking
         const voucher = await prisma.feeVoucher.create({
           data: {
             voucherNo,
@@ -200,33 +216,41 @@ export async function POST(request: NextRequest) {
             month: targetMonth,
             year: targetYear,
             dueDate,
-            subtotal: totalAmount,
-            totalAmount: totalAmount + previousBalance,
+            subtotal,
+            totalAmount,
             previousBalance,
-            balanceDue: totalAmount + previousBalance,
+            balanceDue: totalAmount,
             paidAmount: 0,
             status: FeeStatus.UNPAID,
+            previousVoucherId: lastUnpaidVoucher?.id || null,
             createdById: session.user.id,
             feeItems: {
               create: {
                 feeType: FeeType.MONTHLY_FEE,
                 description: `Monthly Fee - ${targetMonth}/${targetYear}`,
-                amount: totalAmount,
+                amount: subtotal,
               },
             },
           },
         });
 
-        // Log transaction
+        // Log transaction with detailed info
         await logTransaction({
-          action: "CREATE",
-          entityType: "FeeVoucher",
+          action: "FEE_GENERATED",
+          entityType: "FEE",
           entityId: voucher.id,
           userId: session.user.id,
           details: {
             voucherNo,
             studentId: sid,
-            amount: voucher.totalAmount,
+            studentName: `${student.firstName} ${student.lastName}`,
+            registrationNo: student.registrationNo,
+            month: targetMonth,
+            year: targetYear,
+            subtotal,
+            previousBalance,
+            totalAmount: voucher.totalAmount,
+            previousVoucherId: lastUnpaidVoucher?.id || null,
           },
         });
 

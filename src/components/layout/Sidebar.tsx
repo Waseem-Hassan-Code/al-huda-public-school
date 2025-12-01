@@ -42,6 +42,7 @@ import { useRouter, usePathname } from "next/navigation";
 import { useTranslation } from "react-i18next";
 import { useAppSelector } from "@/store";
 import { hasPermission, Permission } from "@/lib/permissions";
+import UserAvatar from "@/components/common/UserAvatar";
 
 const drawerWidth = 280;
 const collapsedDrawerWidth = 72;
@@ -484,17 +485,14 @@ export default function Sidebar() {
             justifyContent: sidebarCollapsed ? "center" : "flex-start",
           }}
         >
-          <Avatar
-            src={user?.avatar || undefined}
-            alt={user?.name || "User"}
+          <UserAvatar
+            src={user?.avatar}
+            name={user?.name}
+            size={sidebarCollapsed ? 36 : 45}
             sx={{
-              width: sidebarCollapsed ? 36 : 45,
-              height: sidebarCollapsed ? 36 : 45,
               border: "2px solid rgba(255,255,255,0.3)",
             }}
-          >
-            {user?.name?.charAt(0) || "U"}
-          </Avatar>
+          />
           {!sidebarCollapsed && (
             <Box sx={{ flex: 1, minWidth: 0 }}>
               <Typography

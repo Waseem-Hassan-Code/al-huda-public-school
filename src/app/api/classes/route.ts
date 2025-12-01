@@ -150,3 +150,145 @@ export async function POST(request: NextRequest) {
     );
   }
 }
+
+// PUT - Update class
+export async function PUT(request: NextRequest) {
+  try {
+    const session = await getServerSession(authOptions);
+
+    if (!session) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    if (!hasPermission(session.user.role, Permission.UPDATE_CLASS)) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
+    const body = await request.json();
+    const { id, name, displayOrder, isActive } = body;
+
+    if (!id) {
+      return NextResponse.json(
+        { error: "Class ID is required" },
+        { status: 400 }
+      );
+    }
+
+    const updatedClass = await prisma.class.update({
+      where: { id },
+      data: {
+        ...(name && { name }),
+        ...(displayOrder !== undefined && { displayOrder }),
+        ...(isActive !== undefined && { isActive }),
+      },
+      include: {
+        sections: true,
+        subjects: {
+          include: {
+            subject: true,
+          },
+        },
+        _count: {
+          select: {
+            students: true,
+          },
+        },
+      },
+    });
+
+    await logTransaction({
+      action: "UPDATE",
+      entityType: "CLASS",
+      entityId: id,
+      userId: session.user.id,
+      details: { name: updatedClass.name },
+    });
+
+    return NextResponse.json(updatedClass);
+  } catch (error) {
+    console.error("Classes PUT Error:", error);
+    return NextResponse.json(
+      { error: "Failed to update class" },
+      { status: 500 }
+    );
+  }
+}
+
+// DELETE - Delete class (only if no students)
+export async function DELETE(request: NextRequest) {
+  try {
+    const session = await getServerSession(authOptions);
+
+    if (!session) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    if (!hasPermission(session.user.role, Permission.DELETE_CLASS)) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
+    const { searchParams } = new URL(request.url);
+    const id = searchParams.get("id");
+
+    if (!id) {
+      return NextResponse.json(
+        { error: "Class ID is required" },
+        { status: 400 }
+      );
+    }
+
+    // Check if there are students in this class
+    const studentCount = await prisma.student.count({
+      where: { classId: id },
+    });
+
+    if (studentCount > 0) {
+      return NextResponse.json(
+        {
+          error: `Cannot delete class. There are ${studentCount} student(s) enrolled in this class. Please transfer or remove students first.`,
+        },
+        { status: 400 }
+      );
+    }
+
+    // Get class name for logging before deletion
+    const classToDelete = await prisma.class.findUnique({
+      where: { id },
+      select: { name: true },
+    });
+
+    // Delete related data in transaction
+    await prisma.$transaction(async (tx: any) => {
+      // Delete class subjects
+      await tx.classSubject.deleteMany({
+        where: { classId: id },
+      });
+
+      // Delete sections
+      await tx.section.deleteMany({
+        where: { classId: id },
+      });
+
+      // Delete the class
+      await tx.class.delete({
+        where: { id },
+      });
+    });
+
+    await logTransaction({
+      action: "DELETE",
+      entityType: "CLASS",
+      entityId: id,
+      userId: session.user.id,
+      details: { name: classToDelete?.name },
+    });
+
+    return NextResponse.json({ message: "Class deleted successfully" });
+  } catch (error) {
+    console.error("Classes DELETE Error:", error);
+    return NextResponse.json(
+      { error: "Failed to delete class" },
+      { status: 500 }
+    );
+  }
+}

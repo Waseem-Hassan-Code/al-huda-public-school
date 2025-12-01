@@ -1098,7 +1098,8 @@ export default function SettingsPage() {
           </Grid>
 
           {/* Danger Zone */}
-          {session?.user?.role === "ADMIN" && (
+          {(session?.user?.role === "ADMIN" ||
+            session?.user?.role === "SUPER_ADMIN") && (
             <Grid size={{ xs: 12 }}>
               <Card sx={{ border: "1px solid", borderColor: "error.main" }}>
                 <CardHeader

@@ -57,14 +57,16 @@ import {
   Check,
 } from "@mui/icons-material";
 import MainLayout from "@/components/layout/MainLayout";
+import UserAvatar from "@/components/common/UserAvatar";
+import ImageUpload from "@/components/common/ImageUpload";
 import { formatDate } from "@/lib/utils";
 import { toast } from "sonner";
 
 interface User {
   id: string;
   email: string;
-  firstName: string;
-  lastName: string;
+  name: string;
+  avatar: string | null;
   phone: string | null;
   role: string;
   isActive: boolean;
@@ -72,6 +74,21 @@ interface User {
   lastLogin: string | null;
   permissions: { permission: string }[];
 }
+
+// Helper function to parse name into firstName/lastName
+const parseUserName = (name: string) => {
+  const parts = name.trim().split(" ");
+  if (parts.length >= 2) {
+    return {
+      firstName: parts[0],
+      lastName: parts.slice(1).join(" "),
+    };
+  }
+  return {
+    firstName: name,
+    lastName: "",
+  };
+};
 
 const ROLES = ["ADMIN", "TEACHER", "ACCOUNTANT", "RECEPTIONIST"];
 
@@ -181,6 +198,7 @@ export default function UsersPage() {
     phone: "",
     role: "TEACHER",
     isActive: true,
+    avatar: "",
   });
 
   const [selectedPermissions, setSelectedPermissions] = useState<string[]>([]);
@@ -218,15 +236,17 @@ export default function UsersPage() {
 
   const handleOpenDialog = (user?: User) => {
     if (user) {
+      const { firstName, lastName } = parseUserName(user.name);
       setSelectedUser(user);
       setFormData({
         email: user.email,
         password: "",
-        firstName: user.firstName,
-        lastName: user.lastName,
+        firstName,
+        lastName,
         phone: user.phone || "",
         role: user.role,
         isActive: user.isActive,
+        avatar: user.avatar || "",
       });
     } else {
       setSelectedUser(null);
@@ -238,6 +258,7 @@ export default function UsersPage() {
         phone: "",
         role: "TEACHER",
         isActive: true,
+        avatar: "",
       });
     }
     setDialogOpen(true);
@@ -529,15 +550,18 @@ export default function UsersPage() {
                   <TableRow key={user.id} hover>
                     <TableCell>
                       <Box
-                        sx={{ display: "flex", alignItems: "center", gap: 1 }}
+                        sx={{ display: "flex", alignItems: "center", gap: 1.5 }}
                       >
-                        <Avatar sx={{ width: 36, height: 36 }}>
-                          {user.firstName[0]}
-                          {user.lastName[0]}
-                        </Avatar>
+                        <UserAvatar
+                          src={user.avatar}
+                          name={user.name}
+                          size="sm"
+                          showBadge
+                          badgeColor={user.isActive ? "success" : "default"}
+                        />
                         <Box>
                           <Typography variant="body2" fontWeight="medium">
-                            {user.firstName} {user.lastName}
+                            {user.name}
                           </Typography>
                           {user.phone && (
                             <Typography
@@ -662,6 +686,23 @@ export default function UsersPage() {
           </DialogTitle>
           <DialogContent dividers>
             <Grid container spacing={2} sx={{ mt: 1 }}>
+              {/* Avatar Upload */}
+              <Grid size={{ xs: 12 }}>
+                <Box sx={{ display: "flex", justifyContent: "center", mb: 2 }}>
+                  <ImageUpload
+                    value={formData.avatar}
+                    onChange={(url) =>
+                      setFormData({ ...formData, avatar: url || "" })
+                    }
+                    type="user"
+                    name={
+                      `${formData.firstName} ${formData.lastName}`.trim() ||
+                      undefined
+                    }
+                    size={100}
+                  />
+                </Box>
+              </Grid>
               <Grid size={{ xs: 12, sm: 6 }}>
                 <TextField
                   fullWidth
@@ -788,8 +829,7 @@ export default function UsersPage() {
                 Manage Permissions
                 {selectedUser && (
                   <Typography variant="body2" color="text.secondary">
-                    {selectedUser.firstName} {selectedUser.lastName} (
-                    {selectedUser.role})
+                    {selectedUser.name} ({selectedUser.role})
                   </Typography>
                 )}
               </Box>
@@ -895,10 +935,8 @@ export default function UsersPage() {
           <DialogContent>
             <Typography>
               Are you sure you want to delete user{" "}
-              <strong>
-                {selectedUser?.firstName} {selectedUser?.lastName}
-              </strong>
-              ? This action cannot be undone.
+              <strong>{selectedUser?.name}</strong>? This action cannot be
+              undone.
             </Typography>
           </DialogContent>
           <DialogActions>
