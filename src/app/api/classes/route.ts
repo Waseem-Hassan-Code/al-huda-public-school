@@ -58,8 +58,14 @@ export async function GET(request: NextRequest) {
       orderBy: { displayOrder: "asc" },
     });
 
+    // Transform subjects to flatten the structure
+    const transformedClasses = classes.map((cls) => ({
+      ...cls,
+      subjects: cls.subjects.map((cs) => cs.subject),
+    }));
+
     return NextResponse.json({
-      classes,
+      classes: transformedClasses,
     });
   } catch (error) {
     console.error("Classes GET Error:", error);

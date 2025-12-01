@@ -150,9 +150,10 @@ export default function ProfilePage() {
 
       if (response.ok) {
         const data = await response.json();
-        // Update avatar in Redux store if it changed
-        if (formData.avatar !== profile?.avatar) {
-          dispatch(updateUserAvatar(formData.avatar));
+        // Update avatar in Redux store with the saved value
+        const savedAvatar = data.data?.avatar || formData.avatar;
+        if (savedAvatar) {
+          dispatch(updateUserAvatar(savedAvatar));
         }
         toast.success("Profile updated successfully");
         setEditMode(false);

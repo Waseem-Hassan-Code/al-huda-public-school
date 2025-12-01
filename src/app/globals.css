@@ -158,34 +158,9 @@ body {
   margin-top: 2px !important;
 }
 
-/* Close button - make it visible and positioned correctly */
+/* Hide close button completely */
 [data-sonner-toast] [data-close-button] {
-  position: absolute !important;
-  top: 50% !important;
-  right: 8px !important;
-  transform: translateY(-50%) !important;
-  width: 24px !important;
-  height: 24px !important;
-  background: rgba(255, 255, 255, 0.25) !important;
-  border: none !important;
-  border-radius: 6px !important;
-  color: white !important;
-  opacity: 1 !important;
-  display: flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-  cursor: pointer !important;
-  transition: all 0.2s ease !important;
-}
-
-[data-sonner-toast] [data-close-button]:hover {
-  background: rgba(255, 255, 255, 0.4) !important;
-  transform: translateY(-50%) scale(1.1) !important;
-}
-
-[data-sonner-toast] [data-close-button] svg {
-  width: 14px !important;
-  height: 14px !important;
+  display: none !important;
 }
 
 [data-sonner-toast] [data-icon] {
@@ -204,24 +179,32 @@ body {
   color: white !important;
 }
 
-/* Progress bar - thin line at bottom */
-[data-sonner-toast]::after {
+/* Progress bar - covers entire toast with overlay animation */
+[data-sonner-toast]::before {
   content: "";
   position: absolute;
-  bottom: 0;
+  top: 0;
   left: 0;
-  height: 2px;
-  background: rgba(255, 255, 255, 0.5);
-  border-radius: 0 0 12px 12px;
+  right: 0;
+  bottom: 0;
+  background: rgba(255, 255, 255, 0.15);
+  transform-origin: left;
   animation: toastProgress 4s linear forwards;
+  pointer-events: none;
+  z-index: 0;
+}
+
+[data-sonner-toast] > * {
+  position: relative;
+  z-index: 1;
 }
 
 @keyframes toastProgress {
   from {
-    width: 100%;
+    transform: scaleX(1);
   }
   to {
-    width: 0%;
+    transform: scaleX(0);
   }
 }
 

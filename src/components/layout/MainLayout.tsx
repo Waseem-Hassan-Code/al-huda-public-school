@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import { Box, CircularProgress } from "@mui/material";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
@@ -40,21 +40,49 @@ export default function MainLayout({ children }: MainLayoutProps) {
     }
   }, [status, router]);
 
+  // Fetch latest user profile to get current avatar
+  const fetchUserProfile = useCallback(async () => {
+    try {
+      const response = await fetch("/api/profile");
+      if (response.ok) {
+        const data = await response.json();
+        return data.data;
+      }
+    } catch (error) {
+      console.error("Failed to fetch user profile:", error);
+    }
+    return null;
+  }, []);
+
   useEffect(() => {
     if (session?.user) {
-      dispatch(
-        setUser({
-          id: (session.user as any).id,
-          email: session.user.email || "",
-          name: session.user.name || "",
-          role: (session.user as any).role || "VIEWER",
-          avatar: (session.user as any).avatar,
-          teacherId: (session.user as any).teacherId,
-          permissions: (session.user as any).permissions,
-        })
-      );
+      // First set user from session
+      const sessionUser = {
+        id: (session.user as any).id,
+        email: session.user.email || "",
+        name: session.user.name || "",
+        role: (session.user as any).role || "VIEWER",
+        avatar: (session.user as any).avatar,
+        teacherId: (session.user as any).teacherId,
+        permissions: (session.user as any).permissions,
+      };
+
+      // Then fetch latest profile to get updated avatar
+      fetchUserProfile().then((profile) => {
+        if (profile) {
+          dispatch(
+            setUser({
+              ...sessionUser,
+              avatar: profile.avatar || sessionUser.avatar,
+              name: profile.name || sessionUser.name,
+            })
+          );
+        } else {
+          dispatch(setUser(sessionUser));
+        }
+      });
     }
-  }, [session, dispatch]);
+  }, [session, dispatch, fetchUserProfile]);
 
   // Prevent hydration mismatch by showing consistent loading state
   if (!mounted || status === "loading") {

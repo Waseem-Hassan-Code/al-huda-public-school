@@ -67,16 +67,19 @@ export default function UserAvatar({
   const initials = getInitials(name);
   const bgColor = name ? stringToColor(name) : "primary.main";
 
+  // Normalize src - treat empty string as no image
+  const imageSrc = src && src.trim() !== "" ? src : undefined;
+
   const avatarComponent = (
     <Avatar
-      src={src || undefined}
+      src={imageSrc}
       alt={name || "User"}
       onClick={onClick}
       sx={{
         width: pixelSize,
         height: pixelSize,
         fontSize,
-        bgcolor: src ? "transparent" : bgColor,
+        bgcolor: imageSrc ? "transparent" : bgColor,
         cursor: onClick ? "pointer" : "default",
         transition: "transform 0.2s ease",
         "&:hover": onClick
@@ -87,7 +90,7 @@ export default function UserAvatar({
         ...sx,
       }}
     >
-      {!src && (initials || <Person sx={{ fontSize: fontSize * 1.2 }} />)}
+      {!imageSrc && (initials || <Person sx={{ fontSize: fontSize * 1.2 }} />)}
     </Avatar>
   );
 
