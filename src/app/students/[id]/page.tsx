@@ -78,8 +78,8 @@ interface StudentDetail {
   admissionDate: string;
   previousSchool: string;
   previousClass: string;
-  class: { id: string; name: string };
-  section: { id: string; name: string };
+  class: { id: string; name: string } | null;
+  section: { id: string; name: string } | null;
   guardian: {
     id: string;
     firstName: string;
@@ -419,7 +419,8 @@ export default function StudentDetailPage({
                       Class & Section
                     </Typography>
                     <Typography>
-                      {student.class.name} - {student.section.name}
+                      {student.class?.name || "No Class"} -{" "}
+                      {student.section?.name || "No Section"}
                     </Typography>
                   </Grid>
                   <Grid size={{ xs: 6 }}>
@@ -510,9 +511,9 @@ export default function StudentDetailPage({
                       </TableRow>
                     </TableHead>
                     <TableBody>
-                      {student.studentFees.map((fee) => (
+                      {(student.studentFees || []).map((fee) => (
                         <TableRow key={fee.id}>
-                          <TableCell>{fee.feeStructure.name}</TableCell>
+                          <TableCell>{fee.feeStructure?.name || "-"}</TableCell>
                           <TableCell align="right">
                             {formatCurrency(fee.amount)}
                           </TableCell>
@@ -524,6 +525,13 @@ export default function StudentDetailPage({
                           </TableCell>
                         </TableRow>
                       ))}
+                      {(student.studentFees || []).length === 0 && (
+                        <TableRow>
+                          <TableCell colSpan={4} align="center">
+                            No fee structure assigned
+                          </TableCell>
+                        </TableRow>
+                      )}
                       <TableRow>
                         <TableCell colSpan={3} align="right">
                           <strong>Total Monthly Fee</strong>
@@ -651,7 +659,7 @@ export default function StudentDetailPage({
                   </TableRow>
                 </TableHead>
                 <TableBody>
-                  {student.attendances.map((attendance) => (
+                  {(student.attendances || []).map((attendance) => (
                     <TableRow key={attendance.id}>
                       <TableCell>{formatDate(attendance.date)}</TableCell>
                       <TableCell>
@@ -660,7 +668,7 @@ export default function StudentDetailPage({
                       <TableCell>{attendance.remarks || "-"}</TableCell>
                     </TableRow>
                   ))}
-                  {student.attendances.length === 0 && (
+                  {(student.attendances || []).length === 0 && (
                     <TableRow>
                       <TableCell colSpan={3} align="center">
                         No attendance records found

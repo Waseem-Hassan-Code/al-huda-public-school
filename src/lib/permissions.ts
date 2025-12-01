@@ -94,6 +94,9 @@ export enum Permission {
 
   // Transaction Logs
   VIEW_LOGS = "logs.view",
+
+  // Messaging
+  SEND_MESSAGES = "messaging.send",
 }
 
 // Role-based permissions
@@ -135,6 +138,7 @@ export const rolePermissions: Record<string, Permission[]> = {
     Permission.VIEW_ACADEMIC_YEAR,
     Permission.VIEW_SETTINGS,
     Permission.VIEW_LOGS,
+    Permission.SEND_MESSAGES,
   ],
 
   VICE_PRINCIPAL: [
@@ -189,6 +193,7 @@ export const rolePermissions: Record<string, Permission[]> = {
     Permission.GENERATE_FEE_VOUCHERS,
     Permission.MANAGE_FEE_STRUCTURE,
     Permission.VIEW_LOGS,
+    Permission.SEND_MESSAGES,
   ],
 
   CLERK: [
@@ -205,6 +210,7 @@ export const rolePermissions: Record<string, Permission[]> = {
     Permission.RECEIVE_PAYMENT,
     Permission.VIEW_ATTENDANCE,
     Permission.VIEW_TIMETABLE,
+    Permission.SEND_MESSAGES,
   ],
 
   RECEPTIONIST: [

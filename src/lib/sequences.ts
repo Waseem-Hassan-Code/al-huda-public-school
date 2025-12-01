@@ -16,7 +16,7 @@ export async function getNextSequenceValue(
 
   switch (sequenceId) {
     case "student":
-      return `AHPS-${year}-${paddedValue}`;
+      return `ALH-${year}-${paddedValue}`;
     case "teacher":
       return `AHPS-T-${String(sequence.value).padStart(3, "0")}`;
     case "fee_voucher":

@@ -30,6 +30,7 @@ import {
   TableRow,
   Checkbox,
   CircularProgress,
+  FormControlLabel,
 } from "@mui/material";
 import {
   ArrowBack as BackIcon,
@@ -53,6 +54,7 @@ const steps = [
 
 interface FormData {
   // Student Info
+  registrationNo: string;
   firstName: string;
   lastName: string;
   dateOfBirth: string;
@@ -79,6 +81,8 @@ interface FormData {
     relationship: string;
     cnic: string;
     phone: string;
+    whatsapp: string;
+    sameAsPhone: boolean;
     email: string;
     occupation: string;
     address: string;
@@ -120,6 +124,7 @@ export default function AdmissionPage() {
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   const [formData, setFormData] = useState<FormData>({
+    registrationNo: "",
     firstName: "",
     lastName: "",
     dateOfBirth: "",
@@ -144,6 +149,8 @@ export default function AdmissionPage() {
       relationship: "",
       cnic: "",
       phone: "",
+      whatsapp: "",
+      sameAsPhone: false,
       email: "",
       occupation: "",
       address: "",
@@ -170,12 +177,12 @@ export default function AdmissionPage() {
 
         if (classesRes.ok) {
           const data = await classesRes.json();
-          setClasses(data.data || []);
+          setClasses(data.classes || data.data || []);
         }
 
         if (feesRes.ok) {
           const data = await feesRes.json();
-          setFeeStructures(data.data || []);
+          setFeeStructures(data.feeStructures || data.data || []);
         }
       } catch (error) {
         console.error("Failed to fetch data:", error);
@@ -353,7 +360,22 @@ export default function AdmissionPage() {
                 name={`${formData.firstName} ${formData.lastName}`.trim()}
               />
             </Grid>
-            <Grid size={{ xs: 12, md: 6 }}>
+            <Grid size={{ xs: 12, md: 4 }}>
+              <TextField
+                label="Registration Number"
+                fullWidth
+                value={formData.registrationNo}
+                onChange={(e) =>
+                  handleInputChange(
+                    "registrationNo",
+                    e.target.value.toUpperCase()
+                  )
+                }
+                placeholder={`ALH-${new Date().getFullYear()}-00001`}
+                helperText="Leave empty to auto-generate"
+              />
+            </Grid>
+            <Grid size={{ xs: 12, md: 4 }}>
               <TextField
                 label="First Name"
                 fullWidth
@@ -364,7 +386,7 @@ export default function AdmissionPage() {
                 helperText={errors.firstName}
               />
             </Grid>
-            <Grid size={{ xs: 12, md: 6 }}>
+            <Grid size={{ xs: 12, md: 4 }}>
               <TextField
                 label="Last Name"
                 fullWidth
@@ -711,13 +733,56 @@ export default function AdmissionPage() {
                 fullWidth
                 required
                 value={formData.guardian.phone}
-                onChange={(e) =>
-                  handleGuardianChange("phone", maskPhone(e.target.value))
-                }
+                onChange={(e) => {
+                  const newPhone = maskPhone(e.target.value);
+                  handleGuardianChange("phone", newPhone);
+                  if (formData.guardian.sameAsPhone) {
+                    handleGuardianChange("whatsapp", newPhone);
+                  }
+                }}
                 placeholder="03XX-XXXXXXX"
                 error={!!errors["guardian.phone"]}
                 helperText={errors["guardian.phone"] || "Format: 03XX-XXXXXXX"}
               />
+            </Grid>
+            <Grid size={{ xs: 12, md: 6 }}>
+              <Box>
+                <TextField
+                  label="WhatsApp Number (Optional)"
+                  fullWidth
+                  value={formData.guardian.whatsapp}
+                  onChange={(e) =>
+                    handleGuardianChange("whatsapp", maskPhone(e.target.value))
+                  }
+                  placeholder="03XX-XXXXXXX"
+                  disabled={formData.guardian.sameAsPhone}
+                  helperText="Leave empty if same as phone number"
+                />
+                <FormControlLabel
+                  control={
+                    <Checkbox
+                      checked={formData.guardian.sameAsPhone}
+                      onChange={(e) => {
+                        const checked = e.target.checked;
+                        handleGuardianChange("sameAsPhone", checked);
+                        if (checked) {
+                          handleGuardianChange(
+                            "whatsapp",
+                            formData.guardian.phone
+                          );
+                        }
+                      }}
+                      size="small"
+                    />
+                  }
+                  label={
+                    <Typography variant="body2" color="text.secondary">
+                      Same as phone number
+                    </Typography>
+                  }
+                  sx={{ mt: 0.5 }}
+                />
+              </Box>
             </Grid>
             <Grid size={{ xs: 12, md: 6 }}>
               <TextField
@@ -869,8 +934,10 @@ export default function AdmissionPage() {
               Review & Submit
             </Typography>
             <Alert severity="info" sx={{ mb: 3 }}>
-              Please review all the information before submitting. A student ID
-              will be automatically generated.
+              Please review all the information before submitting.
+              {formData.registrationNo
+                ? ` Registration Number: ${formData.registrationNo}`
+                : " A registration number will be automatically generated."}
             </Alert>
 
             <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
@@ -878,6 +945,14 @@ export default function AdmissionPage() {
                 Student Information
               </Typography>
               <Grid container spacing={2}>
+                <Grid size={{ xs: 6, md: 3 }}>
+                  <Typography variant="caption" color="text.secondary">
+                    Registration No.
+                  </Typography>
+                  <Typography>
+                    {formData.registrationNo || "Auto-generated"}
+                  </Typography>
+                </Grid>
                 <Grid size={{ xs: 6, md: 3 }}>
                   <Typography variant="caption" color="text.secondary">
                     Name
@@ -968,6 +1043,14 @@ export default function AdmissionPage() {
                     Phone
                   </Typography>
                   <Typography>{formData.guardian.phone}</Typography>
+                </Grid>
+                <Grid size={{ xs: 6, md: 3 }}>
+                  <Typography variant="caption" color="text.secondary">
+                    WhatsApp
+                  </Typography>
+                  <Typography>
+                    {formData.guardian.whatsapp || formData.guardian.phone}
+                  </Typography>
                 </Grid>
                 <Grid size={{ xs: 6, md: 3 }}>
                   <Typography variant="caption" color="text.secondary">

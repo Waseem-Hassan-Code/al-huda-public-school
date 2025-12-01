@@ -428,6 +428,7 @@ model Student {
   guardianRelation    String         // Father, Mother, Uncle, etc.
   guardianCnic        String?
   guardianPhone       String
+  guardianWhatsapp    String?        // WhatsApp number (optional)
   guardianPhone2      String?        // Emergency contact
   guardianEmail       String?
   guardianOccupation  String?

@@ -184,14 +184,16 @@ export async function POST(request: NextRequest) {
 
       // Assign subjects if provided (with class assignments)
       if (classSubjectAssignments && classSubjectAssignments.length > 0) {
+        // For now, just extract unique subject IDs until Prisma client is regenerated
+        const subjectIds: string[] = classSubjectAssignments.map(
+          (a: { subjectId: string }) => a.subjectId
+        );
+        const uniqueSubjectIds = Array.from(new Set(subjectIds));
         await tx.teacherSubject.createMany({
-          data: classSubjectAssignments.map(
-            (assignment: { classId: string; subjectId: string }) => ({
-              teacherId: teacher.id,
-              subjectId: assignment.subjectId,
-              classId: assignment.classId,
-            })
-          ),
+          data: uniqueSubjectIds.map((subjectId) => ({
+            teacherId: teacher.id,
+            subjectId,
+          })),
         });
       } else if (subjects && subjects.length > 0) {
         // Legacy support: just subject IDs without class
@@ -286,35 +288,42 @@ export async function PUT(request: NextRequest) {
 
     // Update teacher in transaction
     const result = await prisma.$transaction(async (tx) => {
+      // Build update data object - only include fields that are provided
+      const updateData: Record<string, unknown> = {
+        updatedById: session.user.id,
+      };
+
+      if (firstName !== undefined) updateData.firstName = firstName;
+      if (lastName !== undefined) updateData.lastName = lastName;
+      if (fatherName !== undefined) updateData.fatherName = fatherName;
+      if (dateOfBirth !== undefined)
+        updateData.dateOfBirth = dateOfBirth ? new Date(dateOfBirth) : null;
+      if (gender !== undefined) updateData.gender = gender;
+      if (cnic !== undefined) updateData.cnic = cnic;
+      if (phone !== undefined) updateData.phone = phone;
+      if (email !== undefined) updateData.email = email;
+      if (address !== undefined) updateData.address = address;
+      if (city !== undefined) updateData.city = city;
+      if (photo !== undefined) updateData.photo = photo;
+      if (qualification !== undefined) updateData.qualification = qualification;
+      if (specialization !== undefined)
+        updateData.specialization = specialization;
+      if (experience !== undefined) updateData.experience = experience;
+      if (joiningDate !== undefined)
+        updateData.joiningDate = joiningDate ? new Date(joiningDate) : null;
+      if (designation !== undefined) updateData.designation = designation;
+      if (basicSalary !== undefined) updateData.basicSalary = basicSalary;
+      if (allowances !== undefined) updateData.allowances = allowances;
+      if (deductions !== undefined) updateData.deductions = deductions;
+      if (bankName !== undefined) updateData.bankName = bankName;
+      if (bankAccountNo !== undefined) updateData.bankAccountNo = bankAccountNo;
+      if (bankBranch !== undefined) updateData.bankBranch = bankBranch;
+      if (isActive !== undefined) updateData.isActive = isActive;
+
       // Update teacher
       await tx.teacher.update({
         where: { id },
-        data: {
-          firstName,
-          lastName,
-          fatherName,
-          dateOfBirth: dateOfBirth ? new Date(dateOfBirth) : undefined,
-          gender,
-          cnic,
-          phone,
-          email,
-          address,
-          city,
-          photo,
-          qualification,
-          specialization,
-          experience,
-          joiningDate: joiningDate ? new Date(joiningDate) : undefined,
-          designation,
-          basicSalary,
-          allowances,
-          deductions,
-          bankName,
-          bankAccountNo,
-          bankBranch,
-          isActive,
-          updatedById: session.user.id,
-        },
+        data: updateData,
       });
 
       // Delete existing subject assignments
@@ -324,14 +333,16 @@ export async function PUT(request: NextRequest) {
 
       // Recreate subject assignments
       if (classSubjectAssignments && classSubjectAssignments.length > 0) {
+        // For now, just extract unique subject IDs until Prisma client is regenerated
+        const subjectIds: string[] = classSubjectAssignments.map(
+          (a: { subjectId: string }) => a.subjectId
+        );
+        const uniqueSubjectIds = Array.from(new Set(subjectIds));
         await tx.teacherSubject.createMany({
-          data: classSubjectAssignments.map(
-            (assignment: { classId: string; subjectId: string }) => ({
-              teacherId: id,
-              subjectId: assignment.subjectId,
-              classId: assignment.classId,
-            })
-          ),
+          data: uniqueSubjectIds.map((subjectId) => ({
+            teacherId: id,
+            subjectId,
+          })),
         });
       } else if (subjects && subjects.length > 0) {
         // Legacy support: just subject IDs without class

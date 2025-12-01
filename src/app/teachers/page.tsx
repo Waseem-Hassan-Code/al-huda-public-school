@@ -74,7 +74,7 @@ interface Teacher {
   qualification: string;
   specialization: string | null;
   address: string;
-  monthlySalary: number;
+  basicSalary: number;
   isActive: boolean;
   photo?: string | null;
   subjects: {
@@ -132,7 +132,7 @@ export default function TeachersPage() {
     qualification: "",
     specialization: "",
     address: "",
-    monthlySalary: 0,
+    basicSalary: 0,
     photo: "",
   });
 
@@ -221,7 +221,7 @@ export default function TeachersPage() {
         qualification: teacher.qualification,
         specialization: teacher.specialization || "",
         address: teacher.address,
-        monthlySalary: teacher.monthlySalary,
+        basicSalary: teacher.basicSalary || 0,
         photo: teacher.photo || "",
       });
       // Extract class-subject assignments from teacher data
@@ -258,7 +258,7 @@ export default function TeachersPage() {
         qualification: "",
         specialization: "",
         address: "",
-        monthlySalary: 0,
+        basicSalary: 0,
         photo: "",
       });
       setClassSubjectAssignments([]);
@@ -825,13 +825,13 @@ export default function TeachersPage() {
               <Grid size={{ xs: 12, sm: 6 }}>
                 <TextField
                   fullWidth
-                  label="Monthly Salary"
+                  label="Basic Salary"
                   type="number"
-                  value={formData.monthlySalary}
+                  value={formData.basicSalary}
                   onChange={(e) =>
                     setFormData({
                       ...formData,
-                      monthlySalary: parseFloat(e.target.value) || 0,
+                      basicSalary: parseFloat(e.target.value) || 0,
                     })
                   }
                   InputProps={{
@@ -1072,10 +1072,10 @@ export default function TeachersPage() {
                   </Grid>
                   <Grid size={{ xs: 6 }}>
                     <Typography variant="caption" color="text.secondary">
-                      Monthly Salary
+                      Basic Salary
                     </Typography>
                     <Typography>
-                      PKR {selectedTeacher.monthlySalary?.toLocaleString()}
+                      PKR {selectedTeacher.basicSalary?.toLocaleString()}
                     </Typography>
                   </Grid>
                   <Grid size={{ xs: 6 }}>

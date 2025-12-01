@@ -36,6 +36,7 @@ import {
   ExpandMore,
   Assessment as AssessmentIcon,
   AccountBalance as AccountBalanceIcon,
+  Message as MessageIcon,
 } from "@mui/icons-material";
 import { useRouter, usePathname } from "next/navigation";
 import { useTranslation } from "react-i18next";
@@ -198,6 +199,12 @@ export default function Sidebar() {
       icon: <ReportIcon />,
       path: "/complaints",
       permission: Permission.VIEW_COMPLAINTS,
+    },
+    {
+      text: "Messaging",
+      icon: <MessageIcon />,
+      path: "/messaging",
+      permission: Permission.SEND_MESSAGES,
     },
     {
       text: "Salary Management",

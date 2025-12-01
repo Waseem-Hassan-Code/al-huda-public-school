@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
-import bcrypt from "bcryptjs";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { hasPermission, Permission } from "@/lib/permissions";
@@ -107,6 +106,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const {
       // Student info
+      registrationNo: userRegistrationNo,
       firstName,
       lastName,
       dateOfBirth,
@@ -132,93 +132,98 @@ export async function POST(request: NextRequest) {
       fees,
     } = body;
 
-    // Generate student ID
-    const studentId = await getNextSequenceValue("student");
+    // Get current academic year
+    const currentAcademicYear = await prisma.academicYear.findFirst({
+      where: { isCurrent: true },
+    });
+
+    if (!currentAcademicYear) {
+      return NextResponse.json(
+        {
+          error:
+            "No active academic year found. Please set up an academic year first.",
+        },
+        { status: 400 }
+      );
+    }
+
+    // Use user-provided registration number or generate one automatically
+    let registrationNo = userRegistrationNo?.trim();
+    if (!registrationNo) {
+      registrationNo = await getNextSequenceValue("student");
+    } else {
+      // Check if registration number already exists
+      const existingStudent = await prisma.student.findUnique({
+        where: { registrationNo },
+      });
+      if (existingStudent) {
+        return NextResponse.json(
+          { error: "Registration number already exists" },
+          { status: 400 }
+        );
+      }
+    }
 
     // Create student in transaction
     const result = await prisma.$transaction(async (tx: any) => {
-      // Create or find guardian
-      let guardianRecord;
-      if (guardian) {
-        // Check if guardian exists by CNIC
-        guardianRecord = await tx.guardian.findFirst({
-          where: { cnic: guardian.cnic },
-        });
-
-        if (!guardianRecord) {
-          guardianRecord = await tx.guardian.create({
-            data: {
-              name: guardian.firstName,
-              lastName: guardian.lastName,
-              relationship: guardian.relationship,
-              cnic: guardian.cnic,
-              phone: guardian.phone,
-              email: guardian.email,
-              occupation: guardian.occupation,
-              address: guardian.address,
-              city: guardian.city,
-            },
-          });
-        }
-      }
-
-      // Create student
+      // Create student with guardian info embedded
       const student = await tx.student.create({
         data: {
-          studentId,
+          registrationNo,
           firstName,
           lastName,
+          fatherName:
+            guardian?.relationship === "FATHER"
+              ? `${guardian.firstName} ${guardian.lastName}`
+              : guardian?.firstName || firstName, // Use guardian name as fallback
           dateOfBirth: new Date(dateOfBirth),
           gender,
-          cnic,
-          religion,
+          cnic: cnic || null,
+          religion: religion || "ISLAM",
           nationality: nationality || "Pakistani",
-          bloodGroup,
+          bloodGroup: bloodGroup || null,
           address,
-          city,
-          phone,
-          email,
-          photo,
-          classId,
-          sectionId,
-          guardianId: guardianRecord?.id,
+          city: city || "Karachi",
+          phone: phone || null,
+          email: email || null,
+          photo: photo || null,
+          classId: classId || null,
+          sectionId: sectionId || null,
+          academicYearId: currentAcademicYear.id,
           admissionDate: new Date(admissionDate || new Date()),
-          previousSchool,
-          previousClass,
+          previousSchool: previousSchool || null,
+          previousClass: previousClass || null,
+          // Guardian info - stored directly on student
+          guardianName: guardian
+            ? `${guardian.firstName} ${guardian.lastName}`
+            : "",
+          guardianRelation: guardian?.relationship || "FATHER",
+          guardianCnic: guardian?.cnic || null,
+          guardianPhone: guardian?.phone || "",
+          guardianWhatsapp: guardian?.whatsapp || guardian?.phone || null,
+          guardianEmail: guardian?.email || null,
+          guardianOccupation: guardian?.occupation || null,
+          guardianAddress: guardian?.address || null,
           status: "ACTIVE",
+          createdById: session.user.id,
         },
         include: {
           class: true,
           section: true,
-          guardian: true,
+          academicYear: true,
         },
       });
 
-      // Create student fees if provided
+      // Calculate monthly fee from selected fees
       if (fees && fees.length > 0) {
-        await tx.studentFee.createMany({
-          data: fees.map((fee: any) => ({
-            studentId: student.id,
-            feeStructureId: fee.feeStructureId,
-            amount: fee.amount,
-            discount: fee.discount || 0,
-            discountReason: fee.discountReason,
-          })),
-        });
-      }
+        const monthlyFee = fees.reduce((sum: number, fee: any) => {
+          return sum + (fee.amount - (fee.discount || 0));
+        }, 0);
 
-      // Create user account for student if email provided
-      if (email) {
-        const hashedPassword = await bcrypt.hash(studentId, 10); // Default password is student ID
-        await tx.user.create({
-          data: {
-            email,
-            password: hashedPassword,
-            firstName,
-            lastName,
-            role: "STUDENT",
-            isActive: true,
-          },
+        // Update student's monthly fee
+        await tx.student.update({
+          where: { id: student.id },
+          data: { monthlyFee },
         });
       }
 
@@ -229,15 +234,24 @@ export async function POST(request: NextRequest) {
     await logCreate(
       "STUDENT",
       result.id,
-      { studentId, firstName, lastName },
+      { registrationNo, firstName, lastName },
       session.user.id
     );
 
-    return NextResponse.json(result, { status: 201 });
+    return NextResponse.json(
+      {
+        ...result,
+        studentId: result.registrationNo, // For backward compatibility
+      },
+      { status: 201 }
+    );
   } catch (error) {
     console.error("Students POST Error:", error);
     return NextResponse.json(
-      { error: "Failed to create student" },
+      {
+        error: "Failed to create student",
+        details: error instanceof Error ? error.message : "Unknown error",
+      },
       { status: 500 }
     );
   }

@@ -121,7 +121,7 @@ export default function FeesPage() {
         const response = await fetch("/api/classes");
         if (response.ok) {
           const data = await response.json();
-          setClasses(data.data || []);
+          setClasses(data.classes || data.data || []);
         }
       } catch (error) {
         console.error("Failed to fetch classes:", error);
