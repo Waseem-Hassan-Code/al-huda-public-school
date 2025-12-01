@@ -64,7 +64,9 @@ export async function GET(request: NextRequest) {
       // Pending fee vouchers count
       prisma.feeVoucher.count({
         where: {
-          status: { in: [FeeStatus.UNPAID, FeeStatus.PARTIAL, FeeStatus.OVERDUE] },
+          status: {
+            in: [FeeStatus.UNPAID, FeeStatus.PARTIAL, FeeStatus.OVERDUE],
+          },
         },
       }),
 
@@ -72,7 +74,9 @@ export async function GET(request: NextRequest) {
       prisma.feeVoucher.aggregate({
         _sum: { balanceDue: true },
         where: {
-          status: { in: [FeeStatus.UNPAID, FeeStatus.PARTIAL, FeeStatus.OVERDUE] },
+          status: {
+            in: [FeeStatus.UNPAID, FeeStatus.PARTIAL, FeeStatus.OVERDUE],
+          },
         },
       }),
 
@@ -126,7 +130,9 @@ export async function GET(request: NextRequest) {
           DATE("paymentDate") as date,
           SUM(amount) as total
         FROM "payments"
-        WHERE "paymentDate" >= ${new Date(Date.now() - 14 * 24 * 60 * 60 * 1000)}
+        WHERE "paymentDate" >= ${new Date(
+          Date.now() - 14 * 24 * 60 * 60 * 1000
+        )}
         GROUP BY DATE("paymentDate")
         ORDER BY date ASC
       `,
@@ -155,30 +161,6 @@ export async function GET(request: NextRequest) {
           date: {
             gte: startOfToday,
             lt: endOfToday,
-          },
-        },
-      }),
-
-      // Pending complaints
-      prisma.complaint.count({
-        where: { status: "PENDING" },
-      }),
-    ]);
-          SUM(amount) as total
-        FROM "payments"
-        WHERE "paymentDate" >= ${new Date(currentYear, currentMonth - 5, 1)}
-        GROUP BY DATE_TRUNC('month', "paymentDate")
-        ORDER BY month ASC
-      `,
-
-      // Today's attendance summary
-      prisma.attendance.groupBy({
-        by: ["status"],
-        _count: true,
-        where: {
-          date: {
-            gte: new Date(now.getFullYear(), now.getMonth(), now.getDate()),
-            lt: new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1),
           },
         },
       }),
