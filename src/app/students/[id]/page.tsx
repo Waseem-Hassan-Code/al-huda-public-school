@@ -58,6 +58,7 @@ import {
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import ImageUpload from "@/components/common/ImageUpload";
+import MainLayout from "@/components/layout/MainLayout";
 
 interface FeeVoucher {
   id: string;
@@ -184,8 +185,18 @@ function TabPanel({ children, value, index, ...other }: TabPanelProps) {
 }
 
 const monthNames = [
-  "January", "February", "March", "April", "May", "June",
-  "July", "August", "September", "October", "November", "December"
+  "January",
+  "February",
+  "March",
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December",
 ];
 
 export default function StudentProfilePage({
@@ -200,21 +211,31 @@ export default function StudentProfilePage({
   const [student, setStudent] = useState<StudentDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [tabValue, setTabValue] = useState(0);
-  
+
   const [editingPhoto, setEditingPhoto] = useState(false);
   const [editingFee, setEditingFee] = useState(false);
   const [tempPhoto, setTempPhoto] = useState<string | null>(null);
   const [tempFee, setTempFee] = useState<string>("");
   const [savingPhoto, setSavingPhoto] = useState(false);
   const [savingFee, setSavingFee] = useState(false);
-  
+
   const [voucherDialogOpen, setVoucherDialogOpen] = useState(false);
   const [voucherMonth, setVoucherMonth] = useState(new Date().getMonth() + 1);
   const [voucherYear, setVoucherYear] = useState(new Date().getFullYear());
   const [feeItems, setFeeItems] = useState<FeeItem[]>([
-    { feeType: "MONTHLY_FEE", description: "Monthly Tuition Fee", amount: 0 }
+    { feeType: "MONTHLY_FEE", description: "Monthly Tuition Fee", amount: 0 },
   ]);
   const [generatingVoucher, setGeneratingVoucher] = useState(false);
+
+  // Edit voucher state
+  const [editVoucherDialogOpen, setEditVoucherDialogOpen] = useState(false);
+  const [selectedVoucher, setSelectedVoucher] = useState<FeeVoucher | null>(
+    null
+  );
+  const [editVoucherItems, setEditVoucherItems] = useState<FeeItem[]>([]);
+  const [editVoucherDiscount, setEditVoucherDiscount] = useState<string>("0");
+  const [editVoucherLateFee, setEditVoucherLateFee] = useState<string>("0");
+  const [savingVoucher, setSavingVoucher] = useState(false);
 
   useEffect(() => {
     fetchStudent();
@@ -225,7 +246,11 @@ export default function StudentProfilePage({
       setTempPhoto(student.photo || null);
       setTempFee(student.monthlyFee?.toString() || "0");
       setFeeItems([
-        { feeType: "MONTHLY_FEE", description: "Monthly Tuition Fee", amount: student.monthlyFee || 0 }
+        {
+          feeType: "MONTHLY_FEE",
+          description: "Monthly Tuition Fee",
+          amount: student.monthlyFee || 0,
+        },
       ]);
     }
   }, [student]);
@@ -282,8 +307,8 @@ export default function StudentProfilePage({
       if (!res.ok) throw new Error("Failed to update monthly fee");
       setStudent({ ...student, monthlyFee: newFee });
       setEditingFee(false);
-      setFeeItems(items => 
-        items.map(item => 
+      setFeeItems((items) =>
+        items.map((item) =>
           item.feeType === "MONTHLY_FEE" ? { ...item, amount: newFee } : item
         )
       );
@@ -296,7 +321,10 @@ export default function StudentProfilePage({
   };
 
   const addFeeItem = () => {
-    setFeeItems([...feeItems, { feeType: "OTHER", description: "", amount: 0 }]);
+    setFeeItems([
+      ...feeItems,
+      { feeType: "OTHER", description: "", amount: 0 },
+    ]);
   };
 
   const removeFeeItem = (index: number) => {
@@ -304,11 +332,13 @@ export default function StudentProfilePage({
     setFeeItems(feeItems.filter((_, i) => i !== index));
   };
 
-  const updateFeeItem = (index: number, field: keyof FeeItem, value: string | number) => {
-    setFeeItems(items =>
-      items.map((item, i) =>
-        i === index ? { ...item, [field]: value } : item
-      )
+  const updateFeeItem = (
+    index: number,
+    field: keyof FeeItem,
+    value: string | number
+  ) => {
+    setFeeItems((items) =>
+      items.map((item, i) => (i === index ? { ...item, [field]: value } : item))
     );
   };
 
@@ -341,37 +371,134 @@ export default function StudentProfilePage({
     }
   };
 
+  // Edit voucher functions
+  const canEditVoucher = (status: string) => {
+    return status === "UNPAID" || status === "PARTIAL" || status === "OVERDUE";
+  };
+
+  const handleOpenEditVoucher = (voucher: FeeVoucher) => {
+    setSelectedVoucher(voucher);
+    setEditVoucherDiscount(voucher.discount.toString());
+    setEditVoucherLateFee(voucher.lateFee.toString());
+    // Set fee items - we'll load from subtotal since we don't have items in the list
+    setEditVoucherItems([
+      {
+        feeType: "MONTHLY_FEE",
+        description: "Monthly Fee",
+        amount: voucher.subtotal,
+      },
+    ]);
+    setEditVoucherDialogOpen(true);
+  };
+
+  const addEditVoucherItem = () => {
+    setEditVoucherItems([
+      ...editVoucherItems,
+      { feeType: "OTHER", description: "", amount: 0 },
+    ]);
+  };
+
+  const removeEditVoucherItem = (index: number) => {
+    if (editVoucherItems.length === 1) return;
+    setEditVoucherItems(editVoucherItems.filter((_, i) => i !== index));
+  };
+
+  const updateEditVoucherItem = (
+    index: number,
+    field: keyof FeeItem,
+    value: string | number
+  ) => {
+    setEditVoucherItems((items) =>
+      items.map((item, i) => (i === index ? { ...item, [field]: value } : item))
+    );
+  };
+
+  const getEditVoucherTotal = () => {
+    const subtotal = editVoucherItems.reduce(
+      (sum, item) => sum + (item.amount || 0),
+      0
+    );
+    const discount = parseFloat(editVoucherDiscount) || 0;
+    const lateFee = parseFloat(editVoucherLateFee) || 0;
+    const previousBalance = selectedVoucher?.previousBalance || 0;
+    return subtotal + previousBalance + lateFee - discount;
+  };
+
+  const handleSaveVoucher = async () => {
+    if (!selectedVoucher) return;
+    setSavingVoucher(true);
+    try {
+      const res = await fetch(`/api/fee-vouchers/${selectedVoucher.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          feeItems: editVoucherItems,
+          discount: parseFloat(editVoucherDiscount) || 0,
+          lateFee: parseFloat(editVoucherLateFee) || 0,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to update voucher");
+      toast.success("Voucher updated successfully");
+      setEditVoucherDialogOpen(false);
+      fetchStudent();
+    } catch (error: any) {
+      toast.error(error.message || "Failed to update voucher");
+    } finally {
+      setSavingVoucher(false);
+    }
+  };
+
   const getStatusColor = (status: string) => {
     switch (status) {
-      case "ACTIVE": return "success";
-      case "INACTIVE": return "default";
-      case "SUSPENDED": return "warning";
-      case "EXPELLED": return "error";
-      case "GRADUATED": return "info";
-      case "TRANSFERRED": return "secondary";
-      default: return "default";
+      case "ACTIVE":
+        return "success";
+      case "INACTIVE":
+        return "default";
+      case "SUSPENDED":
+        return "warning";
+      case "EXPELLED":
+        return "error";
+      case "GRADUATED":
+        return "info";
+      case "TRANSFERRED":
+        return "secondary";
+      default:
+        return "default";
     }
   };
 
   const getVoucherStatusColor = (status: string) => {
     switch (status) {
-      case "PAID": return "success";
-      case "PARTIALLY_PAID": return "warning";
-      case "UNPAID": return "error";
-      case "OVERDUE": return "error";
-      case "CANCELLED": return "default";
-      default: return "default";
+      case "PAID":
+        return "success";
+      case "PARTIAL":
+        return "warning";
+      case "UNPAID":
+        return "error";
+      case "OVERDUE":
+        return "error";
+      case "CANCELLED":
+        return "default";
+      default:
+        return "default";
     }
   };
 
   const getAttendanceColor = (status: string) => {
     switch (status) {
-      case "PRESENT": return "success";
-      case "ABSENT": return "error";
-      case "LATE": return "warning";
-      case "LEAVE": return "info";
-      case "HALF_DAY": return "warning";
-      default: return "default";
+      case "PRESENT":
+        return "success";
+      case "ABSENT":
+        return "error";
+      case "LATE":
+        return "warning";
+      case "LEAVE":
+        return "info";
+      case "HALF_DAY":
+        return "warning";
+      default:
+        return "default";
     }
   };
 
@@ -393,682 +520,1072 @@ export default function StudentProfilePage({
 
   if (loading) {
     return (
-      <Box display="flex" justifyContent="center" alignItems="center" minHeight="60vh">
-        <CircularProgress />
-      </Box>
+      <MainLayout>
+        <Box
+          display="flex"
+          justifyContent="center"
+          alignItems="center"
+          minHeight="60vh"
+        >
+          <CircularProgress />
+        </Box>
+      </MainLayout>
     );
   }
 
   if (!student) {
     return (
-      <Box textAlign="center" py={5}>
-        <Typography variant="h6" color="text.secondary">
-          Student not found
-        </Typography>
-        <Button
-          startIcon={<ArrowBack />}
-          onClick={() => router.push("/students")}
-          sx={{ mt: 2 }}
-        >
-          Back to Students
-        </Button>
-      </Box>
+      <MainLayout>
+        <Box textAlign="center" py={5}>
+          <Typography variant="h6" color="text.secondary">
+            Student not found
+          </Typography>
+          <Button
+            startIcon={<ArrowBack />}
+            onClick={() => router.push("/students")}
+            sx={{ mt: 2 }}
+          >
+            Back to Students
+          </Button>
+        </Box>
+      </MainLayout>
     );
   }
 
   return (
-    <Box>
-      {/* Header */}
-      <Box
-        sx={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "flex-start",
-          mb: 3,
-        }}
-      >
-        <Box>
-          <Button
-            startIcon={<ArrowBack />}
-            onClick={() => router.push("/students")}
-            sx={{ mb: 1 }}
-          >
-            Back to Students
-          </Button>
-          <Typography variant="h4" fontWeight="bold">
-            Student Profile
-          </Typography>
+    <MainLayout>
+      <Box>
+        {/* Header */}
+        <Box
+          sx={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "flex-start",
+            mb: 3,
+          }}
+        >
+          <Box>
+            <Button
+              startIcon={<ArrowBack />}
+              onClick={() => router.push("/students")}
+              sx={{ mb: 1 }}
+            >
+              Back to Students
+            </Button>
+            <Typography variant="h4" fontWeight="bold">
+              Student Profile
+            </Typography>
+          </Box>
+          <Box sx={{ display: "flex", gap: 1 }}>
+            <Button
+              variant="outlined"
+              startIcon={<Print />}
+              onClick={() => window.print()}
+            >
+              Print
+            </Button>
+            <Button
+              variant="contained"
+              startIcon={<Edit />}
+              onClick={() => router.push(`/students/${id}/edit`)}
+            >
+              Edit Student
+            </Button>
+          </Box>
         </Box>
-        <Box sx={{ display: "flex", gap: 1 }}>
-          <Button
-            variant="outlined"
-            startIcon={<Print />}
-            onClick={() => window.print()}
-          >
-            Print
-          </Button>
-          <Button
-            variant="contained"
-            startIcon={<Edit />}
-            onClick={() => router.push(`/students/${id}/edit`)}
-          >
-            Edit Student
-          </Button>
-        </Box>
-      </Box>
 
-      {/* Profile Header Card */}
-      <Paper
-        sx={{
-          p: 3,
-          mb: 3,
-          background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
-          color: "white",
-        }}
-      >
-        <Grid container spacing={3} alignItems="center">
-          <Grid size={{ xs: 12, md: 3 }}>
-            <Box sx={{ textAlign: "center" }}>
-              {editingPhoto ? (
-                <Box>
-                  <ImageUpload
-                    value={tempPhoto}
-                    onChange={handlePhotoChange}
-                    type="student"
-                    size={150}
-                    name={`${student.firstName} ${student.lastName}`}
-                  />
-                  <Box sx={{ mt: 2, display: "flex", justifyContent: "center", gap: 1 }}>
-                    <Button
-                      size="small"
-                      variant="contained"
-                      color="success"
-                      startIcon={savingPhoto ? <CircularProgress size={16} /> : <Save />}
-                      onClick={savePhoto}
-                      disabled={savingPhoto}
-                      sx={{ bgcolor: "rgba(255,255,255,0.9)", color: "success.main" }}
-                    >
-                      Save
-                    </Button>
-                    <Button
-                      size="small"
-                      variant="contained"
-                      color="error"
-                      startIcon={<Close />}
-                      onClick={() => {
-                        setEditingPhoto(false);
-                        setTempPhoto(student.photo || null);
-                      }}
-                      sx={{ bgcolor: "rgba(255,255,255,0.9)", color: "error.main" }}
-                    >
-                      Cancel
-                    </Button>
-                  </Box>
-                </Box>
-              ) : (
-                <Box sx={{ position: "relative", display: "inline-block" }}>
-                  <Avatar
-                    src={student.photo ? student.photo : undefined}
-                    sx={{
-                      width: 150,
-                      height: 150,
-                      fontSize: "3rem",
-                      bgcolor: "rgba(255,255,255,0.2)",
-                      border: "4px solid rgba(255,255,255,0.5)",
-                    }}
-                  >
-                    {student.firstName[0]}{student.lastName[0]}
-                  </Avatar>
-                  <Tooltip title="Change Photo">
-                    <IconButton
-                      onClick={() => setEditingPhoto(true)}
-                      sx={{
-                        position: "absolute",
-                        bottom: 0,
-                        right: 0,
-                        bgcolor: "white",
-                        "&:hover": { bgcolor: "grey.100" },
-                      }}
-                      size="small"
-                    >
-                      <PhotoCamera fontSize="small" color="primary" />
-                    </IconButton>
-                  </Tooltip>
-                </Box>
-              )}
-            </Box>
-          </Grid>
-          <Grid size={{ xs: 12, md: 5 }}>
-            <Typography variant="h4" fontWeight="bold" gutterBottom>
-              {student.firstName} {student.lastName}
-            </Typography>
-            <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
-              <Chip
-                icon={<Badge />}
-                label={student.registrationNo}
-                sx={{ bgcolor: "rgba(255,255,255,0.2)", color: "white" }}
-              />
-              <Chip
-                label={student.status}
-                color={getStatusColor(student.status) as any}
-                size="small"
-              />
-            </Stack>
-            <Typography variant="body1" sx={{ opacity: 0.9 }}>
-              <School sx={{ fontSize: 18, mr: 1, verticalAlign: "middle" }} />
-              {student.class?.name || "N/A"} - {student.section?.name || "N/A"}
-            </Typography>
-            <Typography variant="body2" sx={{ opacity: 0.8, mt: 0.5 }}>
-              Academic Year: {student.academicYear?.name || "N/A"}
-            </Typography>
-          </Grid>
-          <Grid size={{ xs: 12, md: 4 }}>
-            <Card sx={{ bgcolor: "rgba(255,255,255,0.15)", backdropFilter: "blur(10px)" }}>
-              <CardContent>
-                <Typography variant="subtitle2" sx={{ color: "rgba(255,255,255,0.8)", mb: 1 }}>
-                  Monthly Tuition Fee
-                </Typography>
-                {editingFee ? (
-                  <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-                    <TextField
-                      value={tempFee}
-                      onChange={(e) => setTempFee(e.target.value)}
-                      type="number"
-                      size="small"
-                      InputProps={{
-                        startAdornment: <InputAdornment position="start">Rs.</InputAdornment>,
-                      }}
-                      sx={{
-                        bgcolor: "white",
-                        borderRadius: 1,
-                        "& .MuiOutlinedInput-root": { borderRadius: 1 },
-                      }}
+        {/* Profile Header Card */}
+        <Paper
+          sx={{
+            p: 3,
+            mb: 3,
+            background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+            color: "white",
+          }}
+        >
+          <Grid container spacing={3} alignItems="center">
+            <Grid size={{ xs: 12, md: 3 }}>
+              <Box sx={{ textAlign: "center" }}>
+                {editingPhoto ? (
+                  <Box>
+                    <ImageUpload
+                      value={tempPhoto}
+                      onChange={handlePhotoChange}
+                      type="student"
+                      size={150}
+                      name={`${student.firstName} ${student.lastName}`}
                     />
-                    <IconButton
-                      onClick={saveMonthlyFee}
-                      disabled={savingFee}
-                      sx={{ bgcolor: "success.main", color: "white", "&:hover": { bgcolor: "success.dark" } }}
-                      size="small"
-                    >
-                      {savingFee ? <CircularProgress size={16} color="inherit" /> : <Check />}
-                    </IconButton>
-                    <IconButton
-                      onClick={() => {
-                        setEditingFee(false);
-                        setTempFee(student.monthlyFee?.toString() || "0");
+                    <Box
+                      sx={{
+                        mt: 2,
+                        display: "flex",
+                        justifyContent: "center",
+                        gap: 1,
                       }}
-                      sx={{ bgcolor: "error.main", color: "white", "&:hover": { bgcolor: "error.dark" } }}
-                      size="small"
                     >
-                      <Close />
-                    </IconButton>
+                      <Button
+                        size="small"
+                        variant="contained"
+                        color="success"
+                        startIcon={
+                          savingPhoto ? (
+                            <CircularProgress size={16} />
+                          ) : (
+                            <Save />
+                          )
+                        }
+                        onClick={savePhoto}
+                        disabled={savingPhoto}
+                        sx={{
+                          bgcolor: "rgba(255,255,255,0.9)",
+                          color: "success.main",
+                        }}
+                      >
+                        Save
+                      </Button>
+                      <Button
+                        size="small"
+                        variant="contained"
+                        color="error"
+                        startIcon={<Close />}
+                        onClick={() => {
+                          setEditingPhoto(false);
+                          setTempPhoto(student.photo || null);
+                        }}
+                        sx={{
+                          bgcolor: "rgba(255,255,255,0.9)",
+                          color: "error.main",
+                        }}
+                      >
+                        Cancel
+                      </Button>
+                    </Box>
                   </Box>
                 ) : (
-                  <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-                    <Typography variant="h4" fontWeight="bold">
-                      {formatCurrency(student.monthlyFee || 0)}
-                    </Typography>
-                    <Tooltip title="Edit Monthly Fee">
+                  <Box sx={{ position: "relative", display: "inline-block" }}>
+                    <Avatar
+                      src={student.photo ? student.photo : undefined}
+                      sx={{
+                        width: 150,
+                        height: 150,
+                        fontSize: "3rem",
+                        bgcolor: "rgba(255,255,255,0.2)",
+                        border: "4px solid rgba(255,255,255,0.5)",
+                      }}
+                    >
+                      {student.firstName[0]}
+                      {student.lastName[0]}
+                    </Avatar>
+                    <Tooltip title="Change Photo">
                       <IconButton
-                        onClick={() => setEditingFee(true)}
+                        onClick={() => setEditingPhoto(true)}
+                        sx={{
+                          position: "absolute",
+                          bottom: 0,
+                          right: 0,
+                          bgcolor: "white",
+                          "&:hover": { bgcolor: "grey.100" },
+                        }}
                         size="small"
-                        sx={{ color: "rgba(255,255,255,0.8)" }}
                       >
-                        <Edit fontSize="small" />
+                        <PhotoCamera fontSize="small" color="primary" />
                       </IconButton>
                     </Tooltip>
                   </Box>
                 )}
-                <Button
-                  variant="contained"
-                  size="small"
-                  startIcon={<Receipt />}
-                  onClick={() => setVoucherDialogOpen(true)}
-                  sx={{
-                    mt: 2,
-                    bgcolor: "white",
-                    color: "primary.main",
-                    "&:hover": { bgcolor: "grey.100" },
-                  }}
-                >
-                  Generate Voucher
-                </Button>
-              </CardContent>
-            </Card>
-          </Grid>
-        </Grid>
-      </Paper>
-
-      {/* Tabs */}
-      <Paper sx={{ mb: 3 }}>
-        <Tabs
-          value={tabValue}
-          onChange={(_, v) => setTabValue(v)}
-          variant="scrollable"
-          scrollButtons="auto"
-        >
-          <Tab label="Personal Information" />
-          <Tab label={`Fee Vouchers (${student.feeVouchers?.length || 0})`} />
-          <Tab label="Attendance" />
-          <Tab label="Results" />
-        </Tabs>
-      </Paper>
-
-      {/* Tab Panels */}
-      <TabPanel value={tabValue} index={0}>
-        <Grid container spacing={3}>
-          {/* Personal Details */}
-          <Grid size={{ xs: 12, md: 6 }}>
-            <Paper sx={{ p: 3, height: "100%" }}>
-              <Typography variant="h6" gutterBottom sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-                <Person color="primary" /> Personal Details
+              </Box>
+            </Grid>
+            <Grid size={{ xs: 12, md: 5 }}>
+              <Typography variant="h4" fontWeight="bold" gutterBottom>
+                {student.firstName} {student.lastName}
               </Typography>
-              <Divider sx={{ mb: 2 }} />
-              <Grid container spacing={2}>
-                <Grid size={6}>
-                  <Typography variant="caption" color="text.secondary">Full Name</Typography>
-                  <Typography variant="body1">{student.firstName} {student.lastName}</Typography>
-                </Grid>
-                <Grid size={6}>
-                  <Typography variant="caption" color="text.secondary">Father Name</Typography>
-                  <Typography variant="body1">{student.fatherName}</Typography>
-                </Grid>
-                <Grid size={6}>
-                  <Typography variant="caption" color="text.secondary">Date of Birth</Typography>
-                  <Typography variant="body1">{formatDate(student.dateOfBirth)}</Typography>
-                </Grid>
-                <Grid size={6}>
-                  <Typography variant="caption" color="text.secondary">Gender</Typography>
-                  <Typography variant="body1">{student.gender}</Typography>
-                </Grid>
-                <Grid size={6}>
-                  <Typography variant="caption" color="text.secondary">Religion</Typography>
-                  <Typography variant="body1">{student.religion}</Typography>
-                </Grid>
-                <Grid size={6}>
-                  <Typography variant="caption" color="text.secondary">Nationality</Typography>
-                  <Typography variant="body1">{student.nationality}</Typography>
-                </Grid>
-              </Grid>
-            </Paper>
-          </Grid>
-
-          {/* Contact Details */}
-          <Grid size={{ xs: 12, md: 6 }}>
-            <Paper sx={{ p: 3, height: "100%" }}>
-              <Typography variant="h6" gutterBottom sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-                <Phone color="primary" /> Contact Details
-              </Typography>
-              <Divider sx={{ mb: 2 }} />
-              <Grid container spacing={2}>
-                <Grid size={6}>
-                  <Typography variant="caption" color="text.secondary">Phone</Typography>
-                  <Typography variant="body1">{student.phone || "N/A"}</Typography>
-                </Grid>
-                <Grid size={6}>
-                  <Typography variant="caption" color="text.secondary">Email</Typography>
-                  <Typography variant="body1">{student.email || "N/A"}</Typography>
-                </Grid>
-                <Grid size={12}>
-                  <Typography variant="caption" color="text.secondary">Address</Typography>
-                  <Typography variant="body1">{student.address}</Typography>
-                </Grid>
-                <Grid size={6}>
-                  <Typography variant="caption" color="text.secondary">City</Typography>
-                  <Typography variant="body1">{student.city}</Typography>
-                </Grid>
-              </Grid>
-            </Paper>
-          </Grid>
-
-          {/* Guardian Details */}
-          <Grid size={{ xs: 12, md: 6 }}>
-            <Paper sx={{ p: 3 }}>
-              <Typography variant="h6" gutterBottom sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-                <Person color="primary" /> Guardian Details
-              </Typography>
-              <Divider sx={{ mb: 2 }} />
-              <Grid container spacing={2}>
-                <Grid size={6}>
-                  <Typography variant="caption" color="text.secondary">Guardian Name</Typography>
-                  <Typography variant="body1">{student.guardianName}</Typography>
-                </Grid>
-                <Grid size={6}>
-                  <Typography variant="caption" color="text.secondary">Relationship</Typography>
-                  <Typography variant="body1">{student.guardianRelation}</Typography>
-                </Grid>
-                <Grid size={6}>
-                  <Typography variant="caption" color="text.secondary">Phone</Typography>
-                  <Typography variant="body1">{student.guardianPhone}</Typography>
-                </Grid>
-                <Grid size={6}>
-                  <Typography variant="caption" color="text.secondary">WhatsApp</Typography>
-                  <Typography variant="body1">{student.guardianWhatsapp || student.guardianPhone}</Typography>
-                </Grid>
-              </Grid>
-            </Paper>
-          </Grid>
-
-          {/* Admission Details */}
-          <Grid size={{ xs: 12, md: 6 }}>
-            <Paper sx={{ p: 3 }}>
-              <Typography variant="h6" gutterBottom sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-                <CalendarMonth color="primary" /> Admission Details
-              </Typography>
-              <Divider sx={{ mb: 2 }} />
-              <Grid container spacing={2}>
-                <Grid size={6}>
-                  <Typography variant="caption" color="text.secondary">Admission Type</Typography>
-                  <Typography variant="body1">{student.admissionType}</Typography>
-                </Grid>
-                <Grid size={6}>
-                  <Typography variant="caption" color="text.secondary">Admission Date</Typography>
-                  <Typography variant="body1">{formatDate(student.admissionDate)}</Typography>
-                </Grid>
-              </Grid>
-            </Paper>
-          </Grid>
-        </Grid>
-      </TabPanel>
-
-      {/* Fee Vouchers Tab */}
-      <TabPanel value={tabValue} index={1}>
-        <Paper sx={{ p: 2 }}>
-          <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 2 }}>
-            <Typography variant="h6">
-              <AttachMoney sx={{ mr: 1, verticalAlign: "middle" }} />
-              Fee Vouchers
-            </Typography>
-            <Button
-              variant="contained"
-              startIcon={<Add />}
-              onClick={() => setVoucherDialogOpen(true)}
-            >
-              Generate New Voucher
-            </Button>
-          </Box>
-          
-          {student.feeVouchers && student.feeVouchers.length > 0 ? (
-            <TableContainer>
-              <Table>
-                <TableHead>
-                  <TableRow>
-                    <TableCell>Voucher #</TableCell>
-                    <TableCell>Period</TableCell>
-                    <TableCell>Due Date</TableCell>
-                    <TableCell align="right">Total Amount</TableCell>
-                    <TableCell align="right">Paid</TableCell>
-                    <TableCell align="right">Balance</TableCell>
-                    <TableCell>Status</TableCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {student.feeVouchers.map((voucher) => (
-                    <TableRow key={voucher.id} hover>
-                      <TableCell>
-                        <Typography variant="body2" fontWeight="medium">
-                          {voucher.voucherNo}
-                        </Typography>
-                      </TableCell>
-                      <TableCell>
-                        {monthNames[voucher.month - 1]} {voucher.year}
-                      </TableCell>
-                      <TableCell>{formatDate(voucher.dueDate)}</TableCell>
-                      <TableCell align="right">{formatCurrency(voucher.totalAmount)}</TableCell>
-                      <TableCell align="right">
-                        <Typography color={voucher.paidAmount > 0 ? "success.main" : "text.secondary"}>
-                          {formatCurrency(voucher.paidAmount)}
-                        </Typography>
-                      </TableCell>
-                      <TableCell align="right">
-                        <Typography color={voucher.balanceDue > 0 ? "error.main" : "success.main"} fontWeight="medium">
-                          {formatCurrency(voucher.balanceDue)}
-                        </Typography>
-                      </TableCell>
-                      <TableCell>
-                        <Chip
-                          label={voucher.status}
-                          size="small"
-                          color={getVoucherStatusColor(voucher.status) as any}
-                        />
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </TableContainer>
-          ) : (
-            <Box sx={{ textAlign: "center", py: 5 }}>
-              <Receipt sx={{ fontSize: 60, color: "text.disabled", mb: 2 }} />
-              <Typography color="text.secondary">No fee vouchers found</Typography>
-              <Button
-                variant="outlined"
-                startIcon={<Add />}
-                onClick={() => setVoucherDialogOpen(true)}
-                sx={{ mt: 2 }}
+              <Stack
+                direction="row"
+                spacing={1}
+                alignItems="center"
+                sx={{ mb: 1 }}
               >
-                Generate First Voucher
-              </Button>
-            </Box>
-          )}
-        </Paper>
-      </TabPanel>
-
-      {/* Attendance Tab */}
-      <TabPanel value={tabValue} index={2}>
-        <Paper sx={{ p: 2 }}>
-          <Typography variant="h6" sx={{ mb: 2 }}>
-            Recent Attendance (Last 30 Days)
-          </Typography>
-          {student.attendance && student.attendance.length > 0 ? (
-            <TableContainer>
-              <Table>
-                <TableHead>
-                  <TableRow>
-                    <TableCell>Date</TableCell>
-                    <TableCell>Day</TableCell>
-                    <TableCell>Status</TableCell>
-                    <TableCell>Remarks</TableCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {student.attendance.map((record) => (
-                    <TableRow key={record.id} hover>
-                      <TableCell>{formatDate(record.date)}</TableCell>
-                      <TableCell>
-                        {new Date(record.date).toLocaleDateString("en-US", { weekday: "long" })}
-                      </TableCell>
-                      <TableCell>
-                        <Chip
-                          label={record.status}
-                          size="small"
-                          color={getAttendanceColor(record.status) as any}
-                        />
-                      </TableCell>
-                      <TableCell>{record.remarks || "-"}</TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </TableContainer>
-          ) : (
-            <Box sx={{ textAlign: "center", py: 5 }}>
-              <Typography color="text.secondary">No attendance records found</Typography>
-            </Box>
-          )}
-        </Paper>
-      </TabPanel>
-
-      {/* Results Tab */}
-      <TabPanel value={tabValue} index={3}>
-        <Paper sx={{ p: 2 }}>
-          <Typography variant="h6" sx={{ mb: 2 }}>
-            Exam Results
-          </Typography>
-          {student.studentMarks && student.studentMarks.length > 0 ? (
-            <TableContainer>
-              <Table>
-                <TableHead>
-                  <TableRow>
-                    <TableCell>Exam</TableCell>
-                    <TableCell>Date</TableCell>
-                    <TableCell>Subject</TableCell>
-                    <TableCell align="center">Marks</TableCell>
-                    <TableCell align="center">Grade</TableCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {student.studentMarks.map((result) => (
-                    <TableRow key={result.id} hover>
-                      <TableCell>{result.exam.name}</TableCell>
-                      <TableCell>{formatDate(result.exam.examDate)}</TableCell>
-                      <TableCell>{result.subject.name}</TableCell>
-                      <TableCell align="center">
-                        <Typography
-                          color={result.marksObtained >= result.exam.passingMarks ? "success.main" : "error.main"}
-                          fontWeight="medium"
-                        >
-                          {result.marksObtained} / {result.exam.totalMarks}
-                        </Typography>
-                      </TableCell>
-                      <TableCell align="center">
-                        <Chip
-                          label={result.grade || "N/A"}
-                          size="small"
-                          color={result.marksObtained >= result.exam.passingMarks ? "success" : "error"}
-                        />
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </TableContainer>
-          ) : (
-            <Box sx={{ textAlign: "center", py: 5 }}>
-              <Typography color="text.secondary">No exam results found</Typography>
-            </Box>
-          )}
-        </Paper>
-      </TabPanel>
-
-      {/* Generate Voucher Dialog */}
-      <Dialog
-        open={voucherDialogOpen}
-        onClose={() => setVoucherDialogOpen(false)}
-        maxWidth="sm"
-        fullWidth
-      >
-        <DialogTitle>
-          Generate Fee Voucher
-          <Typography variant="body2" color="text.secondary">
-            for {student.firstName} {student.lastName} ({student.registrationNo})
-          </Typography>
-        </DialogTitle>
-        <DialogContent dividers>
-          <Grid container spacing={2}>
-            <Grid size={6}>
-              <FormControl fullWidth size="small">
-                <InputLabel>Month</InputLabel>
-                <Select
-                  value={voucherMonth}
-                  label="Month"
-                  onChange={(e) => setVoucherMonth(e.target.value as number)}
-                >
-                  {monthNames.map((name, index) => (
-                    <MenuItem key={index} value={index + 1}>
-                      {name}
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
+                <Chip
+                  icon={<Badge />}
+                  label={student.registrationNo}
+                  sx={{ bgcolor: "rgba(255,255,255,0.2)", color: "white" }}
+                />
+                <Chip
+                  label={student.status}
+                  color={getStatusColor(student.status) as any}
+                  size="small"
+                />
+              </Stack>
+              <Typography variant="body1" sx={{ opacity: 0.9 }}>
+                <School sx={{ fontSize: 18, mr: 1, verticalAlign: "middle" }} />
+                {student.class?.name || "N/A"} -{" "}
+                {student.section?.name || "N/A"}
+              </Typography>
+              <Typography variant="body2" sx={{ opacity: 0.8, mt: 0.5 }}>
+                Academic Year: {student.academicYear?.name || "N/A"}
+              </Typography>
             </Grid>
-            <Grid size={6}>
-              <TextField
-                fullWidth
-                size="small"
-                label="Year"
-                type="number"
-                value={voucherYear}
-                onChange={(e) => setVoucherYear(parseInt(e.target.value))}
-              />
+            <Grid size={{ xs: 12, md: 4 }}>
+              <Card
+                sx={{
+                  bgcolor: "rgba(255,255,255,0.15)",
+                  backdropFilter: "blur(10px)",
+                }}
+              >
+                <CardContent>
+                  <Typography
+                    variant="subtitle2"
+                    sx={{ color: "rgba(255,255,255,0.8)", mb: 1 }}
+                  >
+                    Monthly Tuition Fee
+                  </Typography>
+                  {editingFee ? (
+                    <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                      <TextField
+                        value={tempFee}
+                        onChange={(e) => setTempFee(e.target.value)}
+                        type="number"
+                        size="small"
+                        InputProps={{
+                          startAdornment: (
+                            <InputAdornment position="start">
+                              Rs.
+                            </InputAdornment>
+                          ),
+                        }}
+                        sx={{
+                          bgcolor: "white",
+                          borderRadius: 1,
+                          "& .MuiOutlinedInput-root": { borderRadius: 1 },
+                        }}
+                      />
+                      <IconButton
+                        onClick={saveMonthlyFee}
+                        disabled={savingFee}
+                        sx={{
+                          bgcolor: "success.main",
+                          color: "white",
+                          "&:hover": { bgcolor: "success.dark" },
+                        }}
+                        size="small"
+                      >
+                        {savingFee ? (
+                          <CircularProgress size={16} color="inherit" />
+                        ) : (
+                          <Check />
+                        )}
+                      </IconButton>
+                      <IconButton
+                        onClick={() => {
+                          setEditingFee(false);
+                          setTempFee(student.monthlyFee?.toString() || "0");
+                        }}
+                        sx={{
+                          bgcolor: "error.main",
+                          color: "white",
+                          "&:hover": { bgcolor: "error.dark" },
+                        }}
+                        size="small"
+                      >
+                        <Close />
+                      </IconButton>
+                    </Box>
+                  ) : (
+                    <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                      <Typography variant="h4" fontWeight="bold">
+                        {formatCurrency(student.monthlyFee || 0)}
+                      </Typography>
+                      <Tooltip title="Edit Monthly Fee">
+                        <IconButton
+                          onClick={() => setEditingFee(true)}
+                          size="small"
+                          sx={{ color: "rgba(255,255,255,0.8)" }}
+                        >
+                          <Edit fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                    </Box>
+                  )}
+                  <Button
+                    variant="contained"
+                    size="small"
+                    startIcon={<Receipt />}
+                    onClick={() => setVoucherDialogOpen(true)}
+                    sx={{
+                      mt: 2,
+                      bgcolor: "white",
+                      color: "primary.main",
+                      "&:hover": { bgcolor: "grey.100" },
+                    }}
+                  >
+                    Generate Voucher
+                  </Button>
+                </CardContent>
+              </Card>
             </Grid>
           </Grid>
+        </Paper>
 
-          <Typography variant="subtitle1" sx={{ mt: 3, mb: 2 }}>
-            Fee Items
-          </Typography>
+        {/* Tabs */}
+        <Paper sx={{ mb: 3 }}>
+          <Tabs
+            value={tabValue}
+            onChange={(_, v) => setTabValue(v)}
+            variant="scrollable"
+            scrollButtons="auto"
+          >
+            <Tab label="Personal Information" />
+            <Tab label={`Fee Vouchers (${student.feeVouchers?.length || 0})`} />
+            <Tab label="Attendance" />
+            <Tab label="Results" />
+          </Tabs>
+        </Paper>
 
-          {feeItems.map((item, index) => (
+        {/* Tab Panels */}
+        <TabPanel value={tabValue} index={0}>
+          <Grid container spacing={3}>
+            {/* Personal Details */}
+            <Grid size={{ xs: 12, md: 6 }}>
+              <Paper sx={{ p: 3, height: "100%" }}>
+                <Typography
+                  variant="h6"
+                  gutterBottom
+                  sx={{ display: "flex", alignItems: "center", gap: 1 }}
+                >
+                  <Person color="primary" /> Personal Details
+                </Typography>
+                <Divider sx={{ mb: 2 }} />
+                <Grid container spacing={2}>
+                  <Grid size={6}>
+                    <Typography variant="caption" color="text.secondary">
+                      Full Name
+                    </Typography>
+                    <Typography variant="body1">
+                      {student.firstName} {student.lastName}
+                    </Typography>
+                  </Grid>
+                  <Grid size={6}>
+                    <Typography variant="caption" color="text.secondary">
+                      Father Name
+                    </Typography>
+                    <Typography variant="body1">
+                      {student.fatherName}
+                    </Typography>
+                  </Grid>
+                  <Grid size={6}>
+                    <Typography variant="caption" color="text.secondary">
+                      Date of Birth
+                    </Typography>
+                    <Typography variant="body1">
+                      {formatDate(student.dateOfBirth)}
+                    </Typography>
+                  </Grid>
+                  <Grid size={6}>
+                    <Typography variant="caption" color="text.secondary">
+                      Gender
+                    </Typography>
+                    <Typography variant="body1">{student.gender}</Typography>
+                  </Grid>
+                  <Grid size={6}>
+                    <Typography variant="caption" color="text.secondary">
+                      Religion
+                    </Typography>
+                    <Typography variant="body1">{student.religion}</Typography>
+                  </Grid>
+                  <Grid size={6}>
+                    <Typography variant="caption" color="text.secondary">
+                      Nationality
+                    </Typography>
+                    <Typography variant="body1">
+                      {student.nationality}
+                    </Typography>
+                  </Grid>
+                </Grid>
+              </Paper>
+            </Grid>
+
+            {/* Contact Details */}
+            <Grid size={{ xs: 12, md: 6 }}>
+              <Paper sx={{ p: 3, height: "100%" }}>
+                <Typography
+                  variant="h6"
+                  gutterBottom
+                  sx={{ display: "flex", alignItems: "center", gap: 1 }}
+                >
+                  <Phone color="primary" /> Contact Details
+                </Typography>
+                <Divider sx={{ mb: 2 }} />
+                <Grid container spacing={2}>
+                  <Grid size={6}>
+                    <Typography variant="caption" color="text.secondary">
+                      Phone
+                    </Typography>
+                    <Typography variant="body1">
+                      {student.phone || "N/A"}
+                    </Typography>
+                  </Grid>
+                  <Grid size={6}>
+                    <Typography variant="caption" color="text.secondary">
+                      Email
+                    </Typography>
+                    <Typography variant="body1">
+                      {student.email || "N/A"}
+                    </Typography>
+                  </Grid>
+                  <Grid size={12}>
+                    <Typography variant="caption" color="text.secondary">
+                      Address
+                    </Typography>
+                    <Typography variant="body1">{student.address}</Typography>
+                  </Grid>
+                  <Grid size={6}>
+                    <Typography variant="caption" color="text.secondary">
+                      City
+                    </Typography>
+                    <Typography variant="body1">{student.city}</Typography>
+                  </Grid>
+                </Grid>
+              </Paper>
+            </Grid>
+
+            {/* Guardian Details */}
+            <Grid size={{ xs: 12, md: 6 }}>
+              <Paper sx={{ p: 3 }}>
+                <Typography
+                  variant="h6"
+                  gutterBottom
+                  sx={{ display: "flex", alignItems: "center", gap: 1 }}
+                >
+                  <Person color="primary" /> Guardian Details
+                </Typography>
+                <Divider sx={{ mb: 2 }} />
+                <Grid container spacing={2}>
+                  <Grid size={6}>
+                    <Typography variant="caption" color="text.secondary">
+                      Guardian Name
+                    </Typography>
+                    <Typography variant="body1">
+                      {student.guardianName}
+                    </Typography>
+                  </Grid>
+                  <Grid size={6}>
+                    <Typography variant="caption" color="text.secondary">
+                      Relationship
+                    </Typography>
+                    <Typography variant="body1">
+                      {student.guardianRelation}
+                    </Typography>
+                  </Grid>
+                  <Grid size={6}>
+                    <Typography variant="caption" color="text.secondary">
+                      Phone
+                    </Typography>
+                    <Typography variant="body1">
+                      {student.guardianPhone}
+                    </Typography>
+                  </Grid>
+                  <Grid size={6}>
+                    <Typography variant="caption" color="text.secondary">
+                      WhatsApp
+                    </Typography>
+                    <Typography variant="body1">
+                      {student.guardianWhatsapp || student.guardianPhone}
+                    </Typography>
+                  </Grid>
+                </Grid>
+              </Paper>
+            </Grid>
+
+            {/* Admission Details */}
+            <Grid size={{ xs: 12, md: 6 }}>
+              <Paper sx={{ p: 3 }}>
+                <Typography
+                  variant="h6"
+                  gutterBottom
+                  sx={{ display: "flex", alignItems: "center", gap: 1 }}
+                >
+                  <CalendarMonth color="primary" /> Admission Details
+                </Typography>
+                <Divider sx={{ mb: 2 }} />
+                <Grid container spacing={2}>
+                  <Grid size={6}>
+                    <Typography variant="caption" color="text.secondary">
+                      Admission Type
+                    </Typography>
+                    <Typography variant="body1">
+                      {student.admissionType}
+                    </Typography>
+                  </Grid>
+                  <Grid size={6}>
+                    <Typography variant="caption" color="text.secondary">
+                      Admission Date
+                    </Typography>
+                    <Typography variant="body1">
+                      {formatDate(student.admissionDate)}
+                    </Typography>
+                  </Grid>
+                </Grid>
+              </Paper>
+            </Grid>
+          </Grid>
+        </TabPanel>
+
+        {/* Fee Vouchers Tab */}
+        <TabPanel value={tabValue} index={1}>
+          <Paper sx={{ p: 2 }}>
             <Box
-              key={index}
               sx={{
                 display: "flex",
-                gap: 2,
+                justifyContent: "space-between",
+                alignItems: "center",
                 mb: 2,
+              }}
+            >
+              <Typography variant="h6">
+                <AttachMoney sx={{ mr: 1, verticalAlign: "middle" }} />
+                Fee Vouchers
+              </Typography>
+              <Button
+                variant="contained"
+                startIcon={<Add />}
+                onClick={() => setVoucherDialogOpen(true)}
+              >
+                Generate New Voucher
+              </Button>
+            </Box>
+
+            {student.feeVouchers && student.feeVouchers.length > 0 ? (
+              <TableContainer>
+                <Table>
+                  <TableHead>
+                    <TableRow>
+                      <TableCell>Voucher #</TableCell>
+                      <TableCell>Period</TableCell>
+                      <TableCell>Due Date</TableCell>
+                      <TableCell align="right">Total Amount</TableCell>
+                      <TableCell align="right">Paid</TableCell>
+                      <TableCell align="right">Balance</TableCell>
+                      <TableCell>Status</TableCell>
+                      <TableCell align="center">Actions</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {student.feeVouchers.map((voucher) => (
+                      <TableRow key={voucher.id} hover>
+                        <TableCell>
+                          <Typography variant="body2" fontWeight="medium">
+                            {voucher.voucherNo}
+                          </Typography>
+                        </TableCell>
+                        <TableCell>
+                          {monthNames[voucher.month - 1]} {voucher.year}
+                        </TableCell>
+                        <TableCell>{formatDate(voucher.dueDate)}</TableCell>
+                        <TableCell align="right">
+                          {formatCurrency(voucher.totalAmount)}
+                        </TableCell>
+                        <TableCell align="right">
+                          <Typography
+                            color={
+                              voucher.paidAmount > 0
+                                ? "success.main"
+                                : "text.secondary"
+                            }
+                          >
+                            {formatCurrency(voucher.paidAmount)}
+                          </Typography>
+                        </TableCell>
+                        <TableCell align="right">
+                          <Typography
+                            color={
+                              voucher.balanceDue > 0
+                                ? "error.main"
+                                : "success.main"
+                            }
+                            fontWeight="medium"
+                          >
+                            {formatCurrency(voucher.balanceDue)}
+                          </Typography>
+                        </TableCell>
+                        <TableCell>
+                          <Chip
+                            label={voucher.status}
+                            size="small"
+                            color={getVoucherStatusColor(voucher.status) as any}
+                          />
+                        </TableCell>
+                        <TableCell align="center">
+                          {canEditVoucher(voucher.status) && (
+                            <Tooltip title="Edit Voucher">
+                              <IconButton
+                                size="small"
+                                onClick={() => handleOpenEditVoucher(voucher)}
+                                color="primary"
+                              >
+                                <Edit fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+            ) : (
+              <Box sx={{ textAlign: "center", py: 5 }}>
+                <Receipt sx={{ fontSize: 60, color: "text.disabled", mb: 2 }} />
+                <Typography color="text.secondary">
+                  No fee vouchers found
+                </Typography>
+                <Button
+                  variant="outlined"
+                  startIcon={<Add />}
+                  onClick={() => setVoucherDialogOpen(true)}
+                  sx={{ mt: 2 }}
+                >
+                  Generate First Voucher
+                </Button>
+              </Box>
+            )}
+          </Paper>
+        </TabPanel>
+
+        {/* Attendance Tab */}
+        <TabPanel value={tabValue} index={2}>
+          <Paper sx={{ p: 2 }}>
+            <Typography variant="h6" sx={{ mb: 2 }}>
+              Recent Attendance (Last 30 Days)
+            </Typography>
+            {student.attendance && student.attendance.length > 0 ? (
+              <TableContainer>
+                <Table>
+                  <TableHead>
+                    <TableRow>
+                      <TableCell>Date</TableCell>
+                      <TableCell>Day</TableCell>
+                      <TableCell>Status</TableCell>
+                      <TableCell>Remarks</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {student.attendance.map((record) => (
+                      <TableRow key={record.id} hover>
+                        <TableCell>{formatDate(record.date)}</TableCell>
+                        <TableCell>
+                          {new Date(record.date).toLocaleDateString("en-US", {
+                            weekday: "long",
+                          })}
+                        </TableCell>
+                        <TableCell>
+                          <Chip
+                            label={record.status}
+                            size="small"
+                            color={getAttendanceColor(record.status) as any}
+                          />
+                        </TableCell>
+                        <TableCell>{record.remarks || "-"}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+            ) : (
+              <Box sx={{ textAlign: "center", py: 5 }}>
+                <Typography color="text.secondary">
+                  No attendance records found
+                </Typography>
+              </Box>
+            )}
+          </Paper>
+        </TabPanel>
+
+        {/* Results Tab */}
+        <TabPanel value={tabValue} index={3}>
+          <Paper sx={{ p: 2 }}>
+            <Typography variant="h6" sx={{ mb: 2 }}>
+              Exam Results
+            </Typography>
+            {student.studentMarks && student.studentMarks.length > 0 ? (
+              <TableContainer>
+                <Table>
+                  <TableHead>
+                    <TableRow>
+                      <TableCell>Exam</TableCell>
+                      <TableCell>Date</TableCell>
+                      <TableCell>Subject</TableCell>
+                      <TableCell align="center">Marks</TableCell>
+                      <TableCell align="center">Grade</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {student.studentMarks.map((result) => (
+                      <TableRow key={result.id} hover>
+                        <TableCell>{result.exam.name}</TableCell>
+                        <TableCell>
+                          {formatDate(result.exam.examDate)}
+                        </TableCell>
+                        <TableCell>{result.subject.name}</TableCell>
+                        <TableCell align="center">
+                          <Typography
+                            color={
+                              result.marksObtained >= result.exam.passingMarks
+                                ? "success.main"
+                                : "error.main"
+                            }
+                            fontWeight="medium"
+                          >
+                            {result.marksObtained} / {result.exam.totalMarks}
+                          </Typography>
+                        </TableCell>
+                        <TableCell align="center">
+                          <Chip
+                            label={result.grade || "N/A"}
+                            size="small"
+                            color={
+                              result.marksObtained >= result.exam.passingMarks
+                                ? "success"
+                                : "error"
+                            }
+                          />
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+            ) : (
+              <Box sx={{ textAlign: "center", py: 5 }}>
+                <Typography color="text.secondary">
+                  No exam results found
+                </Typography>
+              </Box>
+            )}
+          </Paper>
+        </TabPanel>
+
+        {/* Generate Voucher Dialog */}
+        <Dialog
+          open={voucherDialogOpen}
+          onClose={() => setVoucherDialogOpen(false)}
+          maxWidth="sm"
+          fullWidth
+        >
+          <DialogTitle>
+            Generate Fee Voucher
+            <Typography variant="body2" color="text.secondary">
+              for {student.firstName} {student.lastName} (
+              {student.registrationNo})
+            </Typography>
+          </DialogTitle>
+          <DialogContent dividers>
+            <Grid container spacing={2}>
+              <Grid size={6}>
+                <FormControl fullWidth size="small">
+                  <InputLabel>Month</InputLabel>
+                  <Select
+                    value={voucherMonth}
+                    label="Month"
+                    onChange={(e) => setVoucherMonth(e.target.value as number)}
+                  >
+                    {monthNames.map((name, index) => (
+                      <MenuItem key={index} value={index + 1}>
+                        {name}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+              </Grid>
+              <Grid size={6}>
+                <TextField
+                  fullWidth
+                  size="small"
+                  label="Year"
+                  type="number"
+                  value={voucherYear}
+                  onChange={(e) => setVoucherYear(parseInt(e.target.value))}
+                />
+              </Grid>
+            </Grid>
+
+            <Typography variant="subtitle1" sx={{ mt: 3, mb: 2 }}>
+              Fee Items
+            </Typography>
+
+            {feeItems.map((item, index) => (
+              <Box
+                key={index}
+                sx={{
+                  display: "flex",
+                  gap: 2,
+                  mb: 2,
+                  alignItems: "center",
+                }}
+              >
+                <TextField
+                  size="small"
+                  label="Description"
+                  value={item.description}
+                  onChange={(e) =>
+                    updateFeeItem(index, "description", e.target.value)
+                  }
+                  sx={{ flex: 2 }}
+                  disabled={index === 0}
+                />
+                <TextField
+                  size="small"
+                  label="Amount"
+                  type="number"
+                  value={item.amount}
+                  onChange={(e) =>
+                    updateFeeItem(
+                      index,
+                      "amount",
+                      parseFloat(e.target.value) || 0
+                    )
+                  }
+                  InputProps={{
+                    startAdornment: (
+                      <InputAdornment position="start">Rs.</InputAdornment>
+                    ),
+                  }}
+                  sx={{ flex: 1 }}
+                />
+                {index > 0 && (
+                  <IconButton
+                    onClick={() => removeFeeItem(index)}
+                    color="error"
+                    size="small"
+                  >
+                    <Delete />
+                  </IconButton>
+                )}
+              </Box>
+            ))}
+
+            <Button
+              startIcon={<Add />}
+              onClick={addFeeItem}
+              size="small"
+              sx={{ mt: 1 }}
+            >
+              Add Another Fee
+            </Button>
+
+            <Divider sx={{ my: 2 }} />
+
+            <Box
+              sx={{
+                display: "flex",
+                justifyContent: "space-between",
                 alignItems: "center",
               }}
             >
-              <TextField
-                size="small"
-                label="Description"
-                value={item.description}
-                onChange={(e) => updateFeeItem(index, "description", e.target.value)}
-                sx={{ flex: 2 }}
-                disabled={index === 0}
-              />
-              <TextField
-                size="small"
-                label="Amount"
-                type="number"
-                value={item.amount}
-                onChange={(e) => updateFeeItem(index, "amount", parseFloat(e.target.value) || 0)}
-                InputProps={{
-                  startAdornment: <InputAdornment position="start">Rs.</InputAdornment>,
-                }}
-                sx={{ flex: 1 }}
-              />
-              {index > 0 && (
-                <IconButton
-                  onClick={() => removeFeeItem(index)}
-                  color="error"
-                  size="small"
-                >
-                  <Delete />
-                </IconButton>
-              )}
+              <Typography variant="h6">Total Amount</Typography>
+              <Typography variant="h5" fontWeight="bold" color="primary">
+                {formatCurrency(getTotalVoucherAmount())}
+              </Typography>
             </Box>
-          ))}
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setVoucherDialogOpen(false)}>Cancel</Button>
+            <Button
+              variant="contained"
+              onClick={handleGenerateVoucher}
+              disabled={generatingVoucher || getTotalVoucherAmount() === 0}
+              startIcon={
+                generatingVoucher ? <CircularProgress size={16} /> : <Receipt />
+              }
+            >
+              {generatingVoucher ? "Generating..." : "Generate Voucher"}
+            </Button>
+          </DialogActions>
+        </Dialog>
 
-          <Button
-            startIcon={<Add />}
-            onClick={addFeeItem}
-            size="small"
-            sx={{ mt: 1 }}
-          >
-            Add Another Fee
-          </Button>
-
-          <Divider sx={{ my: 2 }} />
-
-          <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <Typography variant="h6">Total Amount</Typography>
-            <Typography variant="h5" fontWeight="bold" color="primary">
-              {formatCurrency(getTotalVoucherAmount())}
+        {/* Edit Voucher Dialog */}
+        <Dialog
+          open={editVoucherDialogOpen}
+          onClose={() => setEditVoucherDialogOpen(false)}
+          maxWidth="sm"
+          fullWidth
+        >
+          <DialogTitle>
+            Edit Fee Voucher
+            {selectedVoucher && (
+              <Typography variant="body2" color="text.secondary">
+                {selectedVoucher.voucherNo} -{" "}
+                {monthNames[selectedVoucher.month - 1]} {selectedVoucher.year}
+              </Typography>
+            )}
+          </DialogTitle>
+          <DialogContent dividers>
+            <Typography variant="subtitle2" sx={{ mb: 2 }}>
+              Fee Items
             </Typography>
-          </Box>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setVoucherDialogOpen(false)}>Cancel</Button>
-          <Button
-            variant="contained"
-            onClick={handleGenerateVoucher}
-            disabled={generatingVoucher || getTotalVoucherAmount() === 0}
-            startIcon={generatingVoucher ? <CircularProgress size={16} /> : <Receipt />}
-          >
-            {generatingVoucher ? "Generating..." : "Generate Voucher"}
-          </Button>
-        </DialogActions>
-      </Dialog>
-    </Box>
+
+            {editVoucherItems.map((item, index) => (
+              <Box
+                key={index}
+                sx={{
+                  display: "flex",
+                  gap: 2,
+                  mb: 2,
+                  alignItems: "center",
+                }}
+              >
+                <TextField
+                  size="small"
+                  label="Description"
+                  value={item.description}
+                  onChange={(e) =>
+                    updateEditVoucherItem(index, "description", e.target.value)
+                  }
+                  sx={{ flex: 2 }}
+                />
+                <TextField
+                  size="small"
+                  label="Amount"
+                  type="number"
+                  value={item.amount}
+                  onChange={(e) =>
+                    updateEditVoucherItem(
+                      index,
+                      "amount",
+                      parseFloat(e.target.value) || 0
+                    )
+                  }
+                  InputProps={{
+                    startAdornment: (
+                      <InputAdornment position="start">Rs.</InputAdornment>
+                    ),
+                  }}
+                  sx={{ flex: 1 }}
+                />
+                {editVoucherItems.length > 1 && (
+                  <IconButton
+                    onClick={() => removeEditVoucherItem(index)}
+                    color="error"
+                    size="small"
+                  >
+                    <Delete />
+                  </IconButton>
+                )}
+              </Box>
+            ))}
+
+            <Button
+              startIcon={<Add />}
+              onClick={addEditVoucherItem}
+              size="small"
+              sx={{ mb: 3 }}
+            >
+              Add Fee Item
+            </Button>
+
+            <Divider sx={{ my: 2 }} />
+
+            <Grid container spacing={2}>
+              <Grid size={6}>
+                <TextField
+                  fullWidth
+                  size="small"
+                  label="Discount"
+                  type="number"
+                  value={editVoucherDiscount}
+                  onChange={(e) => setEditVoucherDiscount(e.target.value)}
+                  InputProps={{
+                    startAdornment: (
+                      <InputAdornment position="start">Rs.</InputAdornment>
+                    ),
+                  }}
+                />
+              </Grid>
+              <Grid size={6}>
+                <TextField
+                  fullWidth
+                  size="small"
+                  label="Late Fee"
+                  type="number"
+                  value={editVoucherLateFee}
+                  onChange={(e) => setEditVoucherLateFee(e.target.value)}
+                  InputProps={{
+                    startAdornment: (
+                      <InputAdornment position="start">Rs.</InputAdornment>
+                    ),
+                  }}
+                />
+              </Grid>
+            </Grid>
+
+            {selectedVoucher && selectedVoucher.previousBalance > 0 && (
+              <Box
+                sx={{
+                  mt: 2,
+                  p: 1.5,
+                  bgcolor: "warning.light",
+                  borderRadius: 1,
+                }}
+              >
+                <Typography variant="body2">
+                  Previous Balance:{" "}
+                  {formatCurrency(selectedVoucher.previousBalance)}
+                </Typography>
+              </Box>
+            )}
+
+            <Divider sx={{ my: 2 }} />
+
+            <Box
+              sx={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+              }}
+            >
+              <Typography variant="h6">New Total</Typography>
+              <Typography variant="h5" fontWeight="bold" color="primary">
+                {formatCurrency(getEditVoucherTotal())}
+              </Typography>
+            </Box>
+
+            {selectedVoucher && selectedVoucher.paidAmount > 0 && (
+              <Box
+                sx={{
+                  mt: 2,
+                  p: 1.5,
+                  bgcolor: "success.light",
+                  borderRadius: 1,
+                }}
+              >
+                <Typography variant="body2">
+                  Already Paid: {formatCurrency(selectedVoucher.paidAmount)}
+                </Typography>
+                <Typography variant="body2" fontWeight="bold">
+                  New Balance Due:{" "}
+                  {formatCurrency(
+                    getEditVoucherTotal() - selectedVoucher.paidAmount
+                  )}
+                </Typography>
+              </Box>
+            )}
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setEditVoucherDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="contained"
+              onClick={handleSaveVoucher}
+              disabled={savingVoucher}
+              startIcon={
+                savingVoucher ? <CircularProgress size={16} /> : <Save />
+              }
+            >
+              {savingVoucher ? "Saving..." : "Save Changes"}
+            </Button>
+          </DialogActions>
+        </Dialog>
+      </Box>
+    </MainLayout>
   );
 }

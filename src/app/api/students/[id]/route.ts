@@ -84,6 +84,8 @@ export async function PUT(
     const {
       firstName,
       lastName,
+      fatherName,
+      motherName,
       dateOfBirth,
       gender,
       cnic,
@@ -98,35 +100,30 @@ export async function PUT(
       classId,
       sectionId,
       status,
-      guardian,
+      monthlyFee,
+      // Guardian fields
+      guardianName,
+      guardianRelation,
+      guardianCnic,
+      guardianPhone,
+      guardianWhatsapp,
+      guardianPhone2,
+      guardianEmail,
+      guardianOccupation,
+      guardianAddress,
+      guardianMonthlyIncome,
       fees,
     } = body;
 
     const result = await prisma.$transaction(async (tx: any) => {
-      // Update guardian if provided
-      if (guardian && guardian.id) {
-        await tx.guardian.update({
-          where: { id: guardian.id },
-          data: {
-            firstName: guardian.firstName,
-            lastName: guardian.lastName,
-            relationship: guardian.relationship,
-            cnic: guardian.cnic,
-            phone: guardian.phone,
-            email: guardian.email,
-            occupation: guardian.occupation,
-            address: guardian.address,
-            city: guardian.city,
-          },
-        });
-      }
-
-      // Update student
+      // Update student with all fields including guardian info
       const student = await tx.student.update({
         where: { id },
         data: {
           firstName,
           lastName,
+          fatherName,
+          motherName,
           dateOfBirth: dateOfBirth ? new Date(dateOfBirth) : undefined,
           gender,
           cnic,
@@ -141,11 +138,24 @@ export async function PUT(
           classId,
           sectionId,
           status,
+          monthlyFee:
+            monthlyFee !== undefined ? parseFloat(monthlyFee) : undefined,
+          // Guardian fields
+          guardianName,
+          guardianRelation,
+          guardianCnic,
+          guardianPhone,
+          guardianWhatsapp,
+          guardianPhone2,
+          guardianEmail,
+          guardianOccupation,
+          guardianAddress,
+          guardianMonthlyIncome,
         },
         include: {
           class: true,
           section: true,
-          guardian: true,
+          academicYear: true,
         },
       });
 
