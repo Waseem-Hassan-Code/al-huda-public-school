@@ -57,7 +57,7 @@ interface FeeVoucher {
   dueDate: string;
   student: {
     id: string;
-    studentId: string;
+    registrationNo: string;
     firstName: string;
     lastName: string;
     class: { name: string };
@@ -263,7 +263,7 @@ export default function FeesPage() {
             {row.student.firstName} {row.student.lastName}
           </Typography>
           <Typography variant="caption" color="text.secondary">
-            {row.student.studentId} • {row.student.class.name}-
+            {row.student.registrationNo} • {row.student.class.name}-
             {row.student.section.name}
           </Typography>
         </Box>
@@ -533,7 +533,7 @@ export default function FeesPage() {
                 <Typography variant="subtitle2" gutterBottom>
                   {selectedVoucher.student.firstName}{" "}
                   {selectedVoucher.student.lastName} (
-                  {selectedVoucher.student.studentId})
+                  {selectedVoucher.student.registrationNo})
                 </Typography>
                 <Typography variant="body2" color="text.secondary" gutterBottom>
                   Voucher: {selectedVoucher.voucherNumber} •{" "}

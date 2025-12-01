@@ -63,6 +63,7 @@ import { toast } from "sonner";
 import ImageUpload from "@/components/common/ImageUpload";
 import MainLayout from "@/components/layout/MainLayout";
 import ReceivePaymentDialog from "@/components/dialogs/ReceivePaymentDialog";
+import AttendanceCalendar from "@/components/common/AttendanceCalendar";
 
 interface FeeVoucher {
   id: string;
@@ -1548,48 +1549,9 @@ export default function StudentProfilePage({
         <TabPanel value={tabValue} index={4}>
           <Paper sx={{ p: 3, borderRadius: 3 }}>
             <Typography variant="h6" sx={{ mb: 2, color: "#1a237e" }}>
-              Recent Attendance (Last 30 Days)
+              Attendance Calendar
             </Typography>
-            {student.attendance && student.attendance.length > 0 ? (
-              <TableContainer>
-                <Table>
-                  <TableHead>
-                    <TableRow>
-                      <TableCell sx={{ fontWeight: "bold" }}>Date</TableCell>
-                      <TableCell sx={{ fontWeight: "bold" }}>Day</TableCell>
-                      <TableCell sx={{ fontWeight: "bold" }}>Status</TableCell>
-                      <TableCell sx={{ fontWeight: "bold" }}>Remarks</TableCell>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {student.attendance.map((record) => (
-                      <TableRow key={record.id} hover>
-                        <TableCell>{formatDate(record.date)}</TableCell>
-                        <TableCell>
-                          {new Date(record.date).toLocaleDateString("en-US", {
-                            weekday: "long",
-                          })}
-                        </TableCell>
-                        <TableCell>
-                          <Chip
-                            label={record.status}
-                            size="small"
-                            color={getAttendanceColor(record.status) as any}
-                          />
-                        </TableCell>
-                        <TableCell>{record.remarks || "-"}</TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </TableContainer>
-            ) : (
-              <Box sx={{ textAlign: "center", py: 5 }}>
-                <Typography color="text.secondary">
-                  No attendance records found
-                </Typography>
-              </Box>
-            )}
+            <AttendanceCalendar attendance={student.attendance || []} />
           </Paper>
         </TabPanel>
 
