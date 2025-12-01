@@ -197,6 +197,19 @@ enum EntityType {
   TIMETABLE
   SUBJECT
   SALARY
+  MESSAGE
+}
+
+enum MessageType {
+  WHATSAPP
+  SMS
+}
+
+enum MessageStatus {
+  PENDING
+  SENT
+  DELIVERED
+  FAILED
 }
 
 enum ActionType {
@@ -274,6 +287,7 @@ model User {
   enteredMarks        StudentMark[] @relation("MarksEnteredBy")
   createdResults      ExamResult[]  @relation("ResultCreatedBy")
   createdSalaries     TeacherSalary[] @relation("SalaryCreatedBy")
+  sentMessages        Message[]     @relation("MessageSentBy")
 
   @@map("users")
 }
@@ -475,6 +489,7 @@ model Student {
   complaints          Complaint[]
   studentMarks        StudentMark[]
   promotionHistory    PromotionHistory[]
+  messages            Message[]
 
   @@map("students")
 }
@@ -1045,4 +1060,64 @@ model SchoolSettings {
   updatedAt       DateTime @updatedAt
 
   @@map("school_settings")
+}
+
+// ============================================
+// MESSAGING SETTINGS
+// ============================================
+
+model MessagingSettings {
+  id                String   @id @default("default")
+  
+  // WhatsApp settings
+  whatsappNumber    String?  // The school's WhatsApp number
+  whatsappApiKey    String?  // API key for WhatsApp service
+  whatsappEnabled   Boolean  @default(false)
+  
+  // SMS settings
+  smsNumber         String?  // The school's SMS number
+  smsApiKey         String?  // API key for SMS service
+  smsEnabled        Boolean  @default(false)
+  
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@map("messaging_settings")
+}
+
+// ============================================
+// MESSAGE HISTORY
+// ============================================
+
+model Message {
+  id              String        @id @default(uuid())
+  type            MessageType   // WHATSAPP or SMS
+  status          MessageStatus @default(PENDING)
+  
+  // Content
+  content         String
+  templateName    String?       // Name of template used
+  
+  // Recipient info
+  studentId       String
+  student         Student       @relation(fields: [studentId], references: [id])
+  recipientName   String        // Guardian name
+  recipientPhone  String        // Phone number sent to
+  
+  // Response from API
+  externalId      String?       // ID from WhatsApp/SMS provider
+  errorMessage    String?       // Error message if failed
+  
+  // Metadata
+  sentAt          DateTime?
+  deliveredAt     DateTime?
+  createdAt       DateTime      @default(now())
+  
+  sentById        String
+  sentBy          User          @relation("MessageSentBy", fields: [sentById], references: [id])
+
+  @@index([studentId])
+  @@index([type, status])
+  @@index([createdAt])
+  @@map("messages")
 }

@@ -15,7 +15,8 @@ export type EntityType =
   | "RESULT"
   | "TIMETABLE"
   | "SALARY"
-  | "COMPLAINT";
+  | "COMPLAINT"
+  | "MESSAGE";
 
 export type ActionType =
   | "CREATE"
@@ -25,7 +26,8 @@ export type ActionType =
   | "STATUS_CHANGE"
   | "PROMOTE"
   | "FEE_GENERATED"
-  | "RESULT_PUBLISHED";
+  | "RESULT_PUBLISHED"
+  | "MESSAGE_SENT";
 
 interface LogOptions {
   entityType: EntityType;
