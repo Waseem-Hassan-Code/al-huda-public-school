@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import { Box, CircularProgress } from "@mui/material";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
@@ -28,6 +28,11 @@ export default function MainLayout({ children }: MainLayoutProps) {
   const { sidebarOpen, sidebarCollapsed } = useAppSelector(
     (state) => state.ui as UIState
   );
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   useEffect(() => {
     if (status === "unauthenticated") {
@@ -51,7 +56,8 @@ export default function MainLayout({ children }: MainLayoutProps) {
     }
   }, [session, dispatch]);
 
-  if (status === "loading") {
+  // Prevent hydration mismatch by showing consistent loading state
+  if (!mounted || status === "loading") {
     return (
       <Box
         sx={{

@@ -104,8 +104,21 @@ export default function Sidebar() {
     {
       text: t("common.teachers"),
       icon: <PersonIcon />,
-      path: "/teachers",
       permission: Permission.VIEW_TEACHERS,
+      children: [
+        {
+          text: "Teachers List",
+          icon: <PersonIcon />,
+          path: "/teachers",
+          permission: Permission.VIEW_TEACHERS,
+        },
+        {
+          text: "Salary Management",
+          icon: <AccountBalanceIcon />,
+          path: "/salary",
+          permission: Permission.MANAGE_TEACHER_SALARY,
+        },
+      ],
     },
     {
       text: "Academic",
@@ -205,12 +218,6 @@ export default function Sidebar() {
       icon: <MessageIcon />,
       path: "/messaging",
       permission: Permission.SEND_MESSAGES,
-    },
-    {
-      text: "Salary Management",
-      icon: <AccountBalanceIcon />,
-      path: "/salaries",
-      permission: Permission.MANAGE_TEACHER_SALARY,
     },
     {
       text: t("common.reports"),

@@ -181,10 +181,10 @@ export default function PaymentsPage() {
   const fetchPayments = useCallback(async () => {
     try {
       setLoading(true);
-      const response = await fetch(`/api/payments`);
+      const response = await fetch(`/api/payments?pageSize=100`);
       const data = await response.json();
       if (response.ok) {
-        setPayments(data.payments || data || []);
+        setPayments(data.data || []);
       } else {
         toast.error(data.error || "Failed to fetch payments");
       }

@@ -41,6 +41,7 @@ import { toast } from "sonner";
 interface Student {
   id: string;
   studentId: string;
+  registrationNo: string;
   firstName: string;
   lastName: string;
   email: string;
@@ -50,7 +51,9 @@ interface Student {
   status: string;
   class: { id: string; name: string };
   section: { id: string; name: string };
-  guardian: { firstName: string; lastName: string; phone: string } | null;
+  guardianName: string;
+  guardianRelation: string;
+  guardianPhone: string;
   createdAt: string;
 }
 
@@ -168,12 +171,12 @@ export default function StudentsPage() {
 
   const columns: SimpleColumn<Student>[] = [
     {
-      id: "studentId",
-      label: "Student ID",
-      minWidth: 120,
+      id: "registrationNo",
+      label: "Registration No",
+      minWidth: 140,
       renderCell: (row: Student) => (
         <Typography variant="body2" fontWeight="500">
-          {row.studentId}
+          {row.registrationNo}
         </Typography>
       ),
     },
@@ -212,24 +215,24 @@ export default function StudentsPage() {
     {
       id: "guardian",
       label: "Guardian",
-      minWidth: 150,
+      minWidth: 180,
       renderCell: (row: Student) => (
-        <Box>
-          <Typography variant="body2">
-            {row.guardian
-              ? `${row.guardian.firstName} ${row.guardian.lastName}`
-              : "-"}
-          </Typography>
-          <Typography variant="caption" color="text.secondary">
-            {row.guardian?.phone || ""}
-          </Typography>
-        </Box>
+        <Typography variant="body2">
+          {row.guardianName
+            ? `${row.guardianName} (${row.guardianRelation})`
+            : "-"}
+        </Typography>
       ),
     },
     {
       id: "phone",
       label: "Phone",
       minWidth: 130,
+      renderCell: (row: Student) => (
+        <Typography variant="body2">
+          {row.guardianPhone || row.phone || "-"}
+        </Typography>
+      ),
     },
     {
       id: "dateOfBirth",
