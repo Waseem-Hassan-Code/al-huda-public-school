@@ -89,6 +89,7 @@ interface FormData {
     city: string;
   };
   // Fee Info
+  monthlyFee: number;
   fees: {
     feeStructureId: string;
     name: string;
@@ -156,6 +157,7 @@ export default function AdmissionPage() {
       address: "",
       city: "",
     },
+    monthlyFee: 0,
     fees: [],
   });
 
@@ -273,8 +275,8 @@ export default function AdmissionPage() {
         break;
 
       case 3: // Fee Structure
-        if (!formData.fees.some((f) => f.selected)) {
-          newErrors.fees = "At least one fee must be selected";
+        if (formData.monthlyFee <= 0) {
+          newErrors.monthlyFee = "Monthly tuition fee is required";
         }
         break;
     }
@@ -318,11 +320,15 @@ export default function AdmissionPage() {
 
       if (response.ok) {
         const data = await response.json();
-        toast.success(`Student admitted successfully! ID: ${data.studentId}`);
+        toast.success(
+          `Student admitted successfully! ID: ${
+            data.studentId || data.registrationNo
+          }`
+        );
         router.push(`/students/${data.id}`);
       } else {
         const error = await response.json();
-        toast.error(error.message || "Failed to admit student");
+        toast.error(error.error || error.message || "Failed to admit student");
       }
     } catch (error) {
       toast.error("An error occurred during admission");
@@ -334,9 +340,11 @@ export default function AdmissionPage() {
   const selectedClass = classes.find((c) => c.id === formData.classId);
   const sections = selectedClass?.sections || [];
 
-  const totalFees = formData.fees
+  const additionalFees = formData.fees
     .filter((f) => f.selected)
     .reduce((sum, f) => sum + f.amount - f.discount, 0);
+
+  const totalFees = formData.monthlyFee + additionalFees;
 
   const renderStepContent = (step: number) => {
     switch (step) {
@@ -834,6 +842,48 @@ export default function AdmissionPage() {
             <Typography variant="h6" gutterBottom>
               Fee Structure
             </Typography>
+
+            {/* Monthly Tuition Fee - Individual for each student */}
+            <Paper
+              variant="outlined"
+              sx={{ p: 2, mb: 3, bgcolor: "primary.50" }}
+            >
+              <Typography
+                variant="subtitle1"
+                fontWeight="bold"
+                gutterBottom
+                color="primary"
+              >
+                Monthly Tuition Fee
+              </Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                Set the monthly tuition fee for this student. This can be
+                different for each student in the same class.
+              </Typography>
+              <TextField
+                label="Monthly Tuition Fee (Rs.)"
+                type="number"
+                fullWidth
+                required
+                value={formData.monthlyFee}
+                onChange={(e) =>
+                  handleInputChange("monthlyFee", Number(e.target.value))
+                }
+                error={!!errors.monthlyFee}
+                helperText={
+                  errors.monthlyFee ||
+                  "Enter the monthly tuition fee for this student"
+                }
+                InputProps={{
+                  startAdornment: <Typography sx={{ mr: 1 }}>Rs.</Typography>,
+                }}
+                sx={{ maxWidth: 300 }}
+              />
+            </Paper>
+
+            <Typography variant="subtitle1" fontWeight="bold" gutterBottom>
+              Additional Fees (Optional)
+            </Typography>
             {errors.fees && (
               <Alert severity="error" sx={{ mb: 2 }}>
                 {errors.fees}
@@ -1063,14 +1113,35 @@ export default function AdmissionPage() {
 
             <Paper variant="outlined" sx={{ p: 2 }}>
               <Typography variant="subtitle1" fontWeight="bold" gutterBottom>
-                Monthly Fees
+                Fee Summary
               </Typography>
-              <Typography variant="h4" color="primary">
-                {formatCurrency(totalFees)}
-              </Typography>
+              <Grid container spacing={2}>
+                <Grid size={{ xs: 6 }}>
+                  <Typography variant="body2" color="text.secondary">
+                    Monthly Tuition Fee
+                  </Typography>
+                  <Typography variant="h6" color="primary">
+                    {formatCurrency(formData.monthlyFee)}
+                  </Typography>
+                </Grid>
+                {additionalFees > 0 && (
+                  <Grid size={{ xs: 6 }}>
+                    <Typography variant="body2" color="text.secondary">
+                      Additional Fees (
+                      {formData.fees.filter((f) => f.selected).length} items)
+                    </Typography>
+                    <Typography variant="h6">
+                      {formatCurrency(additionalFees)}
+                    </Typography>
+                  </Grid>
+                )}
+              </Grid>
+              <Divider sx={{ my: 2 }} />
               <Typography variant="body2" color="text.secondary">
-                {formData.fees.filter((f) => f.selected).length} fee types
-                selected
+                Total Monthly Fee
+              </Typography>
+              <Typography variant="h4" color="primary" fontWeight="bold">
+                {formatCurrency(totalFees)}
               </Typography>
             </Paper>
           </Box>

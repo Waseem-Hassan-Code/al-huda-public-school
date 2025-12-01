@@ -99,8 +99,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    if (!hasPermission(session.user.role, Permission.CREATE_STUDENT)) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    const userRole = session.user.role as string;
+    if (!hasPermission(userRole, Permission.CREATE_STUDENT)) {
+      console.log("Permission denied for role:", userRole);
+      return NextResponse.json(
+        {
+          error: `Forbidden - Role: ${userRole} does not have CREATE_STUDENT permission`,
+        },
+        { status: 403 }
+      );
     }
 
     const body = await request.json();
@@ -129,6 +136,7 @@ export async function POST(request: NextRequest) {
       // Guardian info
       guardian,
       // Fee info
+      monthlyFee,
       fees,
     } = body;
 
@@ -204,6 +212,7 @@ export async function POST(request: NextRequest) {
           guardianEmail: guardian?.email || null,
           guardianOccupation: guardian?.occupation || null,
           guardianAddress: guardian?.address || null,
+          monthlyFee: monthlyFee || 0,
           status: "ACTIVE",
           createdById: session.user.id,
         },
@@ -214,19 +223,6 @@ export async function POST(request: NextRequest) {
         },
       });
 
-      // Calculate monthly fee from selected fees
-      if (fees && fees.length > 0) {
-        const monthlyFee = fees.reduce((sum: number, fee: any) => {
-          return sum + (fee.amount - (fee.discount || 0));
-        }, 0);
-
-        // Update student's monthly fee
-        await tx.student.update({
-          where: { id: student.id },
-          data: { monthlyFee },
-        });
-      }
-
       return student;
     });
 
@@ -234,7 +230,7 @@ export async function POST(request: NextRequest) {
     await logCreate(
       "STUDENT",
       result.id,
-      { registrationNo, firstName, lastName },
+      { registrationNo, firstName, lastName, monthlyFee },
       session.user.id
     );
 
