@@ -33,6 +33,7 @@ import {
   DialogContent,
   DialogActions,
   CircularProgress,
+  InputAdornment,
 } from "@mui/material";
 import {
   Save as SaveIcon,
@@ -45,6 +46,10 @@ import {
   Edit as EditIcon,
   Delete as DeleteIcon,
   CheckCircle,
+  Warning as WarningIcon,
+  DeleteForever as DeleteForeverIcon,
+  Visibility,
+  VisibilityOff,
 } from "@mui/icons-material";
 import { DatePicker, LocalizationProvider } from "@mui/x-date-pickers";
 import { AdapterDateFns } from "@mui/x-date-pickers/AdapterDateFns";
@@ -190,6 +195,13 @@ export default function SettingsPage() {
     isCurrent: false,
   });
   const [savingAcademicYear, setSavingAcademicYear] = useState(false);
+
+  // Database cleanup state
+  const [cleanupDialogOpen, setCleanupDialogOpen] = useState(false);
+  const [cleanupPassword, setCleanupPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [cleaningDatabase, setCleaningDatabase] = useState(false);
+  const [cleanupConfirmText, setCleanupConfirmText] = useState("");
 
   // Fetch academic years
   const fetchAcademicYears = useCallback(async () => {
@@ -374,6 +386,47 @@ export default function SettingsPage() {
       }
     } catch (error) {
       toast.error("Failed to delete academic year");
+    }
+  };
+
+  // Database cleanup handler
+  const handleDatabaseCleanup = async () => {
+    if (cleanupConfirmText !== "DELETE ALL DATA") {
+      toast.error("Please type 'DELETE ALL DATA' to confirm");
+      return;
+    }
+
+    if (!cleanupPassword) {
+      toast.error("Please enter your admin password");
+      return;
+    }
+
+    setCleaningDatabase(true);
+    try {
+      const res = await fetch("/api/admin/cleanup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password: cleanupPassword }),
+      });
+
+      const data = await res.json();
+
+      if (res.ok) {
+        toast.success(
+          `Database cleaned successfully. ${data.totalDeleted} records deleted.`
+        );
+        setCleanupDialogOpen(false);
+        setCleanupPassword("");
+        setCleanupConfirmText("");
+        // Refresh academic years as we created a new default one
+        fetchAcademicYears();
+      } else {
+        toast.error(data.error || "Failed to clean database");
+      }
+    } catch (error) {
+      toast.error("Failed to clean database");
+    } finally {
+      setCleaningDatabase(false);
     }
   };
 
@@ -1043,6 +1096,55 @@ export default function SettingsPage() {
               </CardContent>
             </Card>
           </Grid>
+
+          {/* Danger Zone */}
+          {session?.user?.role === "ADMIN" && (
+            <Grid size={{ xs: 12 }}>
+              <Card sx={{ border: "1px solid", borderColor: "error.main" }}>
+                <CardHeader
+                  title={
+                    <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                      <WarningIcon color="error" />
+                      <Typography variant="h6" color="error">
+                        Danger Zone
+                      </Typography>
+                    </Box>
+                  }
+                  subheader="Irreversible actions that affect your data"
+                />
+                <CardContent>
+                  <Box
+                    sx={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      p: 2,
+                      bgcolor: "error.50",
+                      borderRadius: 2,
+                    }}
+                  >
+                    <Box>
+                      <Typography variant="subtitle1" fontWeight={600}>
+                        Clean Database
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        Delete all data except users, roles, and settings. This
+                        action cannot be undone.
+                      </Typography>
+                    </Box>
+                    <Button
+                      variant="contained"
+                      color="error"
+                      startIcon={<DeleteForeverIcon />}
+                      onClick={() => setCleanupDialogOpen(true)}
+                    >
+                      Clean All Data
+                    </Button>
+                  </Box>
+                </CardContent>
+              </Card>
+            </Grid>
+          )}
         </Grid>
 
         {/* Academic Year Dialog */}
@@ -1133,6 +1235,121 @@ export default function SettingsPage() {
                 disabled={savingAcademicYear}
               >
                 {savingAcademicYear ? <CircularProgress size={24} /> : "Save"}
+              </Button>
+            </DialogActions>
+          </Dialog>
+
+          {/* Database Cleanup Dialog */}
+          <Dialog
+            open={cleanupDialogOpen}
+            onClose={() => {
+              setCleanupDialogOpen(false);
+              setCleanupPassword("");
+              setCleanupConfirmText("");
+            }}
+            maxWidth="sm"
+            fullWidth
+          >
+            <DialogTitle sx={{ bgcolor: "error.main", color: "white" }}>
+              <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                <WarningIcon />
+                <Typography variant="h6">Danger: Clean Database</Typography>
+              </Box>
+            </DialogTitle>
+            <DialogContent sx={{ mt: 2 }}>
+              <Alert severity="error" sx={{ mb: 3 }}>
+                <Typography variant="subtitle2" fontWeight={600}>
+                  Warning: This action is irreversible!
+                </Typography>
+                <Typography variant="body2">
+                  This will permanently delete all data including:
+                </Typography>
+                <ul style={{ margin: "8px 0", paddingLeft: "20px" }}>
+                  <li>All students and their records</li>
+                  <li>All teachers (User accounts will be kept)</li>
+                  <li>All classes, sections, and subjects</li>
+                  <li>All fee vouchers and payments</li>
+                  <li>All attendance records</li>
+                  <li>All exams and results</li>
+                  <li>All salary records</li>
+                  <li>All complaints and logs</li>
+                </ul>
+                <Typography
+                  variant="body2"
+                  fontWeight={600}
+                  color="success.main"
+                >
+                  The following will NOT be deleted: User accounts, roles, and
+                  school settings.
+                </Typography>
+              </Alert>
+
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                Type <strong>DELETE ALL DATA</strong> to confirm:
+              </Typography>
+              <TextField
+                fullWidth
+                value={cleanupConfirmText}
+                onChange={(e) => setCleanupConfirmText(e.target.value)}
+                placeholder="Type DELETE ALL DATA"
+                sx={{ mb: 2 }}
+                error={
+                  cleanupConfirmText !== "" &&
+                  cleanupConfirmText !== "DELETE ALL DATA"
+                }
+              />
+
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                Enter your admin password to proceed:
+              </Typography>
+              <TextField
+                fullWidth
+                type={showPassword ? "text" : "password"}
+                value={cleanupPassword}
+                onChange={(e) => setCleanupPassword(e.target.value)}
+                placeholder="Admin Password"
+                InputProps={{
+                  endAdornment: (
+                    <InputAdornment position="end">
+                      <IconButton
+                        onClick={() => setShowPassword(!showPassword)}
+                        edge="end"
+                      >
+                        {showPassword ? <VisibilityOff /> : <Visibility />}
+                      </IconButton>
+                    </InputAdornment>
+                  ),
+                }}
+              />
+            </DialogContent>
+            <DialogActions sx={{ p: 2 }}>
+              <Button
+                onClick={() => {
+                  setCleanupDialogOpen(false);
+                  setCleanupPassword("");
+                  setCleanupConfirmText("");
+                }}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="contained"
+                color="error"
+                onClick={handleDatabaseCleanup}
+                disabled={
+                  cleaningDatabase ||
+                  cleanupConfirmText !== "DELETE ALL DATA" ||
+                  !cleanupPassword
+                }
+                startIcon={
+                  cleaningDatabase ? (
+                    <CircularProgress size={20} color="inherit" />
+                  ) : (
+                    <DeleteForeverIcon />
+                  )
+                }
+              >
+                {cleaningDatabase ? "Cleaning..." : "Clean Database"}
               </Button>
             </DialogActions>
           </Dialog>

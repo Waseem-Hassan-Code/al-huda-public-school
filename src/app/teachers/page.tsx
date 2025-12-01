@@ -104,6 +104,7 @@ export default function TeachersPage() {
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [classes, setClasses] = useState<Class[]>([]);
   const [loading, setLoading] = useState(true);
+  const [mounted, setMounted] = useState(false);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [page, setPage] = useState(1);
@@ -150,6 +151,11 @@ export default function TeachersPage() {
       setAvailableSubjectsForClass([]);
     }
   }, [selectedClass, getSubjectsForClass]);
+
+  // Set mounted state for smooth transition
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   const fetchTeachers = useCallback(async () => {
     setLoading(true);
@@ -387,7 +393,13 @@ export default function TeachersPage() {
 
   return (
     <MainLayout>
-      <Box sx={{ p: 3 }}>
+      <Box
+        sx={{
+          p: 3,
+          opacity: mounted ? 1 : 0,
+          transition: "opacity 0.2s ease-in-out",
+        }}
+      >
         <Box
           sx={{
             display: "flex",
@@ -478,8 +490,51 @@ export default function TeachersPage() {
           <Grid container spacing={3}>
             {teachers.map((teacher) => (
               <Grid size={{ xs: 12, sm: 6, md: 4, lg: 3 }} key={teacher.id}>
-                <Card sx={{ height: "100%" }}>
-                  <CardContent>
+                <Card
+                  sx={{
+                    height: "100%",
+                    borderRadius: 3,
+                    overflow: "hidden",
+                    transition: "all 0.3s ease",
+                    "&:hover": {
+                      transform: "translateY(-4px)",
+                      boxShadow: "0 12px 40px rgba(0,0,0,0.12)",
+                    },
+                  }}
+                >
+                  {/* Gradient Header */}
+                  <Box
+                    sx={{
+                      background: teacher.isActive
+                        ? "linear-gradient(135deg, #1565c0 0%, #1976d2 50%, #42a5f5 100%)"
+                        : "linear-gradient(135deg, #757575 0%, #9e9e9e 100%)",
+                      pt: 3,
+                      pb: 5,
+                      position: "relative",
+                    }}
+                  >
+                    <Box
+                      sx={{
+                        position: "absolute",
+                        top: 12,
+                        right: 12,
+                      }}
+                    >
+                      <Chip
+                        size="small"
+                        label={teacher.isActive ? "Active" : "Inactive"}
+                        sx={{
+                          bgcolor: "rgba(255,255,255,0.2)",
+                          color: "white",
+                          fontWeight: 500,
+                          backdropFilter: "blur(4px)",
+                        }}
+                      />
+                    </Box>
+                  </Box>
+
+                  <CardContent sx={{ pt: 0, mt: -4, position: "relative" }}>
+                    {/* Avatar */}
                     <Box
                       sx={{
                         display: "flex",
@@ -493,71 +548,126 @@ export default function TeachersPage() {
                         sx={{
                           width: 80,
                           height: 80,
-                          mb: 1,
+                          border: "4px solid white",
+                          boxShadow: "0 4px 14px rgba(0,0,0,0.15)",
                           bgcolor: "primary.main",
                           fontSize: "1.5rem",
+                          fontWeight: 600,
                         }}
                       >
                         {teacher.firstName[0]}
                         {teacher.lastName[0]}
                       </Avatar>
-                      <Typography variant="h6" textAlign="center">
+                      <Typography
+                        variant="h6"
+                        textAlign="center"
+                        fontWeight={600}
+                        sx={{ mt: 1.5 }}
+                      >
                         {teacher.firstName} {teacher.lastName}
                       </Typography>
                       <Typography
                         variant="body2"
                         color="text.secondary"
                         textAlign="center"
+                        sx={{
+                          bgcolor: "grey.100",
+                          px: 1.5,
+                          py: 0.5,
+                          borderRadius: 1,
+                          mt: 0.5,
+                        }}
                       >
                         {teacher.employeeId}
                       </Typography>
-                      <Chip
-                        size="small"
-                        label={teacher.isActive ? "Active" : "Inactive"}
-                        color={teacher.isActive ? "success" : "default"}
-                        sx={{ mt: 1 }}
-                      />
                     </Box>
 
-                    <Box sx={{ mb: 2 }}>
+                    {/* Contact Info */}
+                    <Box
+                      sx={{
+                        bgcolor: "grey.50",
+                        borderRadius: 2,
+                        p: 1.5,
+                        mb: 2,
+                      }}
+                    >
                       <Box
                         sx={{
                           display: "flex",
                           alignItems: "center",
-                          gap: 1,
-                          mb: 0.5,
+                          gap: 1.5,
+                          mb: 1,
                         }}
                       >
-                        <Email fontSize="small" color="action" />
-                        <Typography variant="body2" noWrap>
-                          {teacher.email}
+                        <Box
+                          sx={{
+                            bgcolor: "primary.light",
+                            borderRadius: 1,
+                            p: 0.5,
+                            display: "flex",
+                          }}
+                        >
+                          <Email sx={{ fontSize: 16, color: "primary.main" }} />
+                        </Box>
+                        <Typography variant="body2" noWrap sx={{ flex: 1 }}>
+                          {teacher.email || "No email"}
                         </Typography>
                       </Box>
                       <Box
                         sx={{
                           display: "flex",
                           alignItems: "center",
-                          gap: 1,
-                          mb: 0.5,
+                          gap: 1.5,
+                          mb: 1,
                         }}
                       >
-                        <Phone fontSize="small" color="action" />
+                        <Box
+                          sx={{
+                            bgcolor: "success.light",
+                            borderRadius: 1,
+                            p: 0.5,
+                            display: "flex",
+                          }}
+                        >
+                          <Phone sx={{ fontSize: 16, color: "success.main" }} />
+                        </Box>
                         <Typography variant="body2">{teacher.phone}</Typography>
                       </Box>
                       <Box
-                        sx={{ display: "flex", alignItems: "center", gap: 1 }}
+                        sx={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 1.5,
+                        }}
                       >
-                        <School fontSize="small" color="action" />
+                        <Box
+                          sx={{
+                            bgcolor: "warning.light",
+                            borderRadius: 1,
+                            p: 0.5,
+                            display: "flex",
+                          }}
+                        >
+                          <School
+                            sx={{ fontSize: 16, color: "warning.main" }}
+                          />
+                        </Box>
                         <Typography variant="body2">
                           {teacher.qualification}
                         </Typography>
                       </Box>
                     </Box>
 
+                    {/* Subjects */}
                     {teacher.subjects && teacher.subjects.length > 0 && (
                       <Box sx={{ mb: 2 }}>
-                        <Typography variant="caption" color="text.secondary">
-                          Teaching
+                        <Typography
+                          variant="caption"
+                          color="text.secondary"
+                          fontWeight={500}
+                          sx={{ mb: 0.5, display: "block" }}
+                        >
+                          Teaching Subjects
                         </Typography>
                         <Box
                           sx={{ display: "flex", flexWrap: "wrap", gap: 0.5 }}
@@ -573,27 +683,37 @@ export default function TeachersPage() {
                                   : ts.subject?.name || "Subject"
                               }
                               size="small"
-                              variant="outlined"
+                              sx={{
+                                bgcolor: "primary.50",
+                                color: "primary.main",
+                                fontWeight: 500,
+                                fontSize: "0.7rem",
+                              }}
                             />
                           ))}
                           {teacher.subjects.length > 3 && (
                             <Chip
                               label={`+${teacher.subjects.length - 3}`}
                               size="small"
-                              variant="outlined"
+                              sx={{
+                                bgcolor: "grey.200",
+                                fontWeight: 500,
+                                fontSize: "0.7rem",
+                              }}
                             />
                           )}
                         </Box>
                       </Box>
                     )}
 
+                    {/* Action Buttons */}
                     <Box
                       sx={{
                         display: "flex",
                         justifyContent: "center",
                         gap: 1,
-                        pt: 1,
-                        borderTop: 1,
+                        pt: 2,
+                        borderTop: "1px solid",
                         borderColor: "divider",
                       }}
                     >
@@ -601,28 +721,41 @@ export default function TeachersPage() {
                         <IconButton
                           size="small"
                           onClick={() => handleView(teacher)}
+                          sx={{
+                            bgcolor: "primary.50",
+                            "&:hover": { bgcolor: "primary.100" },
+                          }}
                         >
-                          <Visibility />
+                          <Visibility
+                            sx={{ fontSize: 18, color: "primary.main" }}
+                          />
                         </IconButton>
                       </Tooltip>
                       <Tooltip title="Edit">
                         <IconButton
                           size="small"
                           onClick={() => handleOpenDialog(teacher)}
+                          sx={{
+                            bgcolor: "warning.50",
+                            "&:hover": { bgcolor: "warning.100" },
+                          }}
                         >
-                          <Edit />
+                          <Edit sx={{ fontSize: 18, color: "warning.main" }} />
                         </IconButton>
                       </Tooltip>
                       <Tooltip title="Delete">
                         <IconButton
                           size="small"
-                          color="error"
                           onClick={() => {
                             setSelectedTeacher(teacher);
                             setDeleteDialogOpen(true);
                           }}
+                          sx={{
+                            bgcolor: "error.50",
+                            "&:hover": { bgcolor: "error.100" },
+                          }}
                         >
-                          <Delete />
+                          <Delete sx={{ fontSize: 18, color: "error.main" }} />
                         </IconButton>
                       </Tooltip>
                     </Box>

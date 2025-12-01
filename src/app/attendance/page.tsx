@@ -51,10 +51,22 @@ interface AttendanceRecord {
   remarks: string;
 }
 
+interface Section {
+  id: string;
+  name: string;
+  classTeacherId?: string | null;
+}
+
 interface ClassOption {
   id: string;
   name: string;
-  sections: { id: string; name: string }[];
+  sections: Section[];
+}
+
+interface TeacherInfo {
+  id: string;
+  firstName: string;
+  lastName: string;
 }
 
 type AttendanceStatus = "PRESENT" | "ABSENT" | "LATE" | "LEAVE" | "HALF_DAY";
@@ -75,12 +87,34 @@ export default function AttendancePage() {
     Record<string, { status: AttendanceStatus; remarks: string }>
   >({});
   const [existingAttendance, setExistingAttendance] = useState(false);
+  const [teacherInfo, setTeacherInfo] = useState<TeacherInfo | null>(null);
 
   useEffect(() => {
     if (status === "unauthenticated") {
       router.push("/login");
     }
   }, [status, router]);
+
+  // Fetch teacher info if user is a teacher
+  useEffect(() => {
+    const fetchTeacherInfo = async () => {
+      if (session?.user?.role === "TEACHER") {
+        try {
+          const response = await fetch("/api/teachers/me");
+          if (response.ok) {
+            const data = await response.json();
+            setTeacherInfo(data.data);
+          }
+        } catch (error) {
+          console.error("Failed to fetch teacher info:", error);
+        }
+      }
+    };
+
+    if (status === "authenticated") {
+      fetchTeacherInfo();
+    }
+  }, [status, session?.user?.role]);
 
   // Fetch classes
   useEffect(() => {
@@ -259,7 +293,21 @@ export default function AttendancePage() {
   };
 
   const selectedClassData = classes.find((c) => c.id === selectedClass);
-  const sections = selectedClassData?.sections || [];
+
+  // Filter sections: Teachers can only mark attendance for sections they are class teacher of
+  const allSections = selectedClassData?.sections || [];
+  const sections =
+    session?.user?.role === "TEACHER" && teacherInfo
+      ? allSections.filter((s) => s.classTeacherId === teacherInfo.id)
+      : allSections;
+
+  // Check if the selected section allows the user to mark attendance
+  const canMarkAttendance = () => {
+    if (session?.user?.role === "ADMIN") return true;
+    if (!teacherInfo || !selectedSection) return false;
+    const section = allSections.find((s) => s.id === selectedSection);
+    return section?.classTeacherId === teacherInfo.id;
+  };
 
   const summary = {
     total: students.length,

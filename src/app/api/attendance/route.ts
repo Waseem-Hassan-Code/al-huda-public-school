@@ -135,6 +135,57 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    if (!sectionId) {
+      return NextResponse.json(
+        { error: "Section ID is required" },
+        { status: 400 }
+      );
+    }
+
+    // Check if the user is allowed to mark attendance for this section
+    // Admins can mark attendance for any section
+    // Teachers can only mark attendance for sections where they are the class teacher
+    if (session.user.role === "TEACHER") {
+      // Get teacher record for this user
+      const teacher = await prisma.teacher.findUnique({
+        where: { userId: session.user.id },
+        select: { id: true },
+      });
+
+      if (!teacher) {
+        return NextResponse.json(
+          { error: "Teacher profile not found" },
+          { status: 404 }
+        );
+      }
+
+      // Check if this teacher is the class teacher of the section
+      const section = await prisma.section.findUnique({
+        where: { id: sectionId },
+        select: {
+          classTeacherId: true,
+          name: true,
+          class: { select: { name: true } },
+        },
+      });
+
+      if (!section) {
+        return NextResponse.json(
+          { error: "Section not found" },
+          { status: 404 }
+        );
+      }
+
+      if (section.classTeacherId !== teacher.id) {
+        return NextResponse.json(
+          {
+            error: `Only the class teacher can mark attendance for ${section.class.name} - ${section.name}. Please contact the class teacher or an administrator.`,
+          },
+          { status: 403 }
+        );
+      }
+    }
+
     const targetDate = new Date(date);
 
     // Use upsert to handle both new and existing records

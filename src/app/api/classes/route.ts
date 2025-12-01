@@ -28,6 +28,20 @@ export async function GET(request: NextRequest) {
         sections: {
           where: includeInactive ? {} : { isActive: true },
           orderBy: { name: "asc" },
+          select: {
+            id: true,
+            name: true,
+            capacity: true,
+            isActive: true,
+            classTeacherId: true,
+            classTeacher: {
+              select: {
+                id: true,
+                firstName: true,
+                lastName: true,
+              },
+            },
+          },
         },
         subjects: {
           where: includeInactive ? {} : { isActive: true },

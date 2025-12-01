@@ -88,13 +88,13 @@ body {
 }
 
 [data-sonner-toast] {
-  padding: 16px 20px !important;
-  border-radius: 16px !important;
-  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1),
-    0 10px 15px -3px rgba(0, 0, 0, 0.15), 0 20px 25px -5px rgba(0, 0, 0, 0.1) !important;
+  padding: 14px 16px !important;
+  padding-right: 40px !important;
+  border-radius: 12px !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15) !important;
   border: none !important;
-  backdrop-filter: blur(8px);
-  animation: slideIn 0.35s cubic-bezier(0.21, 1.02, 0.73, 1) forwards !important;
+  position: relative !important;
+  overflow: visible !important;
 }
 
 [data-sonner-toast][data-type="success"] {
@@ -147,9 +147,8 @@ body {
 
 [data-sonner-toast] [data-title] {
   font-weight: 600 !important;
-  font-size: 15px !important;
+  font-size: 14px !important;
   line-height: 1.4 !important;
-  letter-spacing: -0.01em !important;
 }
 
 [data-sonner-toast] [data-description] {
@@ -157,44 +156,48 @@ body {
   font-size: 13px !important;
   line-height: 1.5 !important;
   opacity: 0.9 !important;
-  margin-top: 4px !important;
+  margin-top: 2px !important;
 }
 
+/* Close button - make it visible and positioned correctly */
 [data-sonner-toast] [data-close-button] {
-  background: rgba(255, 255, 255, 0.2) !important;
+  position: absolute !important;
+  top: 50% !important;
+  right: 8px !important;
+  transform: translateY(-50%) !important;
+  width: 24px !important;
+  height: 24px !important;
+  background: rgba(255, 255, 255, 0.25) !important;
   border: none !important;
-  border-radius: 8px !important;
+  border-radius: 6px !important;
   color: white !important;
-  opacity: 0.8 !important;
+  opacity: 1 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  cursor: pointer !important;
   transition: all 0.2s ease !important;
 }
 
 [data-sonner-toast] [data-close-button]:hover {
-  background: rgba(255, 255, 255, 0.3) !important;
-  opacity: 1 !important;
-  transform: scale(1.1) !important;
+  background: rgba(255, 255, 255, 0.4) !important;
+  transform: translateY(-50%) scale(1.1) !important;
+}
+
+[data-sonner-toast] [data-close-button] svg {
+  width: 14px !important;
+  height: 14px !important;
 }
 
 [data-sonner-toast] [data-icon] {
-  width: 24px !important;
-  height: 24px !important;
-  margin-right: 12px !important;
+  width: 20px !important;
+  height: 20px !important;
+  margin-right: 10px !important;
 }
 
 [data-sonner-toast] [data-icon] svg {
-  width: 24px !important;
-  height: 24px !important;
-}
-
-@keyframes slideIn {
-  from {
-    transform: translateX(100%);
-    opacity: 0;
-  }
-  to {
-    transform: translateX(0);
-    opacity: 1;
-  }
+  width: 20px !important;
+  height: 20px !important;
 }
 
 [data-sonner-toast][data-type="loading"] {
@@ -202,34 +205,19 @@ body {
   color: white !important;
 }
 
-[data-sonner-toast] {
-  overflow: hidden !important;
-  position: relative !important;
-}
-
-[data-sonner-toast]::before {
-  content: "";
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 4px;
-  background: rgba(255, 255, 255, 0.3);
-  border-radius: 16px 16px 0 0;
-}
-
+/* Progress bar - thin line at bottom */
 [data-sonner-toast]::after {
   content: "";
   position: absolute;
-  top: 0;
+  bottom: 0;
   left: 0;
-  height: 4px;
-  background: rgba(255, 255, 255, 0.7);
-  border-radius: 16px 0 0 0;
-  animation: progress 4s linear forwards;
+  height: 2px;
+  background: rgba(255, 255, 255, 0.5);
+  border-radius: 0 0 12px 12px;
+  animation: toastProgress 4s linear forwards;
 }
 
-@keyframes progress {
+@keyframes toastProgress {
   from {
     width: 100%;
   }

@@ -421,28 +421,16 @@ export default function SalaryPage() {
   const totalPending = pendingSalaries.reduce((sum, s) => sum + s.netSalary, 0);
   const totalPaid = paidSalaries.reduce((sum, s) => sum + s.netSalary, 0);
 
-  // Prevent rendering until client-side hydration is complete
-  if (!mounted) {
-    return (
-      <MainLayout>
-        <Box
-          sx={{
-            display: "flex",
-            justifyContent: "center",
-            alignItems: "center",
-            height: "60vh",
-          }}
-        >
-          <CircularProgress />
-        </Box>
-      </MainLayout>
-    );
-  }
-
   return (
     <LocalizationProvider dateAdapter={AdapterDateFns}>
       <MainLayout>
-        <Box sx={{ p: 3 }}>
+        <Box
+          sx={{
+            p: 3,
+            opacity: mounted ? 1 : 0,
+            transition: "opacity 0.2s ease-in-out",
+          }}
+        >
           <Box
             sx={{
               display: "flex",

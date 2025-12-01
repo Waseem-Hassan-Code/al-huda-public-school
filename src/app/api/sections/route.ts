@@ -13,11 +13,28 @@ export async function GET(request: NextRequest) {
 
     const { searchParams } = new URL(request.url);
     const classId = searchParams.get("classId") || "";
+    const classTeacherId = searchParams.get("classTeacherId") || "";
+    const myClassesOnly = searchParams.get("myClassesOnly") === "true";
 
     const where: Record<string, unknown> = {};
 
     if (classId) {
       where.classId = classId;
+    }
+
+    if (classTeacherId) {
+      where.classTeacherId = classTeacherId;
+    }
+
+    // If teacher wants to see only their assigned classes
+    if (myClassesOnly && session.user.role === "TEACHER") {
+      const teacher = await prisma.teacher.findUnique({
+        where: { userId: session.user.id },
+        select: { id: true },
+      });
+      if (teacher) {
+        where.classTeacherId = teacher.id;
+      }
     }
 
     const sections = await prisma.section.findMany({
