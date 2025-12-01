@@ -18,6 +18,8 @@ export async function GET(request: NextRequest) {
     const currentYear = now.getFullYear();
     const startOfMonth = new Date(currentYear, currentMonth, 1);
     const endOfMonth = new Date(currentYear, currentMonth + 1, 0);
+    const startOfToday = new Date(currentYear, now.getMonth(), now.getDate());
+    const endOfToday = new Date(currentYear, now.getMonth(), now.getDate() + 1);
 
     // Get counts
     const [
@@ -27,9 +29,12 @@ export async function GET(request: NextRequest) {
       totalClasses,
       totalSections,
       pendingFeeVouchers,
+      pendingAmount,
       monthlyRevenue,
+      todayRevenue,
       recentPayments,
-      monthlyPayments,
+      dailyPayments,
+      recentVouchers,
       attendanceToday,
       pendingComplaints,
     ] = await Promise.all([
@@ -56,10 +61,18 @@ export async function GET(request: NextRequest) {
         where: { isActive: true },
       }),
 
-      // Pending fee vouchers
+      // Pending fee vouchers count
       prisma.feeVoucher.count({
         where: {
-          status: { in: [FeeStatus.UNPAID, FeeStatus.PARTIAL] },
+          status: { in: [FeeStatus.UNPAID, FeeStatus.PARTIAL, FeeStatus.OVERDUE] },
+        },
+      }),
+
+      // Pending amount
+      prisma.feeVoucher.aggregate({
+        _sum: { balanceDue: true },
+        where: {
+          status: { in: [FeeStatus.UNPAID, FeeStatus.PARTIAL, FeeStatus.OVERDUE] },
         },
       }),
 
@@ -74,30 +87,83 @@ export async function GET(request: NextRequest) {
         },
       }),
 
+      // Today's revenue
+      prisma.payment.aggregate({
+        _sum: { amount: true },
+        where: {
+          paymentDate: {
+            gte: startOfToday,
+            lt: endOfToday,
+          },
+        },
+      }),
+
       // Recent payments (last 10)
       prisma.payment.findMany({
         take: 10,
         orderBy: { paymentDate: "desc" },
         include: {
+          student: {
+            select: {
+              id: true,
+              registrationNo: true,
+              firstName: true,
+              lastName: true,
+            },
+          },
           voucher: {
-            include: {
-              student: {
-                select: {
-                  id: true,
-                  registrationNo: true,
-                  firstName: true,
-                  lastName: true,
-                },
-              },
+            select: {
+              id: true,
+              voucherNo: true,
             },
           },
         },
       }),
 
-      // Monthly payments for chart (last 6 months)
+      // Daily payments for chart (last 14 days)
       prisma.$queryRaw`
         SELECT 
-          DATE_TRUNC('month', "paymentDate") as month,
+          DATE("paymentDate") as date,
+          SUM(amount) as total
+        FROM "payments"
+        WHERE "paymentDate" >= ${new Date(Date.now() - 14 * 24 * 60 * 60 * 1000)}
+        GROUP BY DATE("paymentDate")
+        ORDER BY date ASC
+      `,
+
+      // Recent vouchers
+      prisma.feeVoucher.findMany({
+        take: 10,
+        orderBy: { createdAt: "desc" },
+        include: {
+          student: {
+            select: {
+              id: true,
+              registrationNo: true,
+              firstName: true,
+              lastName: true,
+            },
+          },
+        },
+      }),
+
+      // Today's attendance summary
+      prisma.attendance.groupBy({
+        by: ["status"],
+        _count: true,
+        where: {
+          date: {
+            gte: startOfToday,
+            lt: endOfToday,
+          },
+        },
+      }),
+
+      // Pending complaints
+      prisma.complaint.count({
+        where: { status: "PENDING" },
+      }),
+    ]);
           SUM(amount) as total
         FROM "payments"
         WHERE "paymentDate" >= ${new Date(currentYear, currentMonth - 5, 1)}
@@ -136,37 +202,24 @@ export async function GET(request: NextRequest) {
         ? Math.round((presentToday / totalAttendanceToday) * 100)
         : 0;
 
-    // Format monthly payments for chart
-    const monthNames = [
-      "Jan",
-      "Feb",
-      "Mar",
-      "Apr",
-      "May",
-      "Jun",
-      "Jul",
-      "Aug",
-      "Sep",
-      "Oct",
-      "Nov",
-      "Dec",
-    ];
-    const chartData = (monthlyPayments as any[]).map((item: any) => ({
-      month: monthNames[new Date(item.month).getMonth()],
-      revenue: Number(item.total) || 0,
-    }));
-
-    // Fill missing months with 0
-    const last6Months = [];
-    for (let i = 5; i >= 0; i--) {
-      const monthIndex = (currentMonth - i + 12) % 12;
-      const monthName = monthNames[monthIndex];
-      const existingData = chartData.find((d) => d.month === monthName);
-      last6Months.push({
-        month: monthName,
-        revenue: existingData?.revenue || 0,
-      });
+    // Generate last 14 days for chart
+    const last14Days = [];
+    for (let i = 13; i >= 0; i--) {
+      const date = new Date();
+      date.setDate(date.getDate() - i);
+      last14Days.push(date.toISOString().split("T")[0]);
     }
+
+    // Merge daily payments with all dates
+    const chartData = last14Days.map((date) => {
+      const found = (dailyPayments as any[]).find(
+        (p) => new Date(p.date).toISOString().split("T")[0] === date
+      );
+      return {
+        date,
+        amount: found ? Number(found.total) : 0,
+      };
+    });
 
     return NextResponse.json({
       stats: {
@@ -176,19 +229,23 @@ export async function GET(request: NextRequest) {
         totalClasses,
         totalSections,
         pendingFeeVouchers,
+        pendingAmount: pendingAmount._sum.balanceDue || 0,
         monthlyRevenue: monthlyRevenue._sum.amount || 0,
+        todayRevenue: todayRevenue._sum.amount || 0,
         attendancePercentage,
         pendingComplaints,
+        recentVouchers,
       },
       recentPayments: recentPayments.map((p: any) => ({
         id: p.id,
         amount: p.amount,
         paymentDate: p.paymentDate,
         paymentMethod: p.paymentMethod,
-        receiptNumber: p.receiptNumber,
-        student: p.voucher.student,
+        receiptNo: p.receiptNo,
+        student: p.student,
+        voucher: p.voucher,
       })),
-      chartData: last6Months,
+      chartData,
     });
   } catch (error) {
     console.error("Dashboard API Error:", error);

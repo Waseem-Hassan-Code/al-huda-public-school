@@ -16,6 +16,7 @@ import {
   TableRow,
   Skeleton,
   Chip,
+  Button,
 } from "@mui/material";
 import {
   People as PeopleIcon,
@@ -26,11 +27,14 @@ import {
   TrendingUp as TrendingUpIcon,
   EventAvailable as AttendanceIcon,
   Report as ComplaintIcon,
+  Payment as PaymentIcon,
+  AccountBalance as AccountBalanceIcon,
 } from "@mui/icons-material";
 import MainLayout from "@/components/layout/MainLayout";
 import StatCard from "@/components/dashboard/StatCard";
 import PaymentChart from "@/components/dashboard/PaymentChart";
 import { formatCurrency, formatDate } from "@/lib/utils";
+import StatusBadge from "@/components/common/StatusBadge";
 
 interface DashboardStats {
   totalStudents: number;
@@ -40,8 +44,11 @@ interface DashboardStats {
   totalSections: number;
   pendingFeeVouchers: number;
   monthlyRevenue: number;
+  todayRevenue: number;
+  pendingAmount: number;
   attendancePercentage: number;
   pendingComplaints: number;
+  recentVouchers: any[];
 }
 
 interface RecentPayment {
@@ -49,18 +56,21 @@ interface RecentPayment {
   amount: number;
   paymentDate: string;
   paymentMethod: string;
-  receiptNumber: string;
+  receiptNo: string;
   student: {
     id: string;
-    studentId: string;
+    registrationNo: string;
     firstName: string;
     lastName: string;
+  };
+  voucher?: {
+    voucherNo: string;
   };
 }
 
 interface ChartData {
-  month: string;
-  revenue: number;
+  date: string;
+  amount: number;
 }
 
 export default function DashboardPage() {
@@ -141,64 +151,92 @@ export default function DashboardPage() {
           </Typography>
         </Box>
 
-        {/* Stats Cards */}
+        {/* Stats Cards - Panaflex Style */}
         <Grid container spacing={3} sx={{ mb: 4 }}>
-          <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+          <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
+            <StatCard
+              title="Today's Payments"
+              value={formatCurrency(stats?.todayRevenue || 0)}
+              icon={<PaymentIcon sx={{ fontSize: 28 }} />}
+              color="#4caf50"
+              clickable
+              onClick={() => router.push("/fees")}
+            />
+          </Grid>
+          <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
+            <StatCard
+              title="This Month's Revenue"
+              value={formatCurrency(stats?.monthlyRevenue || 0)}
+              icon={<TrendingUpIcon sx={{ fontSize: 28 }} />}
+              color="#1a237e"
+            />
+          </Grid>
+          <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
+            <StatCard
+              title="Pending Amount"
+              value={formatCurrency(stats?.pendingAmount || 0)}
+              icon={<AccountBalanceIcon sx={{ fontSize: 28 }} />}
+              color="#f44336"
+              count={stats?.pendingFeeVouchers || 0}
+              countLabel="vouchers"
+              clickable
+              onClick={() => router.push("/fees")}
+            />
+          </Grid>
+          <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
             <StatCard
               title="Total Students"
               value={stats?.totalStudents || 0}
+              icon={<PeopleIcon sx={{ fontSize: 28 }} />}
+              color="#ff9800"
               subtitle={`${stats?.activeStudents || 0} active`}
-              icon={<PeopleIcon />}
-              color="#1976d2"
+              clickable
+              onClick={() => router.push("/students")}
             />
           </Grid>
-          <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+        </Grid>
+
+        {/* Second Row Stats */}
+        <Grid container spacing={3} sx={{ mb: 4 }}>
+          <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
             <StatCard
               title="Total Teachers"
               value={stats?.totalTeachers || 0}
-              icon={<PersonIcon />}
+              icon={<PersonIcon sx={{ fontSize: 28 }} />}
               color="#388e3c"
+              clickable
+              onClick={() => router.push("/teachers")}
             />
           </Grid>
-          <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+          <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
             <StatCard
               title="Classes"
               value={stats?.totalClasses || 0}
               subtitle={`${stats?.totalSections || 0} sections`}
-              icon={<SchoolIcon />}
-              color="#f57c00"
+              icon={<SchoolIcon sx={{ fontSize: 28 }} />}
+              color="#9c27b0"
+              clickable
+              onClick={() => router.push("/classes")}
             />
           </Grid>
-          <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-            <StatCard
-              title="Monthly Revenue"
-              value={formatCurrency(stats?.monthlyRevenue || 0)}
-              icon={<TrendingUpIcon />}
-              color="#7b1fa2"
-            />
-          </Grid>
-          <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-            <StatCard
-              title="Pending Vouchers"
-              value={stats?.pendingFeeVouchers || 0}
-              icon={<ReceiptIcon />}
-              color="#d32f2f"
-            />
-          </Grid>
-          <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+          <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
             <StatCard
               title="Today's Attendance"
               value={`${stats?.attendancePercentage || 0}%`}
-              icon={<AttendanceIcon />}
+              icon={<AttendanceIcon sx={{ fontSize: 28 }} />}
               color="#0288d1"
+              clickable
+              onClick={() => router.push("/attendance")}
             />
           </Grid>
-          <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+          <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
             <StatCard
               title="Pending Complaints"
               value={stats?.pendingComplaints || 0}
-              icon={<ComplaintIcon />}
+              icon={<ComplaintIcon sx={{ fontSize: 28 }} />}
               color="#c2185b"
+              clickable
+              onClick={() => router.push("/complaints")}
             />
           </Grid>
         </Grid>
@@ -206,144 +244,207 @@ export default function DashboardPage() {
         {/* Charts and Tables */}
         <Grid container spacing={3}>
           {/* Revenue Chart */}
-          <Grid size={{ xs: 12, md: 8 }}>
-            <Paper sx={{ p: 3, height: "100%" }}>
-              <Typography variant="h6" fontWeight="600" sx={{ mb: 2 }}>
-                Revenue Overview (Last 6 Months)
-              </Typography>
-              <PaymentChart data={chartData} />
-            </Paper>
+          <Grid size={{ xs: 12, lg: 6 }}>
+            <PaymentChart
+              data={chartData}
+              title="Daily Payments (Last 14 Days)"
+            />
           </Grid>
 
           {/* Quick Stats */}
-          <Grid size={{ xs: 12, md: 4 }}>
-            <Paper sx={{ p: 3, height: "100%" }}>
-              <Typography variant="h6" fontWeight="600" sx={{ mb: 2 }}>
+          <Grid size={{ xs: 12, lg: 6 }}>
+            <Paper
+              sx={{
+                p: 3,
+                height: "100%",
+                borderRadius: 3,
+                boxShadow: "0 4px 20px rgba(0,0,0,0.08)",
+              }}
+            >
+              <Typography
+                variant="h6"
+                fontWeight="600"
+                sx={{ mb: 2, color: "#1a237e" }}
+              >
                 Quick Actions
               </Typography>
               <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                <Box
-                  sx={{
-                    p: 2,
-                    bgcolor: "primary.light",
-                    borderRadius: 2,
-                    cursor: "pointer",
-                    "&:hover": { opacity: 0.9 },
-                  }}
+                <Button
+                  variant="contained"
+                  fullWidth
                   onClick={() => router.push("/students/admission")}
-                >
-                  <Typography variant="subtitle2" color="primary.contrastText">
-                    New Student Admission
-                  </Typography>
-                </Box>
-                <Box
                   sx={{
-                    p: 2,
-                    bgcolor: "success.light",
-                    borderRadius: 2,
-                    cursor: "pointer",
-                    "&:hover": { opacity: 0.9 },
+                    bgcolor: "#1a237e",
+                    py: 1.5,
+                    justifyContent: "flex-start",
+                    "&:hover": { bgcolor: "#0d1447" },
                   }}
-                  onClick={() => router.push("/fees/generate")}
                 >
-                  <Typography variant="subtitle2" color="success.contrastText">
-                    Generate Fee Vouchers
-                  </Typography>
-                </Box>
-                <Box
+                  New Student Admission
+                </Button>
+                <Button
+                  variant="contained"
+                  fullWidth
+                  onClick={() => router.push("/fees")}
                   sx={{
-                    p: 2,
-                    bgcolor: "warning.light",
-                    borderRadius: 2,
-                    cursor: "pointer",
-                    "&:hover": { opacity: 0.9 },
+                    bgcolor: "#4caf50",
+                    py: 1.5,
+                    justifyContent: "flex-start",
+                    "&:hover": { bgcolor: "#388e3c" },
                   }}
+                >
+                  Receive Fee Payment
+                </Button>
+                <Button
+                  variant="outlined"
+                  fullWidth
                   onClick={() => router.push("/attendance")}
-                >
-                  <Typography variant="subtitle2" color="warning.contrastText">
-                    Mark Attendance
-                  </Typography>
-                </Box>
-                <Box
                   sx={{
-                    p: 2,
-                    bgcolor: "info.light",
-                    borderRadius: 2,
-                    cursor: "pointer",
-                    "&:hover": { opacity: 0.9 },
+                    py: 1.5,
+                    justifyContent: "flex-start",
                   }}
-                  onClick={() => router.push("/exams/results")}
                 >
-                  <Typography variant="subtitle2" color="info.contrastText">
-                    Enter Exam Results
-                  </Typography>
-                </Box>
+                  Mark Attendance
+                </Button>
+                <Button
+                  variant="outlined"
+                  fullWidth
+                  onClick={() => router.push("/students")}
+                  sx={{
+                    py: 1.5,
+                    justifyContent: "flex-start",
+                  }}
+                >
+                  View All Students
+                </Button>
               </Box>
             </Paper>
           </Grid>
 
-          {/* Recent Payments Table */}
-          <Grid size={{ xs: 12 }}>
-            <Paper sx={{ p: 3 }}>
-              <Typography variant="h6" fontWeight="600" sx={{ mb: 2 }}>
-                Recent Fee Payments
-              </Typography>
+          {/* Recent Vouchers */}
+          <Grid size={{ xs: 12, lg: 8 }}>
+            <Paper
+              sx={{
+                p: 3,
+                borderRadius: 3,
+                boxShadow: "0 4px 20px rgba(0,0,0,0.08)",
+              }}
+            >
+              <Box
+                sx={{ display: "flex", justifyContent: "space-between", mb: 2 }}
+              >
+                <Typography variant="h6" sx={{ color: "#1a237e" }}>
+                  Recent Fee Vouchers
+                </Typography>
+                <Button size="small" onClick={() => router.push("/fees")}>
+                  View All
+                </Button>
+              </Box>
               <TableContainer>
-                <Table>
+                <Table size="small">
+                  <TableHead>
+                    <TableRow>
+                      <TableCell>Voucher #</TableCell>
+                      <TableCell>Student</TableCell>
+                      <TableCell align="right">Amount</TableCell>
+                      <TableCell>Status</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {(stats?.recentVouchers || [])
+                      .slice(0, 5)
+                      .map((voucher: any) => (
+                        <TableRow
+                          key={voucher.id}
+                          hover
+                          sx={{ cursor: "pointer" }}
+                          onClick={() =>
+                            router.push(`/students/${voucher.studentId}`)
+                          }
+                        >
+                          <TableCell>{voucher.voucherNo}</TableCell>
+                          <TableCell>
+                            {voucher.student?.firstName}{" "}
+                            {voucher.student?.lastName}
+                          </TableCell>
+                          <TableCell align="right">
+                            {formatCurrency(voucher.totalAmount)}
+                          </TableCell>
+                          <TableCell>
+                            <Chip
+                              label={voucher.status}
+                              size="small"
+                              color={
+                                voucher.status === "PAID"
+                                  ? "success"
+                                  : voucher.status === "PARTIAL"
+                                  ? "warning"
+                                  : "error"
+                              }
+                            />
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    {(!stats?.recentVouchers ||
+                      stats.recentVouchers.length === 0) && (
+                      <TableRow>
+                        <TableCell colSpan={4} align="center">
+                          No vouchers yet
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+            </Paper>
+          </Grid>
+
+          {/* Recent Payments Table */}
+          <Grid size={{ xs: 12, lg: 4 }}>
+            <Paper
+              sx={{
+                p: 3,
+                borderRadius: 3,
+                boxShadow: "0 4px 20px rgba(0,0,0,0.08)",
+              }}
+            >
+              <Box
+                sx={{ display: "flex", justifyContent: "space-between", mb: 2 }}
+              >
+                <Typography variant="h6" sx={{ color: "#1a237e" }}>
+                  Recent Payments
+                </Typography>
+              </Box>
+              <TableContainer>
+                <Table size="small">
                   <TableHead>
                     <TableRow>
                       <TableCell>Receipt #</TableCell>
                       <TableCell>Student</TableCell>
-                      <TableCell>Student ID</TableCell>
-                      <TableCell>Amount</TableCell>
-                      <TableCell>Payment Method</TableCell>
-                      <TableCell>Date</TableCell>
+                      <TableCell align="right">Amount</TableCell>
                     </TableRow>
                   </TableHead>
                   <TableBody>
                     {recentPayments.length > 0 ? (
-                      recentPayments.map((payment) => (
+                      recentPayments.slice(0, 5).map((payment) => (
                         <TableRow key={payment.id} hover>
-                          <TableCell>{payment.receiptNumber}</TableCell>
+                          <TableCell>{payment.receiptNo}</TableCell>
                           <TableCell>
-                            {payment.student.firstName}{" "}
-                            {payment.student.lastName}
+                            {payment.student?.firstName}{" "}
+                            {payment.student?.lastName}
                           </TableCell>
-                          <TableCell>{payment.student.studentId}</TableCell>
-                          <TableCell>
+                          <TableCell
+                            align="right"
+                            sx={{ color: "success.main", fontWeight: 500 }}
+                          >
                             {formatCurrency(payment.amount)}
-                          </TableCell>
-                          <TableCell>
-                            <Chip
-                              label={payment.paymentMethod}
-                              size="small"
-                              color={
-                                payment.paymentMethod === "CASH"
-                                  ? "success"
-                                  : "primary"
-                              }
-                            />
-                          </TableCell>
-                          <TableCell>
-                            {formatDate(payment.paymentDate)}
                           </TableCell>
                         </TableRow>
                       ))
                     ) : (
                       <TableRow>
-                        <TableCell colSpan={6} align="center">
-                          <Box sx={{ py: 4 }}>
-                            <WarningIcon
-                              sx={{
-                                fontSize: 48,
-                                color: "text.disabled",
-                                mb: 1,
-                              }}
-                            />
-                            <Typography color="text.secondary">
-                              No recent payments found
-                            </Typography>
-                          </Box>
+                        <TableCell colSpan={3} align="center">
+                          No recent payments
                         </TableCell>
                       </TableRow>
                     )}

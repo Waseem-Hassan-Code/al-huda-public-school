@@ -54,11 +54,15 @@ import {
   Save,
   Check,
   Close,
+  Payment as PaymentIcon,
+  Visibility,
+  AccountBalanceWallet,
 } from "@mui/icons-material";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import ImageUpload from "@/components/common/ImageUpload";
 import MainLayout from "@/components/layout/MainLayout";
+import ReceivePaymentDialog from "@/components/dialogs/ReceivePaymentDialog";
 
 interface FeeVoucher {
   id: string;
@@ -236,6 +240,10 @@ export default function StudentProfilePage({
   const [editVoucherDiscount, setEditVoucherDiscount] = useState<string>("0");
   const [editVoucherLateFee, setEditVoucherLateFee] = useState<string>("0");
   const [savingVoucher, setSavingVoucher] = useState(false);
+
+  // Receive payment state
+  const [showPaymentDialog, setShowPaymentDialog] = useState(false);
+  const [paymentVoucher, setPaymentVoucher] = useState<FeeVoucher | null>(null);
 
   useEffect(() => {
     fetchStudent();
@@ -448,6 +456,98 @@ export default function StudentProfilePage({
       setSavingVoucher(false);
     }
   };
+
+  // Payment handling functions
+  const handleReceivePayment = (voucher: FeeVoucher) => {
+    setPaymentVoucher(voucher);
+    setShowPaymentDialog(true);
+  };
+
+  const handlePaymentSuccess = () => {
+    setShowPaymentDialog(false);
+    setPaymentVoucher(null);
+    fetchStudent();
+  };
+
+  // Build ledger data (combined vouchers and payments)
+  const buildLedgerData = () => {
+    if (!student) return [];
+
+    const ledgerData: Array<{
+      date: Date;
+      type: "VOUCHER" | "PAYMENT";
+      reference: string;
+      description: string;
+      debit: number;
+      credit: number;
+      balance: number;
+    }> = [];
+
+    let runningBalance = 0;
+
+    // Combine and sort by date
+    const allTransactions = [
+      ...(student.feeVouchers || []).map((v) => ({
+        date: new Date(v.dueDate),
+        type: "VOUCHER" as const,
+        reference: v.voucherNo,
+        description: `Fee Voucher - ${monthNames[v.month - 1]} ${v.year}`,
+        amount: v.totalAmount,
+        id: v.id,
+      })),
+      ...(student.feeVouchers || []).flatMap((v) =>
+        (v.payments || []).map((pay) => ({
+          date: new Date(pay.paymentDate),
+          type: "PAYMENT" as const,
+          reference: pay.receiptNo,
+          description: `Payment - ${pay.paymentMethod}`,
+          amount: pay.amount,
+          id: pay.id,
+        }))
+      ),
+    ].sort((a, b) => a.date.getTime() - b.date.getTime());
+
+    allTransactions.forEach((tx) => {
+      if (tx.type === "VOUCHER") {
+        runningBalance += tx.amount;
+        ledgerData.push({
+          date: tx.date,
+          type: tx.type,
+          reference: tx.reference,
+          description: tx.description,
+          debit: tx.amount,
+          credit: 0,
+          balance: runningBalance,
+        });
+      } else {
+        runningBalance -= tx.amount;
+        ledgerData.push({
+          date: tx.date,
+          type: tx.type,
+          reference: tx.reference,
+          description: tx.description,
+          debit: 0,
+          credit: tx.amount,
+          balance: runningBalance,
+        });
+      }
+    });
+
+    return ledgerData;
+  };
+
+  const ledgerData = buildLedgerData();
+
+  // Calculate totals
+  const totalInvoiced =
+    student?.feeVouchers?.reduce((sum, v) => sum + v.totalAmount, 0) || 0;
+  const totalPaid =
+    student?.feeVouchers?.reduce(
+      (sum, v) =>
+        sum + (v.payments?.reduce((pSum, p) => pSum + p.amount, 0) || 0),
+      0
+    ) || 0;
+  const totalBalance = totalInvoiced - totalPaid;
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -826,31 +926,445 @@ export default function StudentProfilePage({
           </Grid>
         </Paper>
 
+        {/* Summary Cards - Like Panaflex */}
+        <Grid container spacing={3} sx={{ mb: 3 }}>
+          <Grid size={{ xs: 12, md: 3 }}>
+            <Card
+              sx={{ borderRadius: 3, boxShadow: "0 4px 20px rgba(0,0,0,0.08)" }}
+            >
+              <CardContent>
+                <Typography color="text.secondary" gutterBottom>
+                  Total Invoiced
+                </Typography>
+                <Typography variant="h5" fontWeight="bold" color="#1a237e">
+                  {formatCurrency(totalInvoiced)}
+                </Typography>
+              </CardContent>
+            </Card>
+          </Grid>
+          <Grid size={{ xs: 12, md: 3 }}>
+            <Card
+              sx={{ borderRadius: 3, boxShadow: "0 4px 20px rgba(0,0,0,0.08)" }}
+            >
+              <CardContent>
+                <Typography color="text.secondary" gutterBottom>
+                  Total Paid
+                </Typography>
+                <Typography variant="h5" fontWeight="bold" color="success.main">
+                  {formatCurrency(totalPaid)}
+                </Typography>
+              </CardContent>
+            </Card>
+          </Grid>
+          <Grid size={{ xs: 12, md: 3 }}>
+            <Card
+              sx={{ borderRadius: 3, boxShadow: "0 4px 20px rgba(0,0,0,0.08)" }}
+            >
+              <CardContent>
+                <Typography color="text.secondary" gutterBottom>
+                  Balance Due
+                </Typography>
+                <Typography
+                  variant="h5"
+                  fontWeight="bold"
+                  color={totalBalance > 0 ? "error.main" : "success.main"}
+                >
+                  {formatCurrency(totalBalance)}
+                </Typography>
+              </CardContent>
+            </Card>
+          </Grid>
+          <Grid size={{ xs: 12, md: 3 }}>
+            <Card
+              sx={{ borderRadius: 3, boxShadow: "0 4px 20px rgba(0,0,0,0.08)" }}
+            >
+              <CardContent>
+                <Typography color="text.secondary" gutterBottom>
+                  Status
+                </Typography>
+                <Chip
+                  label={student.status}
+                  color={getStatusColor(student.status) as any}
+                  sx={{ fontWeight: 600 }}
+                />
+              </CardContent>
+            </Card>
+          </Grid>
+        </Grid>
+
+        {/* Receive Payment Button */}
+        <Box sx={{ display: "flex", gap: 2, mb: 3 }}>
+          <Button
+            variant="outlined"
+            startIcon={<PaymentIcon />}
+            onClick={() => {
+              const unpaidVoucher = student.feeVouchers?.find(
+                (v) => v.status !== "PAID" && v.status !== "CANCELLED"
+              );
+              if (unpaidVoucher) {
+                handleReceivePayment(unpaidVoucher);
+              }
+            }}
+            disabled={
+              !student.feeVouchers?.some(
+                (v) => v.status !== "PAID" && v.status !== "CANCELLED"
+              )
+            }
+            sx={{
+              borderColor: "#4caf50",
+              color: "#4caf50",
+              "&:hover": { borderColor: "#388e3c", bgcolor: "#4caf5010" },
+            }}
+          >
+            Receive Payment
+          </Button>
+          <Button
+            variant="contained"
+            startIcon={<Add />}
+            onClick={() => setVoucherDialogOpen(true)}
+            sx={{ bgcolor: "#1a237e" }}
+          >
+            Generate Voucher
+          </Button>
+        </Box>
+
         {/* Tabs */}
-        <Paper sx={{ mb: 3 }}>
+        <Paper sx={{ mb: 3, borderRadius: 3 }}>
           <Tabs
             value={tabValue}
             onChange={(_, v) => setTabValue(v)}
             variant="scrollable"
             scrollButtons="auto"
+            sx={{
+              "& .MuiTab-root": { fontWeight: 600 },
+              "& .Mui-selected": { color: "#1a237e" },
+              "& .MuiTabs-indicator": { bgcolor: "#1a237e" },
+            }}
           >
-            <Tab label="Personal Information" />
-            <Tab label={`Fee Vouchers (${student.feeVouchers?.length || 0})`} />
+            <Tab
+              label="Ledger"
+              icon={<AccountBalanceWallet sx={{ fontSize: 18 }} />}
+              iconPosition="start"
+            />
+            <Tab
+              label={`Vouchers (${student.feeVouchers?.length || 0})`}
+              icon={<Receipt sx={{ fontSize: 18 }} />}
+              iconPosition="start"
+            />
+            <Tab
+              label="Payments"
+              icon={<PaymentIcon sx={{ fontSize: 18 }} />}
+              iconPosition="start"
+            />
+            <Tab
+              label="Personal Info"
+              icon={<Person sx={{ fontSize: 18 }} />}
+              iconPosition="start"
+            />
             <Tab label="Attendance" />
             <Tab label="Results" />
           </Tabs>
         </Paper>
 
-        {/* Tab Panels */}
+        {/* Ledger Tab */}
         <TabPanel value={tabValue} index={0}>
+          <Paper sx={{ p: 3, borderRadius: 3 }}>
+            <Typography variant="h6" gutterBottom sx={{ color: "#1a237e" }}>
+              Account Ledger
+            </Typography>
+            <TableContainer>
+              <Table size="small">
+                <TableHead>
+                  <TableRow>
+                    <TableCell sx={{ fontWeight: "bold" }}>Date</TableCell>
+                    <TableCell sx={{ fontWeight: "bold" }}>Reference</TableCell>
+                    <TableCell sx={{ fontWeight: "bold" }}>
+                      Description
+                    </TableCell>
+                    <TableCell sx={{ fontWeight: "bold" }} align="right">
+                      Debit
+                    </TableCell>
+                    <TableCell sx={{ fontWeight: "bold" }} align="right">
+                      Credit
+                    </TableCell>
+                    <TableCell sx={{ fontWeight: "bold" }} align="right">
+                      Balance
+                    </TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {ledgerData.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={6} align="center">
+                        No transactions yet
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    ledgerData.map((entry, index) => (
+                      <TableRow key={index} hover>
+                        <TableCell>{entry.date.toLocaleDateString()}</TableCell>
+                        <TableCell>
+                          <Chip
+                            label={entry.reference}
+                            size="small"
+                            color={
+                              entry.type === "VOUCHER" ? "primary" : "success"
+                            }
+                            variant="outlined"
+                          />
+                        </TableCell>
+                        <TableCell>{entry.description}</TableCell>
+                        <TableCell align="right">
+                          {entry.debit > 0 ? formatCurrency(entry.debit) : "-"}
+                        </TableCell>
+                        <TableCell align="right" sx={{ color: "success.main" }}>
+                          {entry.credit > 0
+                            ? formatCurrency(entry.credit)
+                            : "-"}
+                        </TableCell>
+                        <TableCell
+                          align="right"
+                          sx={{
+                            fontWeight: "bold",
+                            color:
+                              entry.balance > 0 ? "error.main" : "success.main",
+                          }}
+                        >
+                          {formatCurrency(entry.balance)}
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          </Paper>
+        </TabPanel>
+
+        {/* Fee Vouchers Tab */}
+        <TabPanel value={tabValue} index={1}>
+          <Paper sx={{ p: 3, borderRadius: 3 }}>
+            <Box
+              sx={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                mb: 2,
+              }}
+            >
+              <Typography variant="h6" sx={{ color: "#1a237e" }}>
+                Fee Vouchers
+              </Typography>
+              <Button
+                variant="contained"
+                startIcon={<Add />}
+                onClick={() => setVoucherDialogOpen(true)}
+                sx={{ bgcolor: "#1a237e" }}
+              >
+                Generate New Voucher
+              </Button>
+            </Box>
+
+            {student.feeVouchers && student.feeVouchers.length > 0 ? (
+              <TableContainer>
+                <Table>
+                  <TableHead>
+                    <TableRow>
+                      <TableCell sx={{ fontWeight: "bold" }}>
+                        Voucher #
+                      </TableCell>
+                      <TableCell sx={{ fontWeight: "bold" }}>Period</TableCell>
+                      <TableCell sx={{ fontWeight: "bold" }}>
+                        Due Date
+                      </TableCell>
+                      <TableCell sx={{ fontWeight: "bold" }} align="right">
+                        Total
+                      </TableCell>
+                      <TableCell sx={{ fontWeight: "bold" }} align="right">
+                        Paid
+                      </TableCell>
+                      <TableCell sx={{ fontWeight: "bold" }} align="right">
+                        Balance
+                      </TableCell>
+                      <TableCell sx={{ fontWeight: "bold" }}>Status</TableCell>
+                      <TableCell sx={{ fontWeight: "bold" }} align="center">
+                        Actions
+                      </TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {student.feeVouchers.map((voucher) => (
+                      <TableRow key={voucher.id} hover>
+                        <TableCell>
+                          <Typography fontWeight={500}>
+                            {voucher.voucherNo}
+                          </Typography>
+                        </TableCell>
+                        <TableCell>
+                          {monthNames[voucher.month - 1]} {voucher.year}
+                        </TableCell>
+                        <TableCell>{formatDate(voucher.dueDate)}</TableCell>
+                        <TableCell align="right">
+                          {formatCurrency(voucher.totalAmount)}
+                        </TableCell>
+                        <TableCell align="right" sx={{ color: "success.main" }}>
+                          {formatCurrency(voucher.paidAmount)}
+                        </TableCell>
+                        <TableCell
+                          align="right"
+                          sx={{
+                            color:
+                              voucher.balanceDue > 0
+                                ? "error.main"
+                                : "success.main",
+                            fontWeight: 500,
+                          }}
+                        >
+                          {formatCurrency(voucher.balanceDue)}
+                        </TableCell>
+                        <TableCell>
+                          <Chip
+                            label={voucher.status}
+                            size="small"
+                            color={getVoucherStatusColor(voucher.status) as any}
+                          />
+                        </TableCell>
+                        <TableCell align="center">
+                          <Box
+                            sx={{
+                              display: "flex",
+                              gap: 1,
+                              justifyContent: "center",
+                            }}
+                          >
+                            {voucher.status !== "PAID" &&
+                              voucher.status !== "CANCELLED" && (
+                                <Tooltip title="Receive Payment">
+                                  <IconButton
+                                    size="small"
+                                    color="success"
+                                    onClick={() =>
+                                      handleReceivePayment(voucher)
+                                    }
+                                  >
+                                    <PaymentIcon fontSize="small" />
+                                  </IconButton>
+                                </Tooltip>
+                              )}
+                            {canEditVoucher(voucher.status) && (
+                              <Tooltip title="Edit Voucher">
+                                <IconButton
+                                  size="small"
+                                  onClick={() => handleOpenEditVoucher(voucher)}
+                                  color="primary"
+                                >
+                                  <Edit fontSize="small" />
+                                </IconButton>
+                              </Tooltip>
+                            )}
+                          </Box>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+            ) : (
+              <Box sx={{ textAlign: "center", py: 5 }}>
+                <Receipt sx={{ fontSize: 60, color: "text.disabled", mb: 2 }} />
+                <Typography color="text.secondary">
+                  No fee vouchers found
+                </Typography>
+                <Button
+                  variant="outlined"
+                  startIcon={<Add />}
+                  onClick={() => setVoucherDialogOpen(true)}
+                  sx={{ mt: 2 }}
+                >
+                  Generate First Voucher
+                </Button>
+              </Box>
+            )}
+          </Paper>
+        </TabPanel>
+
+        {/* Payments Tab */}
+        <TabPanel value={tabValue} index={2}>
+          <Paper sx={{ p: 3, borderRadius: 3 }}>
+            <Typography variant="h6" gutterBottom sx={{ color: "#1a237e" }}>
+              Payment History
+            </Typography>
+            <TableContainer>
+              <Table>
+                <TableHead>
+                  <TableRow>
+                    <TableCell sx={{ fontWeight: "bold" }}>Receipt #</TableCell>
+                    <TableCell sx={{ fontWeight: "bold" }}>Date</TableCell>
+                    <TableCell sx={{ fontWeight: "bold" }}>Voucher</TableCell>
+                    <TableCell sx={{ fontWeight: "bold" }}>Method</TableCell>
+                    <TableCell sx={{ fontWeight: "bold" }} align="right">
+                      Amount
+                    </TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {student.feeVouchers?.flatMap((v) =>
+                    (v.payments || []).map((payment) => (
+                      <TableRow key={payment.id} hover>
+                        <TableCell>
+                          <Typography fontWeight={500}>
+                            {payment.receiptNo}
+                          </Typography>
+                        </TableCell>
+                        <TableCell>{formatDate(payment.paymentDate)}</TableCell>
+                        <TableCell>
+                          <Chip
+                            label={v.voucherNo}
+                            size="small"
+                            variant="outlined"
+                          />
+                        </TableCell>
+                        <TableCell>{payment.paymentMethod}</TableCell>
+                        <TableCell
+                          align="right"
+                          sx={{ color: "success.main", fontWeight: 500 }}
+                        >
+                          {formatCurrency(payment.amount)}
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  )}
+                  {(!student.feeVouchers ||
+                    student.feeVouchers.every(
+                      (v) => !v.payments || v.payments.length === 0
+                    )) && (
+                    <TableRow>
+                      <TableCell colSpan={5} align="center">
+                        No payments yet
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          </Paper>
+        </TabPanel>
+
+        {/* Personal Info Tab */}
+        <TabPanel value={tabValue} index={3}>
           <Grid container spacing={3}>
             {/* Personal Details */}
             <Grid size={{ xs: 12, md: 6 }}>
-              <Paper sx={{ p: 3, height: "100%" }}>
+              <Paper sx={{ p: 3, height: "100%", borderRadius: 3 }}>
                 <Typography
                   variant="h6"
                   gutterBottom
-                  sx={{ display: "flex", alignItems: "center", gap: 1 }}
+                  sx={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 1,
+                    color: "#1a237e",
+                  }}
                 >
                   <Person color="primary" /> Personal Details
                 </Typography>
@@ -1030,131 +1544,10 @@ export default function StudentProfilePage({
           </Grid>
         </TabPanel>
 
-        {/* Fee Vouchers Tab */}
-        <TabPanel value={tabValue} index={1}>
-          <Paper sx={{ p: 2 }}>
-            <Box
-              sx={{
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-                mb: 2,
-              }}
-            >
-              <Typography variant="h6">
-                <AttachMoney sx={{ mr: 1, verticalAlign: "middle" }} />
-                Fee Vouchers
-              </Typography>
-              <Button
-                variant="contained"
-                startIcon={<Add />}
-                onClick={() => setVoucherDialogOpen(true)}
-              >
-                Generate New Voucher
-              </Button>
-            </Box>
-
-            {student.feeVouchers && student.feeVouchers.length > 0 ? (
-              <TableContainer>
-                <Table>
-                  <TableHead>
-                    <TableRow>
-                      <TableCell>Voucher #</TableCell>
-                      <TableCell>Period</TableCell>
-                      <TableCell>Due Date</TableCell>
-                      <TableCell align="right">Total Amount</TableCell>
-                      <TableCell align="right">Paid</TableCell>
-                      <TableCell align="right">Balance</TableCell>
-                      <TableCell>Status</TableCell>
-                      <TableCell align="center">Actions</TableCell>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {student.feeVouchers.map((voucher) => (
-                      <TableRow key={voucher.id} hover>
-                        <TableCell>
-                          <Typography variant="body2" fontWeight="medium">
-                            {voucher.voucherNo}
-                          </Typography>
-                        </TableCell>
-                        <TableCell>
-                          {monthNames[voucher.month - 1]} {voucher.year}
-                        </TableCell>
-                        <TableCell>{formatDate(voucher.dueDate)}</TableCell>
-                        <TableCell align="right">
-                          {formatCurrency(voucher.totalAmount)}
-                        </TableCell>
-                        <TableCell align="right">
-                          <Typography
-                            color={
-                              voucher.paidAmount > 0
-                                ? "success.main"
-                                : "text.secondary"
-                            }
-                          >
-                            {formatCurrency(voucher.paidAmount)}
-                          </Typography>
-                        </TableCell>
-                        <TableCell align="right">
-                          <Typography
-                            color={
-                              voucher.balanceDue > 0
-                                ? "error.main"
-                                : "success.main"
-                            }
-                            fontWeight="medium"
-                          >
-                            {formatCurrency(voucher.balanceDue)}
-                          </Typography>
-                        </TableCell>
-                        <TableCell>
-                          <Chip
-                            label={voucher.status}
-                            size="small"
-                            color={getVoucherStatusColor(voucher.status) as any}
-                          />
-                        </TableCell>
-                        <TableCell align="center">
-                          {canEditVoucher(voucher.status) && (
-                            <Tooltip title="Edit Voucher">
-                              <IconButton
-                                size="small"
-                                onClick={() => handleOpenEditVoucher(voucher)}
-                                color="primary"
-                              >
-                                <Edit fontSize="small" />
-                              </IconButton>
-                            </Tooltip>
-                          )}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </TableContainer>
-            ) : (
-              <Box sx={{ textAlign: "center", py: 5 }}>
-                <Receipt sx={{ fontSize: 60, color: "text.disabled", mb: 2 }} />
-                <Typography color="text.secondary">
-                  No fee vouchers found
-                </Typography>
-                <Button
-                  variant="outlined"
-                  startIcon={<Add />}
-                  onClick={() => setVoucherDialogOpen(true)}
-                  sx={{ mt: 2 }}
-                >
-                  Generate First Voucher
-                </Button>
-              </Box>
-            )}
-          </Paper>
-        </TabPanel>
-
         {/* Attendance Tab */}
-        <TabPanel value={tabValue} index={2}>
-          <Paper sx={{ p: 2 }}>
-            <Typography variant="h6" sx={{ mb: 2 }}>
+        <TabPanel value={tabValue} index={4}>
+          <Paper sx={{ p: 3, borderRadius: 3 }}>
+            <Typography variant="h6" sx={{ mb: 2, color: "#1a237e" }}>
               Recent Attendance (Last 30 Days)
             </Typography>
             {student.attendance && student.attendance.length > 0 ? (
@@ -1162,10 +1555,10 @@ export default function StudentProfilePage({
                 <Table>
                   <TableHead>
                     <TableRow>
-                      <TableCell>Date</TableCell>
-                      <TableCell>Day</TableCell>
-                      <TableCell>Status</TableCell>
-                      <TableCell>Remarks</TableCell>
+                      <TableCell sx={{ fontWeight: "bold" }}>Date</TableCell>
+                      <TableCell sx={{ fontWeight: "bold" }}>Day</TableCell>
+                      <TableCell sx={{ fontWeight: "bold" }}>Status</TableCell>
+                      <TableCell sx={{ fontWeight: "bold" }}>Remarks</TableCell>
                     </TableRow>
                   </TableHead>
                   <TableBody>
@@ -1201,9 +1594,9 @@ export default function StudentProfilePage({
         </TabPanel>
 
         {/* Results Tab */}
-        <TabPanel value={tabValue} index={3}>
-          <Paper sx={{ p: 2 }}>
-            <Typography variant="h6" sx={{ mb: 2 }}>
+        <TabPanel value={tabValue} index={5}>
+          <Paper sx={{ p: 3, borderRadius: 3 }}>
+            <Typography variant="h6" sx={{ mb: 2, color: "#1a237e" }}>
               Exam Results
             </Typography>
             {student.studentMarks && student.studentMarks.length > 0 ? (
@@ -1211,11 +1604,15 @@ export default function StudentProfilePage({
                 <Table>
                   <TableHead>
                     <TableRow>
-                      <TableCell>Exam</TableCell>
-                      <TableCell>Date</TableCell>
-                      <TableCell>Subject</TableCell>
-                      <TableCell align="center">Marks</TableCell>
-                      <TableCell align="center">Grade</TableCell>
+                      <TableCell sx={{ fontWeight: "bold" }}>Exam</TableCell>
+                      <TableCell sx={{ fontWeight: "bold" }}>Date</TableCell>
+                      <TableCell sx={{ fontWeight: "bold" }}>Subject</TableCell>
+                      <TableCell sx={{ fontWeight: "bold" }} align="center">
+                        Marks
+                      </TableCell>
+                      <TableCell sx={{ fontWeight: "bold" }} align="center">
+                        Grade
+                      </TableCell>
                     </TableRow>
                   </TableHead>
                   <TableBody>
@@ -1263,6 +1660,27 @@ export default function StudentProfilePage({
             )}
           </Paper>
         </TabPanel>
+
+        {/* Receive Payment Dialog */}
+        {showPaymentDialog && paymentVoucher && student && (
+          <ReceivePaymentDialog
+            open={showPaymentDialog}
+            onClose={() => {
+              setShowPaymentDialog(false);
+              setPaymentVoucher(null);
+            }}
+            student={{
+              id: student.id,
+              registrationNo: student.registrationNo,
+              firstName: student.firstName,
+              lastName: student.lastName,
+              class: student.class,
+              section: student.section,
+            }}
+            voucher={paymentVoucher}
+            onSuccess={handlePaymentSuccess}
+          />
+        )}
 
         {/* Generate Voucher Dialog */}
         <Dialog

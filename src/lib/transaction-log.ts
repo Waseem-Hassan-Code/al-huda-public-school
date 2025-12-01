@@ -24,10 +24,12 @@ export type ActionType =
   | "DELETE"
   | "PAYMENT_RECEIVED"
   | "STATUS_CHANGE"
+  | "ACTIVATE"
+  | "DEACTIVATE"
   | "PROMOTE"
+  | "TRANSFER"
   | "FEE_GENERATED"
-  | "RESULT_PUBLISHED"
-  | "MESSAGE_SENT";
+  | "RESULT_PUBLISHED";
 
 interface LogOptions {
   entityType: EntityType;
