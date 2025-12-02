@@ -118,13 +118,23 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { studentId, studentIds, month, year, classId, sectionId } = body;
+    const {
+      studentId,
+      studentIds,
+      month,
+      year,
+      classId,
+      sectionId,
+      feeItems: customFeeItems,
+    } = body;
 
     const targetMonth = month || new Date().getMonth() + 1;
     const targetYear = year || new Date().getFullYear();
     const dueDate = new Date(targetYear, targetMonth - 1, 10); // Due on 10th of month
 
     let studentsToProcess: string[] = [];
+    const isSingleStudentWithCustomItems =
+      studentId && customFeeItems && customFeeItems.length > 0;
 
     if (studentId) {
       // Single student
@@ -186,12 +196,47 @@ export async function POST(request: NextRequest) {
           }),
         ]);
 
-        if (!student || student.monthlyFee === 0) {
-          return { studentId: sid, status: "no_fees" };
-        }
+        // Determine fee items and subtotal
+        let subtotal: number;
+        let voucherFeeItems: {
+          feeType: FeeType;
+          description: string;
+          amount: number;
+        }[];
 
-        // Calculate total amount from monthly fee
-        const subtotal = student.monthlyFee;
+        if (isSingleStudentWithCustomItems && sid === studentId) {
+          // Use custom fee items from the request (single student with custom items)
+          subtotal = customFeeItems.reduce(
+            (sum: number, item: any) => sum + (item.amount || 0),
+            0
+          );
+          voucherFeeItems = customFeeItems.map((item: any) => ({
+            feeType:
+              item.feeType && FeeType[item.feeType as keyof typeof FeeType]
+                ? FeeType[item.feeType as keyof typeof FeeType]
+                : FeeType.OTHER,
+            description:
+              item.description || `Fee - ${targetMonth}/${targetYear}`,
+            amount: item.amount || 0,
+          }));
+
+          if (subtotal === 0) {
+            return { studentId: sid, status: "no_fees" };
+          }
+        } else {
+          // Use student's monthly fee (batch generation or no custom items)
+          if (!student || student.monthlyFee === 0) {
+            return { studentId: sid, status: "no_fees" };
+          }
+          subtotal = student.monthlyFee;
+          voucherFeeItems = [
+            {
+              feeType: FeeType.MONTHLY_FEE,
+              description: `Monthly Fee - ${targetMonth}/${targetYear}`,
+              amount: subtotal,
+            },
+          ];
+        }
 
         // Calculate previous balance from ALL unpaid/partial vouchers (for display/reference only)
         // NOTE: We do NOT add this to the current voucher's balanceDue to avoid compounding
@@ -228,11 +273,7 @@ export async function POST(request: NextRequest) {
             previousVoucherId: lastUnpaidVoucher?.id || null,
             createdById: session.user.id,
             feeItems: {
-              create: {
-                feeType: FeeType.MONTHLY_FEE,
-                description: `Monthly Fee - ${targetMonth}/${targetYear}`,
-                amount: subtotal,
-              },
+              create: voucherFeeItems,
             },
           },
         });

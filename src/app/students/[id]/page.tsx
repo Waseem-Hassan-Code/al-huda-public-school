@@ -357,6 +357,16 @@ export default function StudentProfilePage({
 
   const handleGenerateVoucher = async () => {
     if (!student) return;
+
+    // Validate that there's at least some amount
+    const totalAmount = getTotalVoucherAmount();
+    if (totalAmount <= 0) {
+      toast.error(
+        "Please add at least one fee item with amount greater than 0"
+      );
+      return;
+    }
+
     setGeneratingVoucher(true);
     try {
       const res = await fetch("/api/fee-vouchers", {
@@ -366,6 +376,7 @@ export default function StudentProfilePage({
           studentId: student.id,
           month: voucherMonth,
           year: voucherYear,
+          feeItems: feeItems.filter((item) => item.amount > 0), // Send custom fee items
         }),
       });
       const data = await res.json();
