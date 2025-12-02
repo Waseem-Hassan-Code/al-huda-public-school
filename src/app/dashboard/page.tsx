@@ -247,7 +247,7 @@ export default function DashboardPage() {
           <Grid size={{ xs: 12, lg: 6 }}>
             <PaymentChart
               data={chartData}
-              title="Daily Payments (Last 14 Days)"
+              title="Monthly Payments (Last 12 Months)"
             />
           </Grid>
 

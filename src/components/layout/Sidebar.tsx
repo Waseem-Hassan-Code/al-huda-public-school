@@ -40,7 +40,8 @@ import {
 } from "@mui/icons-material";
 import { useRouter, usePathname } from "next/navigation";
 import { useTranslation } from "react-i18next";
-import { useAppSelector } from "@/store";
+import { useAppSelector, useAppDispatch } from "@/store";
+import { toggleExpandedMenu } from "@/store/uiSlice";
 import { hasPermission, Permission } from "@/lib/permissions";
 import UserAvatar from "@/components/common/UserAvatar";
 
@@ -58,6 +59,7 @@ interface MenuItem {
 interface UIState {
   sidebarOpen: boolean;
   sidebarCollapsed: boolean;
+  expandedMenus: Record<string, boolean>;
 }
 
 interface AuthState {
@@ -74,19 +76,15 @@ interface AuthState {
 export default function Sidebar() {
   const router = useRouter();
   const pathname = usePathname();
+  const dispatch = useAppDispatch();
   const { t } = useTranslation("common");
-  const { sidebarOpen, sidebarCollapsed } = useAppSelector(
+  const { sidebarOpen, sidebarCollapsed, expandedMenus } = useAppSelector(
     (state) => state.ui as UIState
   );
   const { user } = useAppSelector((state) => state.auth as AuthState);
 
-  const [openMenus, setOpenMenus] = React.useState<Record<string, boolean>>({});
-
   const handleMenuToggle = (menuText: string) => {
-    setOpenMenus((prev) => ({
-      ...prev,
-      [menuText]: !prev[menuText],
-    }));
+    dispatch(toggleExpandedMenu(menuText));
   };
 
   const menuItems: MenuItem[] = [
@@ -271,7 +269,16 @@ export default function Sidebar() {
     const isActive = item.path
       ? pathname === item.path || pathname?.startsWith(item.path + "/")
       : false;
-    const isOpen = openMenus[item.text] ?? false;
+    // Check if any child is active to auto-expand the menu
+    const hasActiveChild =
+      hasChildren &&
+      item.children?.some(
+        (child) =>
+          child.path &&
+          (pathname === child.path || pathname?.startsWith(child.path + "/"))
+      );
+    // Use Redux state for expanded menus, auto-expand if has active child
+    const isOpen = expandedMenus[item.text] ?? hasActiveChild ?? false;
 
     if (hasChildren) {
       return (
@@ -287,7 +294,9 @@ export default function Sidebar() {
                   borderRadius: 2,
                   py: 1.5,
                   pl: 2 + depth * 2,
-                  backgroundColor: "transparent",
+                  backgroundColor: hasActiveChild
+                    ? "rgba(255,255,255,0.08)"
+                    : "transparent",
                   "&:hover": {
                     backgroundColor: "rgba(255,255,255,0.1)",
                   },

@@ -84,24 +84,47 @@ export default function BulkMarksEntryPage() {
   const [classes, setClasses] = useState<Class[]>([]);
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [exams, setExams] = useState<Exam[]>([]);
+  const [selectedExamId, setSelectedExamId] = useState<string>("");
   const [selectedClassId, setSelectedClassId] = useState<string>("");
   const [selectedSectionId, setSelectedSectionId] = useState<string>("");
   const [selectedSubjectId, setSelectedSubjectId] = useState<string>("");
-  const [selectedExamId, setSelectedExamId] = useState<string>("");
   const [students, setStudents] = useState<StudentMark[]>([]);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
-  // Fetch classes
+  // Fetch all exams on load
+  useEffect(() => {
+    const fetchExams = async () => {
+      try {
+        const response = await fetch("/api/exams?all=true");
+        if (response.ok) {
+          const data = await response.json();
+          const examData = (data.exams || []).map((exam: any) => ({
+            id: exam.id,
+            name: exam.name,
+            type: exam.examType,
+            totalMarks: exam.totalMarks || 100,
+            passingMarks: exam.passingMarks || 33,
+          }));
+          setExams(examData);
+        }
+      } catch (err) {
+        console.error("Error fetching exams:", err);
+      }
+    };
+    fetchExams();
+  }, []);
+
+  // Fetch classes with sections
   useEffect(() => {
     const fetchClasses = async () => {
       try {
-        const response = await fetch("/api/classes");
+        const response = await fetch("/api/classes?includeSection=true");
         if (response.ok) {
           const data = await response.json();
-          setClasses(data.data || []);
+          setClasses(data.classes || data.data || []);
         }
       } catch (err) {
         console.error("Error fetching classes:", err);
@@ -110,7 +133,7 @@ export default function BulkMarksEntryPage() {
     fetchClasses();
   }, []);
 
-  // Fetch subjects when class/section changes
+  // Fetch subjects when class changes
   useEffect(() => {
     const fetchSubjects = async () => {
       if (!selectedClassId) {
@@ -120,7 +143,6 @@ export default function BulkMarksEntryPage() {
 
       try {
         const params = new URLSearchParams({ classId: selectedClassId });
-        if (selectedSectionId) params.append("sectionId", selectedSectionId);
 
         const response = await fetch(`/api/class-subjects?${params}`);
         if (response.ok) {
@@ -138,39 +160,7 @@ export default function BulkMarksEntryPage() {
       }
     };
     fetchSubjects();
-  }, [selectedClassId, selectedSectionId]);
-
-  // Fetch exams when class changes
-  useEffect(() => {
-    const fetchExams = async () => {
-      if (!selectedClassId) {
-        setExams([]);
-        return;
-      }
-
-      try {
-        const params = new URLSearchParams({ classId: selectedClassId });
-        if (selectedSectionId) params.append("sectionId", selectedSectionId);
-
-        const response = await fetch(`/api/result-cards?${params}`);
-        if (response.ok) {
-          const data = await response.json();
-          // Transform result cards to exams
-          const examData = (data.data || []).map((rc: any) => ({
-            id: rc.examId,
-            name: rc.examName,
-            type: rc.examType,
-            totalMarks: 100,
-            passingMarks: 33,
-          }));
-          setExams(examData);
-        }
-      } catch (err) {
-        console.error("Error fetching exams:", err);
-      }
-    };
-    fetchExams();
-  }, [selectedClassId, selectedSectionId]);
+  }, [selectedClassId]);
 
   // Fetch students with marks when all selections are made
   const fetchStudents = useCallback(async () => {
@@ -370,6 +360,29 @@ export default function BulkMarksEntryPage() {
           <Grid container spacing={3}>
             <Grid size={{ xs: 12, md: 3 }}>
               <FormControl fullWidth size="small">
+                <InputLabel>Select Exam</InputLabel>
+                <Select
+                  value={selectedExamId}
+                  onChange={(e) => {
+                    setSelectedExamId(e.target.value);
+                    setSelectedClassId("");
+                    setSelectedSectionId("");
+                    setSelectedSubjectId("");
+                  }}
+                  label="Select Exam"
+                >
+                  <MenuItem value="">-- Select Exam --</MenuItem>
+                  {exams.map((exam) => (
+                    <MenuItem key={exam.id} value={exam.id}>
+                      {exam.name}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            </Grid>
+
+            <Grid size={{ xs: 12, md: 3 }}>
+              <FormControl fullWidth size="small" disabled={!selectedExamId}>
                 <InputLabel>Select Class</InputLabel>
                 <Select
                   value={selectedClassId}
@@ -377,7 +390,6 @@ export default function BulkMarksEntryPage() {
                     setSelectedClassId(e.target.value);
                     setSelectedSectionId("");
                     setSelectedSubjectId("");
-                    setSelectedExamId("");
                   }}
                   label="Select Class"
                 >
@@ -424,24 +436,6 @@ export default function BulkMarksEntryPage() {
                   {subjects.map((subject) => (
                     <MenuItem key={subject.id} value={subject.id}>
                       {subject.name} {subject.isOptional && "(Optional)"}
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-            </Grid>
-
-            <Grid size={{ xs: 12, md: 3 }}>
-              <FormControl fullWidth size="small" disabled={!selectedSubjectId}>
-                <InputLabel>Exam</InputLabel>
-                <Select
-                  value={selectedExamId}
-                  onChange={(e) => setSelectedExamId(e.target.value)}
-                  label="Exam"
-                >
-                  <MenuItem value="">-- Select Exam --</MenuItem>
-                  {exams.map((exam) => (
-                    <MenuItem key={exam.id} value={exam.id}>
-                      {exam.name}
                     </MenuItem>
                   ))}
                 </Select>

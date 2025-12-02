@@ -124,17 +124,19 @@ export async function GET(request: NextRequest) {
         },
       }),
 
-      // Daily payments for chart (last 14 days)
+      // Monthly payments for chart (last 12 months)
       prisma.$queryRaw`
         SELECT 
-          DATE("paymentDate") as date,
+          TO_CHAR("paymentDate", 'YYYY-MM') as month,
           SUM(amount) as total
         FROM "payments"
         WHERE "paymentDate" >= ${new Date(
-          Date.now() - 14 * 24 * 60 * 60 * 1000
+          new Date().getFullYear(),
+          new Date().getMonth() - 11,
+          1
         )}
-        GROUP BY DATE("paymentDate")
-        ORDER BY date ASC
+        GROUP BY TO_CHAR("paymentDate", 'YYYY-MM')
+        ORDER BY month ASC
       `,
 
       // Recent vouchers
@@ -184,21 +186,39 @@ export async function GET(request: NextRequest) {
         ? Math.round((presentToday / totalAttendanceToday) * 100)
         : 0;
 
-    // Generate last 14 days for chart
-    const last14Days = [];
-    for (let i = 13; i >= 0; i--) {
+    // Generate last 12 months for chart
+    const last12Months = [];
+    const monthNames = [
+      "Jan",
+      "Feb",
+      "Mar",
+      "Apr",
+      "May",
+      "Jun",
+      "Jul",
+      "Aug",
+      "Sep",
+      "Oct",
+      "Nov",
+      "Dec",
+    ];
+    for (let i = 11; i >= 0; i--) {
       const date = new Date();
-      date.setDate(date.getDate() - i);
-      last14Days.push(date.toISOString().split("T")[0]);
+      date.setMonth(date.getMonth() - i);
+      const yearMonth = `${date.getFullYear()}-${String(
+        date.getMonth() + 1
+      ).padStart(2, "0")}`;
+      const displayMonth = `${
+        monthNames[date.getMonth()]
+      } ${date.getFullYear()}`;
+      last12Months.push({ yearMonth, displayMonth });
     }
 
-    // Merge daily payments with all dates
-    const chartData = last14Days.map((date) => {
-      const found = (dailyPayments as any[]).find(
-        (p) => new Date(p.date).toISOString().split("T")[0] === date
-      );
+    // Merge monthly payments with all months
+    const chartData = last12Months.map(({ yearMonth, displayMonth }) => {
+      const found = (dailyPayments as any[]).find((p) => p.month === yearMonth);
       return {
-        date,
+        date: displayMonth,
         amount: found ? Number(found.total) : 0,
       };
     });

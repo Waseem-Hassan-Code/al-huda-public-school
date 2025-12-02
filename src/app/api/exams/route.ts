@@ -20,14 +20,25 @@ export async function GET(request: NextRequest) {
 
     const searchParams = request.nextUrl.searchParams;
     const classId = searchParams.get("classId");
+    const sectionId = searchParams.get("sectionId");
+    const subjectId = searchParams.get("subjectId");
     const academicYearId = searchParams.get("academicYearId");
     const type = searchParams.get("type");
     const all = searchParams.get("all"); // If "true", return all exams regardless of session
+    const includeSchedules = searchParams.get("includeSchedules") === "true";
 
     const where: Record<string, unknown> = {};
 
     if (classId) {
       where.classId = classId;
+    }
+
+    if (sectionId) {
+      where.sectionId = sectionId;
+    }
+
+    if (subjectId) {
+      where.subjectId = subjectId;
     }
 
     if (academicYearId) {
@@ -61,13 +72,31 @@ export async function GET(request: NextRequest) {
         },
         academicYear: true,
         _count: {
-          select: { studentMarks: true, examResults: true },
+          select: {
+            studentMarks: true,
+            examResults: true,
+          },
         },
+        ...(includeSchedules && {
+          examSchedules: {
+            include: {
+              subject: true,
+              invigilator: {
+                select: {
+                  id: true,
+                  firstName: true,
+                  lastName: true,
+                },
+              },
+            },
+            orderBy: { examDate: "asc" as const },
+          },
+        }),
       },
-      orderBy: { examDate: "desc" },
+      orderBy: { createdAt: "desc" },
     });
 
-    return NextResponse.json({ data: exams });
+    return NextResponse.json({ exams });
   } catch (error) {
     console.error("Exams GET Error:", error);
     return NextResponse.json(
@@ -167,8 +196,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(exam, { status: 201 });
   } catch (error) {
     console.error("Exams POST Error:", error);
+    const errorMessage =
+      error instanceof Error ? error.message : "Unknown error";
     return NextResponse.json(
-      { error: "Failed to create exam" },
+      { error: "Failed to create exam", details: errorMessage },
       { status: 500 }
     );
   }

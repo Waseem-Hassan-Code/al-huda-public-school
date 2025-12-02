@@ -23,14 +23,13 @@ import {
   Tooltip,
   Card,
   CardContent,
-  Tabs,
-  Tab,
   Table,
   TableBody,
   TableCell,
   TableContainer,
   TableHead,
   TableRow,
+  Divider,
 } from "@mui/material";
 import {
   Add,
@@ -39,24 +38,54 @@ import {
   Search,
   Close,
   Assignment,
-  Grade,
-  FilterList,
   Refresh,
-  Visibility,
-  PlayArrow,
-  Stop,
+  Schedule,
+  CalendarMonth,
 } from "@mui/icons-material";
-import { DatePicker, LocalizationProvider } from "@mui/x-date-pickers";
+import {
+  DatePicker,
+  LocalizationProvider,
+  TimePicker,
+} from "@mui/x-date-pickers";
 import { AdapterDateFns } from "@mui/x-date-pickers/AdapterDateFns";
 import MainLayout from "@/components/layout/MainLayout";
-import { formatDate, formatCurrency } from "@/lib/utils";
+import { formatDate } from "@/lib/utils";
 import { toast } from "sonner";
 
+// Interfaces
 interface ClassData {
   id: string;
   name: string;
   grade: number;
   sections?: { id: string; name: string }[];
+}
+
+interface Subject {
+  id: string;
+  name: string;
+  code: string;
+}
+
+interface Teacher {
+  id: string;
+  firstName: string;
+  lastName: string;
+}
+
+interface ExamSchedule {
+  id: string;
+  examId: string;
+  subjectId: string;
+  subject: Subject;
+  examDate: string;
+  startTime: string;
+  endTime: string;
+  totalMarks: number;
+  passingMarks: number;
+  venue: string | null;
+  invigilatorId: string | null;
+  invigilator: Teacher | null;
+  remarks: string | null;
 }
 
 interface Exam {
@@ -65,203 +94,197 @@ interface Exam {
   examType: string;
   classId: string;
   sectionId: string | null;
-  date: string;
-  startTime: string;
-  endTime: string;
+  startDate: string | null;
+  endDate: string | null;
   totalMarks: number;
   passingMarks: number;
-  status: string;
+  isPublished: boolean;
+  remarks: string | null;
   class: { id: string; name: string };
   section: { id: string; name: string } | null;
   academicYear: { id: string; name: string };
-  _count?: { studentMarks: number };
+  examSchedules?: ExamSchedule[];
+  _count?: { studentMarks: number; examSchedules: number };
 }
 
-interface ExamResult {
-  id: string;
-  examId: string;
-  studentId: string;
-  marksObtained: number;
-  grade: string | null;
-  remarks: string | null;
-  student: {
-    id: string;
-    firstName: string;
-    lastName: string;
-    rollNumber: string;
-    section: { name: string };
-  };
+interface ExamFormData {
+  name: string;
+  examType: string;
+  classId: string;
+  sectionId: string;
+  startDate: Date | null;
+  endDate: Date | null;
+  remarks: string;
 }
+
+interface ScheduleFormData {
+  subjectId: string;
+  examDate: Date | null;
+  startTime: Date | null;
+  endTime: Date | null;
+  totalMarks: number;
+  passingMarks: number;
+  venue: string;
+  invigilatorId: string;
+  remarks: string;
+}
+
+const EXAM_TYPES = [
+  { value: "MONTHLY_TEST", label: "Monthly Test" },
+  { value: "MID_TERM", label: "Mid Term" },
+  { value: "FINAL_TERM", label: "Final Term" },
+  { value: "WEEKLY_TEST", label: "Weekly Test" },
+  { value: "SURPRISE_TEST", label: "Surprise Test" },
+  { value: "PRACTICAL", label: "Practical" },
+  { value: "ASSIGNMENT", label: "Assignment" },
+  { value: "PROJECT", label: "Project" },
+];
 
 export default function ExamsPage() {
+  // State
   const [exams, setExams] = useState<Exam[]>([]);
   const [classes, setClasses] = useState<ClassData[]>([]);
-  const [sections, setSections] = useState<
-    { id: string; name: string; classId: string }[]
-  >([]);
-  const [results, setResults] = useState<ExamResult[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState("");
-  const [classFilter, setClassFilter] = useState("");
-  const [statusFilter, setStatusFilter] = useState("");
-  const [activeTab, setActiveTab] = useState(0);
-  const [examDialogOpen, setExamDialogOpen] = useState(false);
-  const [resultsDialogOpen, setResultsDialogOpen] = useState(false);
-  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-  const [selectedExam, setSelectedExam] = useState<Exam | null>(null);
-  const [saving, setSaving] = useState(false);
+  const [subjects, setSubjects] = useState<Subject[]>([]);
+  const [teachers, setTeachers] = useState<Teacher[]>([]);
+  const [loading, setLoading] = useState(false);
 
-  const [examFormData, setExamFormData] = useState({
+  // Filter state
+  const [filterClassId, setFilterClassId] = useState("");
+  const [filterType, setFilterType] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
+
+  // Dialog state
+  const [examDialogOpen, setExamDialogOpen] = useState(false);
+  const [scheduleDialogOpen, setScheduleDialogOpen] = useState(false);
+  const [viewScheduleDialogOpen, setViewScheduleDialogOpen] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+
+  // Selected items
+  const [selectedExam, setSelectedExam] = useState<Exam | null>(null);
+  const [selectedSchedule, setSelectedSchedule] = useState<ExamSchedule | null>(
+    null
+  );
+  const [examToDelete, setExamToDelete] = useState<Exam | null>(null);
+
+  // Form data
+  const [examFormData, setExamFormData] = useState<ExamFormData>({
     name: "",
-    examType: "MONTHLY",
+    examType: "MONTHLY_TEST",
     classId: "",
     sectionId: "",
-    date: new Date(),
-    startTime: "09:00",
-    endTime: "12:00",
-    totalMarks: 100,
-    passingMarks: 33,
+    startDate: null,
+    endDate: null,
+    remarks: "",
   });
 
-  const [resultsFormData, setResultsFormData] = useState<
-    { studentId: string; marksObtained: number; remarks: string }[]
-  >([]);
+  const [scheduleFormData, setScheduleFormData] = useState<ScheduleFormData>({
+    subjectId: "",
+    examDate: null,
+    startTime: null,
+    endTime: null,
+    totalMarks: 100,
+    passingMarks: 33,
+    venue: "",
+    invigilatorId: "",
+    remarks: "",
+  });
 
+  // Get sections for selected class
+  const sections =
+    classes.find((c) => c.id === examFormData.classId)?.sections || [];
+
+  // Fetch exams
   const fetchExams = useCallback(async () => {
     setLoading(true);
     try {
-      const params = new URLSearchParams({
-        ...(classFilter && { classId: classFilter }),
-        ...(statusFilter && { status: statusFilter }),
-      });
+      const params = new URLSearchParams();
+      if (filterClassId) params.append("classId", filterClassId);
+      if (filterType) params.append("type", filterType);
+      params.append("includeSchedules", "true");
 
-      const res = await fetch(`/api/exams?${params}`);
-      const data = await res.json();
-
-      if (res.ok) {
+      const response = await fetch(`/api/exams?${params}`);
+      if (response.ok) {
+        const data = await response.json();
         setExams(data.exams || []);
-      } else {
-        toast.error(data.error || "Failed to fetch exams");
       }
     } catch (error) {
+      console.error("Error fetching exams:", error);
       toast.error("Failed to fetch exams");
     } finally {
       setLoading(false);
     }
-  }, [classFilter, statusFilter]);
+  }, [filterClassId, filterType]);
 
-  const fetchClassesAndSections = async () => {
+  // Fetch classes with sections
+  const fetchClasses = useCallback(async () => {
     try {
-      const classesRes = await fetch("/api/classes");
-
-      if (classesRes.ok) {
-        const data = await classesRes.json();
-        setClasses(data.classes || []);
-        // Flatten sections from all classes
-        const allSections: { id: string; name: string; classId: string }[] = [];
-        (data.classes || []).forEach(
-          (cls: { id: string; sections?: { id: string; name: string }[] }) => {
-            (cls.sections || []).forEach((sec) => {
-              allSections.push({ ...sec, classId: cls.id });
-            });
-          }
-        );
-        setSections(allSections);
+      const response = await fetch("/api/classes?includeSection=true");
+      if (response.ok) {
+        const data = await response.json();
+        setClasses(data.classes || data.data || []);
       }
     } catch (error) {
-      console.error("Failed to fetch classes", error);
+      console.error("Error fetching classes:", error);
     }
-  };
+  }, []);
 
-  const fetchResults = async (examId: string) => {
+  // Fetch subjects for a class
+  const fetchSubjectsForClass = useCallback(async (classId: string) => {
     try {
-      const res = await fetch(`/api/results?examId=${examId}`);
-      const data = await res.json();
-
-      if (res.ok) {
-        setResults(data.results || []);
-        return data.results || [];
+      const response = await fetch(`/api/class-subjects?classId=${classId}`);
+      if (response.ok) {
+        const data = await response.json();
+        const subjectData = (data.data || []).map((cs: any) => ({
+          id: cs.subject?.id || cs.subjectId,
+          name: cs.subject?.name || "Unknown",
+          code: cs.subject?.code || "",
+        }));
+        setSubjects(subjectData);
       }
     } catch (error) {
-      console.error("Failed to fetch results", error);
+      console.error("Error fetching subjects:", error);
     }
-    return [];
-  };
+  }, []);
 
-  const fetchStudentsForExam = async (exam: Exam) => {
+  // Fetch teachers
+  const fetchTeachers = useCallback(async () => {
     try {
-      const res = await fetch(
-        `/api/students?classId=${exam.classId}&status=active&limit=100`
-      );
-      const data = await res.json();
-
-      if (res.ok) {
-        const existingResults = await fetchResults(exam.id);
-        const existingMap = new Map(
-          existingResults.map((r: ExamResult) => [r.studentId, r])
-        );
-
-        const formData = (data.students || []).map(
-          (student: { id: string }) => {
-            const existing = existingMap.get(student.id) as
-              | ExamResult
-              | undefined;
-            return {
-              studentId: student.id,
-              marksObtained: existing?.marksObtained || 0,
-              remarks: existing?.remarks || "",
-            };
-          }
-        );
-
-        setResultsFormData(formData);
-
-        // Set results for display
-        const resultsData = (data.students || []).map(
-          (student: {
-            id: string;
-            firstName: string;
-            lastName: string;
-            rollNumber: string;
-            section: { name: string };
-          }) => {
-            const existing = existingMap.get(student.id) as
-              | ExamResult
-              | undefined;
-            return {
-              id: existing?.id || "",
-              examId: exam.id,
-              studentId: student.id,
-              marksObtained: existing?.marksObtained || 0,
-              grade: existing?.grade || null,
-              remarks: existing?.remarks || null,
-              student: {
-                id: student.id,
-                firstName: student.firstName,
-                lastName: student.lastName,
-                rollNumber: student.rollNumber,
-                section: student.section,
-              },
-            };
-          }
-        );
-
-        setResults(resultsData);
+      const response = await fetch("/api/teachers?limit=100");
+      if (response.ok) {
+        const data = await response.json();
+        setTeachers(data.data || []);
       }
     } catch (error) {
-      console.error("Failed to fetch students", error);
+      console.error("Error fetching teachers:", error);
     }
-  };
+  }, []);
 
   useEffect(() => {
     fetchExams();
-  }, [fetchExams]);
+    fetchClasses();
+    fetchTeachers();
+  }, [fetchExams, fetchClasses, fetchTeachers]);
 
+  // Fetch subjects when class changes in exam form
   useEffect(() => {
-    fetchClassesAndSections();
-  }, []);
+    if (selectedExam?.classId) {
+      fetchSubjectsForClass(selectedExam.classId);
+    }
+  }, [selectedExam?.classId, fetchSubjectsForClass]);
 
-  const handleOpenExamDialog = (exam?: Exam) => {
+  // Filter exams by search
+  const filteredExams = exams.filter((exam) => {
+    if (!searchQuery) return true;
+    const query = searchQuery.toLowerCase();
+    return (
+      exam.name.toLowerCase().includes(query) ||
+      exam.class.name.toLowerCase().includes(query) ||
+      exam.examType.toLowerCase().includes(query)
+    );
+  });
+
+  // Open exam dialog for create/edit
+  const openExamDialog = (exam?: Exam) => {
     if (exam) {
       setSelectedExam(exam);
       setExamFormData({
@@ -269,43 +292,37 @@ export default function ExamsPage() {
         examType: exam.examType,
         classId: exam.classId,
         sectionId: exam.sectionId || "",
-        date: new Date(exam.date),
-        startTime: exam.startTime || "09:00",
-        endTime: exam.endTime || "12:00",
-        totalMarks: exam.totalMarks,
-        passingMarks: exam.passingMarks,
+        startDate: exam.startDate ? new Date(exam.startDate) : null,
+        endDate: exam.endDate ? new Date(exam.endDate) : null,
+        remarks: exam.remarks || "",
       });
     } else {
       setSelectedExam(null);
       setExamFormData({
         name: "",
-        examType: "MONTHLY",
+        examType: "MONTHLY_TEST",
         classId: "",
         sectionId: "",
-        date: new Date(),
-        startTime: "09:00",
-        endTime: "12:00",
-        totalMarks: 100,
-        passingMarks: 33,
+        startDate: null,
+        endDate: null,
+        remarks: "",
       });
     }
     setExamDialogOpen(true);
   };
 
+  // Save exam
   const handleSaveExam = async () => {
     if (!examFormData.name || !examFormData.classId) {
-      toast.error("Please fill all required fields");
+      toast.error("Please fill in required fields");
       return;
     }
 
-    setSaving(true);
     try {
-      const url = selectedExam
-        ? `/api/exams?id=${selectedExam.id}`
-        : "/api/exams";
+      const url = selectedExam ? `/api/exams/${selectedExam.id}` : "/api/exams";
       const method = selectedExam ? "PUT" : "POST";
 
-      const res = await fetch(url, {
+      const response = await fetch(url, {
         method,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -313,150 +330,219 @@ export default function ExamsPage() {
           examType: examFormData.examType,
           classId: examFormData.classId,
           sectionId: examFormData.sectionId || null,
-          examDate: examFormData.date.toISOString(),
-          startTime: examFormData.startTime,
-          endTime: examFormData.endTime,
-          totalMarks: examFormData.totalMarks,
-          passingMarks: examFormData.passingMarks,
+          startDate: examFormData.startDate?.toISOString() || null,
+          endDate: examFormData.endDate?.toISOString() || null,
+          remarks: examFormData.remarks || null,
         }),
       });
 
-      const data = await res.json();
-
-      if (res.ok) {
+      if (response.ok) {
         toast.success(
           selectedExam
             ? "Exam updated successfully"
             : "Exam created successfully"
         );
         setExamDialogOpen(false);
-        setSelectedExam(null);
         fetchExams();
       } else {
-        toast.error(data.error || "Failed to save exam");
+        const error = await response.json();
+        toast.error(error.error || "Failed to save exam");
       }
     } catch (error) {
+      console.error("Error saving exam:", error);
       toast.error("Failed to save exam");
-    } finally {
-      setSaving(false);
     }
   };
 
-  const handleOpenResultsDialog = async (exam: Exam) => {
-    setSelectedExam(exam);
-    await fetchStudentsForExam(exam);
-    setResultsDialogOpen(true);
-  };
+  // Delete exam
+  const handleDeleteExam = async () => {
+    if (!examToDelete) return;
 
-  const handleSaveResults = async () => {
-    if (!selectedExam) return;
-
-    setSaving(true);
     try {
-      const res = await fetch("/api/results", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          examId: selectedExam.id,
-          results: resultsFormData,
-        }),
-      });
-
-      const data = await res.json();
-
-      if (res.ok) {
-        toast.success("Results saved successfully");
-        setResultsDialogOpen(false);
-        fetchExams();
-      } else {
-        toast.error(data.error || "Failed to save results");
-      }
-    } catch (error) {
-      toast.error("Failed to save results");
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleUpdateExamStatus = async (exam: Exam, status: string) => {
-    try {
-      const res = await fetch(`/api/exams?id=${exam.id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status }),
-      });
-
-      if (res.ok) {
-        toast.success(`Exam status updated to ${status}`);
-        fetchExams();
-      } else {
-        const data = await res.json();
-        toast.error(data.error || "Failed to update status");
-      }
-    } catch (error) {
-      toast.error("Failed to update status");
-    }
-  };
-
-  const handleDelete = async () => {
-    if (!selectedExam) return;
-
-    setSaving(true);
-    try {
-      const res = await fetch(`/api/exams?id=${selectedExam.id}`, {
+      const response = await fetch(`/api/exams/${examToDelete.id}`, {
         method: "DELETE",
       });
 
-      if (res.ok) {
+      if (response.ok) {
         toast.success("Exam deleted successfully");
         setDeleteDialogOpen(false);
-        setSelectedExam(null);
+        setExamToDelete(null);
         fetchExams();
       } else {
-        const data = await res.json();
-        toast.error(data.error || "Failed to delete exam");
+        toast.error("Failed to delete exam");
       }
     } catch (error) {
+      console.error("Error deleting exam:", error);
       toast.error("Failed to delete exam");
-    } finally {
-      setSaving(false);
     }
   };
 
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case "SCHEDULED":
-        return "info";
-      case "IN_PROGRESS":
-        return "warning";
-      case "COMPLETED":
-        return "success";
-      case "CANCELLED":
+  // Open schedule dialog
+  const openScheduleDialog = (exam: Exam, schedule?: ExamSchedule) => {
+    setSelectedExam(exam);
+    fetchSubjectsForClass(exam.classId);
+
+    if (schedule) {
+      setSelectedSchedule(schedule);
+      setScheduleFormData({
+        subjectId: schedule.subjectId,
+        examDate: new Date(schedule.examDate),
+        startTime: parseTimeToDate(schedule.startTime),
+        endTime: parseTimeToDate(schedule.endTime),
+        totalMarks: schedule.totalMarks,
+        passingMarks: schedule.passingMarks,
+        venue: schedule.venue || "",
+        invigilatorId: schedule.invigilatorId || "",
+        remarks: schedule.remarks || "",
+      });
+    } else {
+      setSelectedSchedule(null);
+      setScheduleFormData({
+        subjectId: "",
+        examDate: exam.startDate ? new Date(exam.startDate) : null,
+        startTime: parseTimeToDate("09:00"),
+        endTime: parseTimeToDate("12:00"),
+        totalMarks: 100,
+        passingMarks: 33,
+        venue: "",
+        invigilatorId: "",
+        remarks: "",
+      });
+    }
+    setScheduleDialogOpen(true);
+  };
+
+  // Parse time string to Date
+  const parseTimeToDate = (timeStr: string): Date => {
+    const [hours, minutes] = timeStr.split(":").map(Number);
+    const date = new Date();
+    date.setHours(hours, minutes, 0, 0);
+    return date;
+  };
+
+  // Format Date to time string
+  const formatTimeString = (date: Date | null): string => {
+    if (!date) return "";
+    return `${date.getHours().toString().padStart(2, "0")}:${date
+      .getMinutes()
+      .toString()
+      .padStart(2, "0")}`;
+  };
+
+  // Save schedule
+  const handleSaveSchedule = async () => {
+    if (
+      !selectedExam ||
+      !scheduleFormData.subjectId ||
+      !scheduleFormData.examDate
+    ) {
+      toast.error("Please fill in required fields");
+      return;
+    }
+
+    try {
+      const url = selectedSchedule
+        ? `/api/exam-schedules/${selectedSchedule.id}`
+        : "/api/exam-schedules";
+      const method = selectedSchedule ? "PUT" : "POST";
+
+      const response = await fetch(url, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          examId: selectedExam.id,
+          subjectId: scheduleFormData.subjectId,
+          examDate: scheduleFormData.examDate.toISOString(),
+          startTime: formatTimeString(scheduleFormData.startTime),
+          endTime: formatTimeString(scheduleFormData.endTime),
+          totalMarks: scheduleFormData.totalMarks,
+          passingMarks: scheduleFormData.passingMarks,
+          venue: scheduleFormData.venue || null,
+          invigilatorId: scheduleFormData.invigilatorId || null,
+          remarks: scheduleFormData.remarks || null,
+        }),
+      });
+
+      if (response.ok) {
+        toast.success(selectedSchedule ? "Schedule updated" : "Schedule added");
+        setScheduleDialogOpen(false);
+        fetchExams();
+      } else {
+        const error = await response.json();
+        toast.error(error.error || "Failed to save schedule");
+      }
+    } catch (error) {
+      console.error("Error saving schedule:", error);
+      toast.error("Failed to save schedule");
+    }
+  };
+
+  // Delete schedule
+  const handleDeleteSchedule = async (scheduleId: string) => {
+    try {
+      const response = await fetch(`/api/exam-schedules/${scheduleId}`, {
+        method: "DELETE",
+      });
+
+      if (response.ok) {
+        toast.success("Schedule deleted");
+        fetchExams();
+        if (viewScheduleDialogOpen && selectedExam) {
+          // Refresh selected exam
+          const updatedExam = exams.find((e) => e.id === selectedExam.id);
+          if (updatedExam) {
+            setSelectedExam({
+              ...updatedExam,
+              examSchedules: updatedExam.examSchedules?.filter(
+                (s) => s.id !== scheduleId
+              ),
+            });
+          }
+        }
+      } else {
+        toast.error("Failed to delete schedule");
+      }
+    } catch (error) {
+      console.error("Error deleting schedule:", error);
+      toast.error("Failed to delete schedule");
+    }
+  };
+
+  // View exam schedule
+  const openViewScheduleDialog = (exam: Exam) => {
+    setSelectedExam(exam);
+    fetchSubjectsForClass(exam.classId);
+    setViewScheduleDialogOpen(true);
+  };
+
+  // Get exam type label
+  const getExamTypeLabel = (type: string) => {
+    return (
+      EXAM_TYPES.find((t) => t.value === type)?.label || type.replace(/_/g, " ")
+    );
+  };
+
+  // Get exam type color
+  const getExamTypeColor = (type: string) => {
+    switch (type) {
+      case "FINAL_TERM":
         return "error";
+      case "MID_TERM":
+        return "warning";
+      case "MONTHLY_TEST":
+        return "info";
+      case "WEEKLY_TEST":
+        return "success";
       default:
         return "default";
     }
   };
 
-  const filteredExams = exams.filter((exam) => {
-    if (!search) return true;
-    return (
-      exam.name.toLowerCase().includes(search.toLowerCase()) ||
-      exam.class.name.toLowerCase().includes(search.toLowerCase()) ||
-      (exam.section?.name || "").toLowerCase().includes(search.toLowerCase())
-    );
-  });
-
-  const upcomingExams = filteredExams.filter(
-    (e) => e.status === "SCHEDULED" && new Date(e.date) >= new Date()
-  );
-  const completedExams = filteredExams.filter((e) => e.status === "COMPLETED");
-  const allExams = filteredExams;
-
   return (
-    <LocalizationProvider dateAdapter={AdapterDateFns}>
-      <MainLayout>
+    <MainLayout>
+      <LocalizationProvider dateAdapter={AdapterDateFns}>
         <Box sx={{ p: 3 }}>
+          {/* Header */}
           <Box
             sx={{
               display: "flex",
@@ -465,48 +551,38 @@ export default function ExamsPage() {
               mb: 3,
             }}
           >
-            <Typography variant="h4" fontWeight="bold">
-              Exams & Results
-            </Typography>
+            <Box>
+              <Typography variant="h4" fontWeight="bold" gutterBottom>
+                Exam Management
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                Create exams and manage exam timetables for each class
+              </Typography>
+            </Box>
             <Button
               variant="contained"
               startIcon={<Add />}
-              onClick={() => handleOpenExamDialog()}
+              onClick={() => openExamDialog()}
+              sx={{ borderRadius: 2 }}
             >
               Create Exam
             </Button>
           </Box>
 
-          <Tabs
-            value={activeTab}
-            onChange={(_, v) => setActiveTab(v)}
-            sx={{ mb: 3 }}
-          >
-            <Tab icon={<Assignment />} label={`All (${allExams.length})`} />
-            <Tab
-              icon={<PlayArrow />}
-              label={`Upcoming (${upcomingExams.length})`}
-            />
-            <Tab
-              icon={<Grade />}
-              label={`Completed (${completedExams.length})`}
-            />
-          </Tabs>
-
           {/* Filters */}
-          <Paper sx={{ p: 2, mb: 3 }}>
+          <Paper sx={{ p: 2, mb: 3, borderRadius: 2 }}>
             <Grid container spacing={2} alignItems="center">
-              <Grid size={{ xs: 12, md: 4 }}>
+              <Grid size={{ xs: 12, md: 3 }}>
                 <TextField
                   fullWidth
                   size="small"
                   placeholder="Search exams..."
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
                   InputProps={{
                     startAdornment: (
                       <InputAdornment position="start">
-                        <Search />
+                        <Search color="action" />
                       </InputAdornment>
                     ),
                   }}
@@ -514,11 +590,11 @@ export default function ExamsPage() {
               </Grid>
               <Grid size={{ xs: 12, md: 3 }}>
                 <FormControl fullWidth size="small">
-                  <InputLabel>Class</InputLabel>
+                  <InputLabel>Filter by Class</InputLabel>
                   <Select
-                    value={classFilter}
-                    label="Class"
-                    onChange={(e) => setClassFilter(e.target.value)}
+                    value={filterClassId}
+                    onChange={(e) => setFilterClassId(e.target.value)}
+                    label="Filter by Class"
                   >
                     <MenuItem value="">All Classes</MenuItem>
                     {classes.map((cls) => (
@@ -529,230 +605,192 @@ export default function ExamsPage() {
                   </Select>
                 </FormControl>
               </Grid>
-              <Grid size={{ xs: 12, md: 2 }}>
+              <Grid size={{ xs: 12, md: 3 }}>
                 <FormControl fullWidth size="small">
-                  <InputLabel>Status</InputLabel>
+                  <InputLabel>Filter by Type</InputLabel>
                   <Select
-                    value={statusFilter}
-                    label="Status"
-                    onChange={(e) => setStatusFilter(e.target.value)}
+                    value={filterType}
+                    onChange={(e) => setFilterType(e.target.value)}
+                    label="Filter by Type"
                   >
-                    <MenuItem value="">All Status</MenuItem>
-                    <MenuItem value="SCHEDULED">Scheduled</MenuItem>
-                    <MenuItem value="IN_PROGRESS">In Progress</MenuItem>
-                    <MenuItem value="COMPLETED">Completed</MenuItem>
-                    <MenuItem value="CANCELLED">Cancelled</MenuItem>
+                    <MenuItem value="">All Types</MenuItem>
+                    {EXAM_TYPES.map((type) => (
+                      <MenuItem key={type.value} value={type.value}>
+                        {type.label}
+                      </MenuItem>
+                    ))}
                   </Select>
                 </FormControl>
               </Grid>
               <Grid size={{ xs: 12, md: 3 }}>
-                <Box sx={{ display: "flex", gap: 1 }}>
-                  <Button
-                    variant="outlined"
-                    startIcon={<FilterList />}
-                    onClick={() => {
-                      setSearch("");
-                      setClassFilter("");
-                      setStatusFilter("");
-                    }}
-                  >
-                    Clear
-                  </Button>
-                  <Button
-                    variant="outlined"
-                    startIcon={<Refresh />}
-                    onClick={fetchExams}
-                  >
-                    Refresh
-                  </Button>
-                </Box>
+                <Button
+                  variant="outlined"
+                  startIcon={<Refresh />}
+                  onClick={fetchExams}
+                  fullWidth
+                >
+                  Refresh
+                </Button>
               </Grid>
             </Grid>
           </Paper>
 
+          {/* Exams List */}
           {loading ? (
             <Box sx={{ display: "flex", justifyContent: "center", py: 4 }}>
               <CircularProgress />
             </Box>
+          ) : filteredExams.length === 0 ? (
+            <Paper sx={{ p: 4, textAlign: "center", borderRadius: 2 }}>
+              <Assignment
+                sx={{ fontSize: 64, color: "text.secondary", mb: 2 }}
+              />
+              <Typography variant="h6" color="text.secondary">
+                No exams found
+              </Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                Create your first exam to get started
+              </Typography>
+              <Button
+                variant="contained"
+                startIcon={<Add />}
+                onClick={() => openExamDialog()}
+              >
+                Create Exam
+              </Button>
+            </Paper>
           ) : (
             <Grid container spacing={3}>
-              {(activeTab === 0
-                ? allExams
-                : activeTab === 1
-                ? upcomingExams
-                : completedExams
-              ).length === 0 ? (
-                <Grid size={{ xs: 12 }}>
-                  <Paper sx={{ p: 4, textAlign: "center" }}>
-                    <Typography color="text.secondary">
-                      No exams found
-                    </Typography>
-                  </Paper>
-                </Grid>
-              ) : (
-                (activeTab === 0
-                  ? allExams
-                  : activeTab === 1
-                  ? upcomingExams
-                  : completedExams
-                ).map((exam) => (
-                  <Grid size={{ xs: 12, sm: 6, md: 4 }} key={exam.id}>
-                    <Card>
-                      <CardContent>
-                        <Box
-                          sx={{
-                            display: "flex",
-                            justifyContent: "space-between",
-                            alignItems: "flex-start",
-                            mb: 2,
-                          }}
-                        >
-                          <Box>
-                            <Typography variant="h6">{exam.name}</Typography>
-                            <Typography variant="body2" color="text.secondary">
-                              {exam.class.name}
-                              {exam.section
-                                ? ` • ${exam.section.name}`
-                                : " • All Sections"}
-                            </Typography>
-                          </Box>
-                          <Chip
-                            label={exam.status.replace("_", " ")}
-                            size="small"
-                            color={
-                              getStatusColor(exam.status) as
-                                | "info"
-                                | "warning"
-                                | "success"
-                                | "error"
-                                | "default"
-                            }
-                          />
+              {filteredExams.map((exam) => (
+                <Grid key={exam.id} size={{ xs: 12, md: 6, lg: 4 }}>
+                  <Card
+                    sx={{
+                      borderRadius: 2,
+                      transition: "all 0.2s",
+                      "&:hover": {
+                        boxShadow: 4,
+                        transform: "translateY(-2px)",
+                      },
+                    }}
+                  >
+                    <CardContent>
+                      {/* Header */}
+                      <Box
+                        sx={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          alignItems: "flex-start",
+                          mb: 2,
+                        }}
+                      >
+                        <Box>
+                          <Typography variant="h6" fontWeight="bold">
+                            {exam.name}
+                          </Typography>
+                          <Typography variant="body2" color="text.secondary">
+                            {exam.class.name}
+                            {exam.section
+                              ? ` • ${exam.section.name}`
+                              : " • All Sections"}
+                          </Typography>
                         </Box>
+                        <Chip
+                          label={getExamTypeLabel(exam.examType)}
+                          size="small"
+                          color={getExamTypeColor(exam.examType) as any}
+                        />
+                      </Box>
 
-                        <Grid container spacing={1} sx={{ mb: 2 }}>
-                          <Grid size={{ xs: 6 }}>
-                            <Typography
-                              variant="caption"
-                              color="text.secondary"
-                            >
-                              Date
-                            </Typography>
-                            <Typography variant="body2">
-                              {formatDate(exam.date)}
-                            </Typography>
-                          </Grid>
-                          <Grid size={{ xs: 6 }}>
-                            <Typography
-                              variant="caption"
-                              color="text.secondary"
-                            >
-                              Time
-                            </Typography>
-                            <Typography variant="body2">
-                              {exam.startTime} - {exam.endTime}
-                            </Typography>
-                          </Grid>
-                          <Grid size={{ xs: 6 }}>
-                            <Typography
-                              variant="caption"
-                              color="text.secondary"
-                            >
-                              Total Marks
-                            </Typography>
-                            <Typography variant="body2">
-                              {exam.totalMarks}
-                            </Typography>
-                          </Grid>
-                          <Grid size={{ xs: 6 }}>
-                            <Typography
-                              variant="caption"
-                              color="text.secondary"
-                            >
-                              Passing Marks
-                            </Typography>
-                            <Typography variant="body2">
-                              {exam.passingMarks}
-                            </Typography>
-                          </Grid>
-                          {exam._count && (
-                            <Grid size={{ xs: 12 }}>
-                              <Typography
-                                variant="caption"
-                                color="text.secondary"
-                              >
-                                Marks Entered
-                              </Typography>
-                              <Typography variant="body2">
-                                {exam._count.studentMarks} entries
-                              </Typography>
-                            </Grid>
-                          )}
+                      {/* Info */}
+                      <Grid container spacing={1} sx={{ mb: 2 }}>
+                        <Grid size={{ xs: 6 }}>
+                          <Typography variant="caption" color="text.secondary">
+                            Start Date
+                          </Typography>
+                          <Typography variant="body2">
+                            {exam.startDate
+                              ? formatDate(exam.startDate)
+                              : "Not set"}
+                          </Typography>
                         </Grid>
+                        <Grid size={{ xs: 6 }}>
+                          <Typography variant="caption" color="text.secondary">
+                            End Date
+                          </Typography>
+                          <Typography variant="body2">
+                            {exam.endDate
+                              ? formatDate(exam.endDate)
+                              : "Not set"}
+                          </Typography>
+                        </Grid>
+                        <Grid size={{ xs: 6 }}>
+                          <Typography variant="caption" color="text.secondary">
+                            Subjects Scheduled
+                          </Typography>
+                          <Typography variant="body2">
+                            {exam._count?.examSchedules ||
+                              exam.examSchedules?.length ||
+                              0}
+                          </Typography>
+                        </Grid>
+                        <Grid size={{ xs: 6 }}>
+                          <Typography variant="caption" color="text.secondary">
+                            Status
+                          </Typography>
+                          <Box>
+                            <Chip
+                              label={exam.isPublished ? "Published" : "Draft"}
+                              size="small"
+                              color={exam.isPublished ? "success" : "default"}
+                              sx={{ height: 20, fontSize: "0.7rem" }}
+                            />
+                          </Box>
+                        </Grid>
+                      </Grid>
 
-                        <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
-                          {exam.status === "SCHEDULED" && (
-                            <Button
-                              size="small"
-                              variant="outlined"
-                              startIcon={<PlayArrow />}
-                              onClick={() =>
-                                handleUpdateExamStatus(exam, "IN_PROGRESS")
-                              }
-                            >
-                              Start
-                            </Button>
-                          )}
-                          {exam.status === "IN_PROGRESS" && (
-                            <Button
-                              size="small"
-                              variant="outlined"
-                              startIcon={<Stop />}
-                              onClick={() =>
-                                handleUpdateExamStatus(exam, "COMPLETED")
-                              }
-                            >
-                              Complete
-                            </Button>
-                          )}
-                          <Button
+                      <Divider sx={{ my: 2 }} />
+
+                      {/* Actions */}
+                      <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
+                        <Button
+                          size="small"
+                          variant="contained"
+                          startIcon={<Schedule />}
+                          onClick={() => openViewScheduleDialog(exam)}
+                          sx={{ flex: 1 }}
+                        >
+                          Timetable
+                        </Button>
+                        <Tooltip title="Edit Exam">
+                          <IconButton
                             size="small"
-                            variant="outlined"
-                            startIcon={<Grade />}
-                            onClick={() => handleOpenResultsDialog(exam)}
+                            onClick={() => openExamDialog(exam)}
+                            color="primary"
                           >
-                            Results
-                          </Button>
-                          <Tooltip title="Edit">
-                            <IconButton
-                              size="small"
-                              onClick={() => handleOpenExamDialog(exam)}
-                            >
-                              <Edit />
-                            </IconButton>
-                          </Tooltip>
-                          <Tooltip title="Delete">
-                            <IconButton
-                              size="small"
-                              color="error"
-                              onClick={() => {
-                                setSelectedExam(exam);
-                                setDeleteDialogOpen(true);
-                              }}
-                            >
-                              <Delete />
-                            </IconButton>
-                          </Tooltip>
-                        </Box>
-                      </CardContent>
-                    </Card>
-                  </Grid>
-                ))
-              )}
+                            <Edit fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                        <Tooltip title="Delete Exam">
+                          <IconButton
+                            size="small"
+                            onClick={() => {
+                              setExamToDelete(exam);
+                              setDeleteDialogOpen(true);
+                            }}
+                            color="error"
+                          >
+                            <Delete fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                      </Box>
+                    </CardContent>
+                  </Card>
+                </Grid>
+              ))}
             </Grid>
           )}
 
-          {/* Exam Dialog */}
+          {/* Create/Edit Exam Dialog */}
           <Dialog
             open={examDialogOpen}
             onClose={() => setExamDialogOpen(false)}
@@ -760,61 +798,63 @@ export default function ExamsPage() {
             fullWidth
           >
             <DialogTitle>
-              <Box sx={{ display: "flex", justifyContent: "space-between" }}>
-                {selectedExam ? "Edit Exam" : "Create New Exam"}
-                <IconButton onClick={() => setExamDialogOpen(false)}>
-                  <Close />
-                </IconButton>
-              </Box>
+              {selectedExam ? "Edit Exam" : "Create New Exam"}
+              <IconButton
+                onClick={() => setExamDialogOpen(false)}
+                sx={{ position: "absolute", right: 8, top: 8 }}
+              >
+                <Close />
+              </IconButton>
             </DialogTitle>
             <DialogContent dividers>
               <Grid container spacing={2} sx={{ mt: 1 }}>
                 <Grid size={{ xs: 12 }}>
                   <TextField
                     fullWidth
-                    label="Exam Name"
+                    label="Exam Name *"
                     value={examFormData.name}
                     onChange={(e) =>
                       setExamFormData({ ...examFormData, name: e.target.value })
                     }
-                    required
-                    placeholder="e.g., Monthly Test - March"
+                    placeholder="e.g., Monthly Test - December 2025"
                   />
                 </Grid>
-                <Grid size={{ xs: 12, sm: 6 }}>
-                  <FormControl fullWidth required>
-                    <InputLabel>Exam Type</InputLabel>
+                <Grid size={{ xs: 12 }}>
+                  <FormControl fullWidth>
+                    <InputLabel>Exam Type *</InputLabel>
                     <Select
                       value={examFormData.examType}
-                      label="Exam Type"
                       onChange={(e) =>
                         setExamFormData({
                           ...examFormData,
                           examType: e.target.value,
                         })
                       }
+                      label="Exam Type *"
                     >
-                      <MenuItem value="MONTHLY">Monthly Test</MenuItem>
-                      <MenuItem value="MID_TERM">Mid Term</MenuItem>
-                      <MenuItem value="FINAL">Final Exam</MenuItem>
-                      <MenuItem value="UNIT_TEST">Unit Test</MenuItem>
-                      <MenuItem value="PRACTICE">Practice Test</MenuItem>
+                      {EXAM_TYPES.map((type) => (
+                        <MenuItem key={type.value} value={type.value}>
+                          {type.label}
+                        </MenuItem>
+                      ))}
                     </Select>
                   </FormControl>
                 </Grid>
-                <Grid size={{ xs: 12, sm: 6 }}>
-                  <FormControl fullWidth required>
-                    <InputLabel>Class</InputLabel>
+                <Grid size={{ xs: 12, md: 6 }}>
+                  <FormControl fullWidth>
+                    <InputLabel>Class *</InputLabel>
                     <Select
                       value={examFormData.classId}
-                      label="Class"
                       onChange={(e) =>
                         setExamFormData({
                           ...examFormData,
                           classId: e.target.value,
+                          sectionId: "",
                         })
                       }
+                      label="Class *"
                     >
+                      <MenuItem value="">Select Class</MenuItem>
                       {classes.map((cls) => (
                         <MenuItem key={cls.id} value={cls.id}>
                           {cls.name}
@@ -823,228 +863,390 @@ export default function ExamsPage() {
                     </Select>
                   </FormControl>
                 </Grid>
-                <Grid size={{ xs: 12, sm: 6 }}>
-                  <FormControl fullWidth>
-                    <InputLabel>Section (Optional)</InputLabel>
+                <Grid size={{ xs: 12, md: 6 }}>
+                  <FormControl fullWidth disabled={!examFormData.classId}>
+                    <InputLabel>Section</InputLabel>
                     <Select
                       value={examFormData.sectionId}
-                      label="Section (Optional)"
                       onChange={(e) =>
                         setExamFormData({
                           ...examFormData,
                           sectionId: e.target.value,
                         })
                       }
+                      label="Section"
                     >
                       <MenuItem value="">All Sections</MenuItem>
-                      {sections
-                        .filter((sec) => sec.classId === examFormData.classId)
-                        .map((section) => (
-                          <MenuItem key={section.id} value={section.id}>
-                            {section.name}
-                          </MenuItem>
-                        ))}
+                      {sections.map((section) => (
+                        <MenuItem key={section.id} value={section.id}>
+                          {section.name}
+                        </MenuItem>
+                      ))}
                     </Select>
                   </FormControl>
                 </Grid>
-                <Grid size={{ xs: 12, sm: 6 }}>
+                <Grid size={{ xs: 12, md: 6 }}>
                   <DatePicker
-                    label="Exam Date"
-                    value={examFormData.date}
+                    label="Start Date"
+                    value={examFormData.startDate}
                     onChange={(date) =>
-                      setExamFormData({
-                        ...examFormData,
-                        date: date || new Date(),
-                      })
+                      setExamFormData({ ...examFormData, startDate: date })
                     }
                     slotProps={{ textField: { fullWidth: true } }}
                   />
                 </Grid>
-                <Grid size={{ xs: 6, sm: 3 }}>
-                  <TextField
-                    fullWidth
-                    label="Start Time"
-                    type="time"
-                    value={examFormData.startTime}
-                    onChange={(e) =>
-                      setExamFormData({
-                        ...examFormData,
-                        startTime: e.target.value,
-                      })
+                <Grid size={{ xs: 12, md: 6 }}>
+                  <DatePicker
+                    label="End Date"
+                    value={examFormData.endDate}
+                    onChange={(date) =>
+                      setExamFormData({ ...examFormData, endDate: date })
                     }
-                    InputLabelProps={{ shrink: true }}
+                    slotProps={{ textField: { fullWidth: true } }}
                   />
                 </Grid>
-                <Grid size={{ xs: 6, sm: 3 }}>
+                <Grid size={{ xs: 12 }}>
                   <TextField
                     fullWidth
-                    label="End Time"
-                    type="time"
-                    value={examFormData.endTime}
+                    label="Remarks"
+                    value={examFormData.remarks}
                     onChange={(e) =>
                       setExamFormData({
                         ...examFormData,
-                        endTime: e.target.value,
+                        remarks: e.target.value,
                       })
                     }
-                    InputLabelProps={{ shrink: true }}
-                  />
-                </Grid>
-                <Grid size={{ xs: 6 }}>
-                  <TextField
-                    fullWidth
-                    label="Total Marks"
-                    type="number"
-                    value={examFormData.totalMarks}
-                    onChange={(e) =>
-                      setExamFormData({
-                        ...examFormData,
-                        totalMarks: parseInt(e.target.value) || 100,
-                      })
-                    }
-                    inputProps={{ min: 1 }}
-                  />
-                </Grid>
-                <Grid size={{ xs: 6 }}>
-                  <TextField
-                    fullWidth
-                    label="Passing Marks"
-                    type="number"
-                    value={examFormData.passingMarks}
-                    onChange={(e) =>
-                      setExamFormData({
-                        ...examFormData,
-                        passingMarks: parseInt(e.target.value) || 33,
-                      })
-                    }
-                    inputProps={{ min: 1 }}
+                    multiline
+                    rows={2}
+                    placeholder="Optional notes about this exam"
                   />
                 </Grid>
               </Grid>
             </DialogContent>
             <DialogActions>
               <Button onClick={() => setExamDialogOpen(false)}>Cancel</Button>
-              <Button
-                variant="contained"
-                onClick={handleSaveExam}
-                disabled={saving}
-              >
-                {saving ? <CircularProgress size={24} /> : "Save"}
+              <Button variant="contained" onClick={handleSaveExam}>
+                {selectedExam ? "Update" : "Create"}
               </Button>
             </DialogActions>
           </Dialog>
 
-          {/* Results Dialog */}
+          {/* View/Manage Schedule Dialog */}
           <Dialog
-            open={resultsDialogOpen}
-            onClose={() => setResultsDialogOpen(false)}
+            open={viewScheduleDialogOpen}
+            onClose={() => setViewScheduleDialogOpen(false)}
             maxWidth="md"
             fullWidth
           >
             <DialogTitle>
-              <Box sx={{ display: "flex", justifyContent: "space-between" }}>
-                Enter Results - {selectedExam?.name}
-                <IconButton onClick={() => setResultsDialogOpen(false)}>
-                  <Close />
-                </IconButton>
+              <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                <Schedule color="primary" />
+                Exam Timetable - {selectedExam?.name}
               </Box>
-              {selectedExam && (
-                <Typography variant="body2" color="text.secondary">
-                  {selectedExam.class.name}
-                  {selectedExam.section
-                    ? ` • ${selectedExam.section.name}`
-                    : " • All Sections"}{" "}
-                  • Total: {selectedExam.totalMarks}, Passing:{" "}
-                  {selectedExam.passingMarks}
-                </Typography>
-              )}
+              <Typography variant="body2" color="text.secondary">
+                {selectedExam?.class.name}
+                {selectedExam?.section
+                  ? ` • ${selectedExam.section.name}`
+                  : " • All Sections"}
+              </Typography>
+              <IconButton
+                onClick={() => setViewScheduleDialogOpen(false)}
+                sx={{ position: "absolute", right: 8, top: 8 }}
+              >
+                <Close />
+              </IconButton>
             </DialogTitle>
             <DialogContent dividers>
-              <TableContainer>
-                <Table size="small">
-                  <TableHead>
-                    <TableRow>
-                      <TableCell>Roll No.</TableCell>
-                      <TableCell>Student Name</TableCell>
-                      <TableCell>Section</TableCell>
-                      <TableCell sx={{ width: 120 }}>Marks</TableCell>
-                      <TableCell sx={{ width: 200 }}>Remarks</TableCell>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {results.map((result, index) => (
-                      <TableRow key={result.studentId}>
-                        <TableCell>{result.student.rollNumber}</TableCell>
-                        <TableCell>
-                          {result.student.firstName} {result.student.lastName}
-                        </TableCell>
-                        <TableCell>{result.student.section?.name}</TableCell>
-                        <TableCell>
-                          <TextField
-                            size="small"
-                            type="number"
-                            value={resultsFormData[index]?.marksObtained || 0}
-                            onChange={(e) => {
-                              const newData = [...resultsFormData];
-                              newData[index] = {
-                                ...newData[index],
-                                marksObtained: parseFloat(e.target.value) || 0,
-                              };
-                              setResultsFormData(newData);
-                            }}
-                            inputProps={{
-                              min: 0,
-                              max: selectedExam?.totalMarks || 100,
-                              style: { width: 70 },
-                            }}
-                          />
-                        </TableCell>
-                        <TableCell>
-                          <TextField
-                            size="small"
-                            value={resultsFormData[index]?.remarks || ""}
-                            onChange={(e) => {
-                              const newData = [...resultsFormData];
-                              newData[index] = {
-                                ...newData[index],
-                                remarks: e.target.value,
-                              };
-                              setResultsFormData(newData);
-                            }}
-                            placeholder="Optional"
-                          />
-                        </TableCell>
+              {selectedExam?.examSchedules &&
+              selectedExam.examSchedules.length > 0 ? (
+                <TableContainer>
+                  <Table size="small">
+                    <TableHead>
+                      <TableRow>
+                        <TableCell>Date</TableCell>
+                        <TableCell>Subject</TableCell>
+                        <TableCell>Time</TableCell>
+                        <TableCell>Marks</TableCell>
+                        <TableCell>Venue</TableCell>
+                        <TableCell>Invigilator</TableCell>
+                        <TableCell align="right">Actions</TableCell>
                       </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </TableContainer>
+                    </TableHead>
+                    <TableBody>
+                      {selectedExam.examSchedules
+                        .sort(
+                          (a, b) =>
+                            new Date(a.examDate).getTime() -
+                            new Date(b.examDate).getTime()
+                        )
+                        .map((schedule) => (
+                          <TableRow key={schedule.id}>
+                            <TableCell>
+                              {formatDate(schedule.examDate)}
+                            </TableCell>
+                            <TableCell>
+                              <Typography variant="body2" fontWeight="medium">
+                                {schedule.subject.name}
+                              </Typography>
+                              <Typography
+                                variant="caption"
+                                color="text.secondary"
+                              >
+                                {schedule.subject.code}
+                              </Typography>
+                            </TableCell>
+                            <TableCell>
+                              {schedule.startTime} - {schedule.endTime}
+                            </TableCell>
+                            <TableCell>
+                              {schedule.totalMarks} (Pass:{" "}
+                              {schedule.passingMarks})
+                            </TableCell>
+                            <TableCell>{schedule.venue || "-"}</TableCell>
+                            <TableCell>
+                              {schedule.invigilator
+                                ? `${schedule.invigilator.firstName} ${schedule.invigilator.lastName}`
+                                : "-"}
+                            </TableCell>
+                            <TableCell align="right">
+                              <IconButton
+                                size="small"
+                                onClick={() =>
+                                  openScheduleDialog(selectedExam, schedule)
+                                }
+                              >
+                                <Edit fontSize="small" />
+                              </IconButton>
+                              <IconButton
+                                size="small"
+                                color="error"
+                                onClick={() =>
+                                  handleDeleteSchedule(schedule.id)
+                                }
+                              >
+                                <Delete fontSize="small" />
+                              </IconButton>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+              ) : (
+                <Box sx={{ textAlign: "center", py: 4 }}>
+                  <CalendarMonth
+                    sx={{ fontSize: 48, color: "text.secondary", mb: 1 }}
+                  />
+                  <Typography color="text.secondary">
+                    No subjects scheduled yet
+                  </Typography>
+                  <Typography
+                    variant="body2"
+                    color="text.secondary"
+                    sx={{ mb: 2 }}
+                  >
+                    Add subject schedules to create the exam timetable
+                  </Typography>
+                </Box>
+              )}
             </DialogContent>
             <DialogActions>
-              <Button onClick={() => setResultsDialogOpen(false)}>
-                Cancel
+              <Button onClick={() => setViewScheduleDialogOpen(false)}>
+                Close
               </Button>
               <Button
                 variant="contained"
-                onClick={handleSaveResults}
-                disabled={saving}
+                startIcon={<Add />}
+                onClick={() => selectedExam && openScheduleDialog(selectedExam)}
               >
-                {saving ? <CircularProgress size={24} /> : "Save Results"}
+                Add Subject
               </Button>
             </DialogActions>
           </Dialog>
 
-          {/* Delete Dialog */}
+          {/* Add/Edit Schedule Dialog */}
+          <Dialog
+            open={scheduleDialogOpen}
+            onClose={() => setScheduleDialogOpen(false)}
+            maxWidth="sm"
+            fullWidth
+          >
+            <DialogTitle>
+              {selectedSchedule
+                ? "Edit Subject Schedule"
+                : "Add Subject Schedule"}
+              <IconButton
+                onClick={() => setScheduleDialogOpen(false)}
+                sx={{ position: "absolute", right: 8, top: 8 }}
+              >
+                <Close />
+              </IconButton>
+            </DialogTitle>
+            <DialogContent dividers>
+              <Grid container spacing={2} sx={{ mt: 1 }}>
+                <Grid size={{ xs: 12 }}>
+                  <FormControl fullWidth>
+                    <InputLabel>Subject *</InputLabel>
+                    <Select
+                      value={scheduleFormData.subjectId}
+                      onChange={(e) =>
+                        setScheduleFormData({
+                          ...scheduleFormData,
+                          subjectId: e.target.value,
+                        })
+                      }
+                      label="Subject *"
+                    >
+                      <MenuItem value="">Select Subject</MenuItem>
+                      {subjects.map((subject) => (
+                        <MenuItem key={subject.id} value={subject.id}>
+                          {subject.name} ({subject.code})
+                        </MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+                </Grid>
+                <Grid size={{ xs: 12 }}>
+                  <DatePicker
+                    label="Exam Date *"
+                    value={scheduleFormData.examDate}
+                    onChange={(date) =>
+                      setScheduleFormData({
+                        ...scheduleFormData,
+                        examDate: date,
+                      })
+                    }
+                    slotProps={{ textField: { fullWidth: true } }}
+                  />
+                </Grid>
+                <Grid size={{ xs: 12, md: 6 }}>
+                  <TimePicker
+                    label="Start Time *"
+                    value={scheduleFormData.startTime}
+                    onChange={(time) =>
+                      setScheduleFormData({
+                        ...scheduleFormData,
+                        startTime: time,
+                      })
+                    }
+                    slotProps={{ textField: { fullWidth: true } }}
+                  />
+                </Grid>
+                <Grid size={{ xs: 12, md: 6 }}>
+                  <TimePicker
+                    label="End Time *"
+                    value={scheduleFormData.endTime}
+                    onChange={(time) =>
+                      setScheduleFormData({
+                        ...scheduleFormData,
+                        endTime: time,
+                      })
+                    }
+                    slotProps={{ textField: { fullWidth: true } }}
+                  />
+                </Grid>
+                <Grid size={{ xs: 12, md: 6 }}>
+                  <TextField
+                    fullWidth
+                    type="number"
+                    label="Total Marks"
+                    value={scheduleFormData.totalMarks}
+                    onChange={(e) =>
+                      setScheduleFormData({
+                        ...scheduleFormData,
+                        totalMarks: Number(e.target.value),
+                      })
+                    }
+                  />
+                </Grid>
+                <Grid size={{ xs: 12, md: 6 }}>
+                  <TextField
+                    fullWidth
+                    type="number"
+                    label="Passing Marks"
+                    value={scheduleFormData.passingMarks}
+                    onChange={(e) =>
+                      setScheduleFormData({
+                        ...scheduleFormData,
+                        passingMarks: Number(e.target.value),
+                      })
+                    }
+                  />
+                </Grid>
+                <Grid size={{ xs: 12 }}>
+                  <TextField
+                    fullWidth
+                    label="Venue / Room"
+                    value={scheduleFormData.venue}
+                    onChange={(e) =>
+                      setScheduleFormData({
+                        ...scheduleFormData,
+                        venue: e.target.value,
+                      })
+                    }
+                    placeholder="e.g., Room 101, Hall A"
+                  />
+                </Grid>
+                <Grid size={{ xs: 12 }}>
+                  <FormControl fullWidth>
+                    <InputLabel>Invigilator</InputLabel>
+                    <Select
+                      value={scheduleFormData.invigilatorId}
+                      onChange={(e) =>
+                        setScheduleFormData({
+                          ...scheduleFormData,
+                          invigilatorId: e.target.value,
+                        })
+                      }
+                      label="Invigilator"
+                    >
+                      <MenuItem value="">Select Invigilator</MenuItem>
+                      {teachers.map((teacher) => (
+                        <MenuItem key={teacher.id} value={teacher.id}>
+                          {teacher.firstName} {teacher.lastName}
+                        </MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+                </Grid>
+                <Grid size={{ xs: 12 }}>
+                  <TextField
+                    fullWidth
+                    label="Remarks"
+                    value={scheduleFormData.remarks}
+                    onChange={(e) =>
+                      setScheduleFormData({
+                        ...scheduleFormData,
+                        remarks: e.target.value,
+                      })
+                    }
+                    multiline
+                    rows={2}
+                  />
+                </Grid>
+              </Grid>
+            </DialogContent>
+            <DialogActions>
+              <Button onClick={() => setScheduleDialogOpen(false)}>
+                Cancel
+              </Button>
+              <Button variant="contained" onClick={handleSaveSchedule}>
+                {selectedSchedule ? "Update" : "Add"}
+              </Button>
+            </DialogActions>
+          </Dialog>
+
+          {/* Delete Confirmation Dialog */}
           <Dialog
             open={deleteDialogOpen}
             onClose={() => setDeleteDialogOpen(false)}
           >
-            <DialogTitle>Confirm Delete</DialogTitle>
+            <DialogTitle>Delete Exam</DialogTitle>
             <DialogContent>
               <Typography>
-                Are you sure you want to delete exam{" "}
-                <strong>{selectedExam?.name}</strong>? This will also delete all
-                associated results. This action cannot be undone.
+                Are you sure you want to delete &quot;{examToDelete?.name}
+                &quot;? This will also delete all associated schedules and
+                marks.
               </Typography>
             </DialogContent>
             <DialogActions>
@@ -1052,15 +1254,14 @@ export default function ExamsPage() {
               <Button
                 variant="contained"
                 color="error"
-                onClick={handleDelete}
-                disabled={saving}
+                onClick={handleDeleteExam}
               >
-                {saving ? <CircularProgress size={24} /> : "Delete"}
+                Delete
               </Button>
             </DialogActions>
           </Dialog>
         </Box>
-      </MainLayout>
-    </LocalizationProvider>
+      </LocalizationProvider>
+    </MainLayout>
   );
 }

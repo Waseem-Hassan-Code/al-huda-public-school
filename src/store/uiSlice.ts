@@ -5,6 +5,7 @@ interface UIState {
   sidebarCollapsed: boolean;
   language: "en" | "ur";
   theme: "light" | "dark";
+  expandedMenus: Record<string, boolean>;
 }
 
 const initialState: UIState = {
@@ -12,6 +13,7 @@ const initialState: UIState = {
   sidebarCollapsed: false,
   language: "en",
   theme: "light",
+  expandedMenus: {},
 };
 
 const uiSlice = createSlice({
@@ -36,6 +38,16 @@ const uiSlice = createSlice({
     setTheme: (state, action: PayloadAction<"light" | "dark">) => {
       state.theme = action.payload;
     },
+    toggleExpandedMenu: (state, action: PayloadAction<string>) => {
+      const menuKey = action.payload;
+      state.expandedMenus[menuKey] = !state.expandedMenus[menuKey];
+    },
+    setExpandedMenu: (
+      state,
+      action: PayloadAction<{ key: string; expanded: boolean }>
+    ) => {
+      state.expandedMenus[action.payload.key] = action.payload.expanded;
+    },
   },
 });
 
@@ -46,5 +58,7 @@ export const {
   setSidebarCollapsed,
   setLanguage,
   setTheme,
+  toggleExpandedMenu,
+  setExpandedMenu,
 } = uiSlice.actions;
 export default uiSlice.reducer;

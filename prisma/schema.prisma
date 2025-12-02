@@ -392,6 +392,7 @@ model Subject {
   exams           Exam[]
   studentMarks    StudentMark[]
   studentSubjects StudentSubject[]  // Students enrolled in this subject as optional
+  examSchedules   ExamSchedule[]
 
   @@map("subjects")
 }
@@ -613,6 +614,7 @@ model Teacher {
   markedAttendance    Attendance[]
   salaries            TeacherSalary[]
   examsCreated        Exam[]
+  examInvigilations   ExamSchedule[]  @relation("ExamInvigilator")
 
   @@map("teachers")
 }
@@ -888,8 +890,36 @@ model Exam {
   // Relations
   studentMarks    StudentMark[]
   examResults     ExamResult[]
+  examSchedules   ExamSchedule[]
 
   @@map("exams")
+}
+
+// Exam timetable/schedule for each subject in an exam
+model ExamSchedule {
+  id              String   @id @default(uuid())
+  examId          String
+  exam            Exam     @relation(fields: [examId], references: [id], onDelete: Cascade)
+  subjectId       String
+  subject         Subject  @relation(fields: [subjectId], references: [id])
+  
+  examDate        DateTime
+  startTime       String   // e.g., "09:00"
+  endTime         String   // e.g., "12:00"
+  
+  totalMarks      Float    @default(100)
+  passingMarks    Float    @default(33)
+  
+  venue           String?  // Room/Hall name
+  invigilatorId   String?
+  invigilator     Teacher? @relation("ExamInvigilator", fields: [invigilatorId], references: [id])
+  
+  remarks         String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([examId, subjectId])
+  @@map("exam_schedules")
 }
 
 model StudentMark {
