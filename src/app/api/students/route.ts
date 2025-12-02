@@ -172,6 +172,16 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Generate roll number based on class
+    let rollNo: string | null = null;
+    if (classId) {
+      // Count existing students in this class to generate roll number
+      const existingCount = await prisma.student.count({
+        where: { classId, academicYearId: currentAcademicYear.id },
+      });
+      rollNo = String(existingCount + 1).padStart(3, "0");
+    }
+
     // Create student in transaction
     const result = await prisma.$transaction(async (tx: any) => {
       // Create student with guardian info embedded
@@ -187,9 +197,9 @@ export async function POST(request: NextRequest) {
           dateOfBirth: new Date(dateOfBirth),
           gender,
           cnic: cnic || null,
-          religion: religion || "ISLAM",
+          religion: religion ? religion.toUpperCase() : "ISLAM",
           nationality: nationality || "Pakistani",
-          bloodGroup: bloodGroup || null,
+          bloodGroup: bloodGroup ? bloodGroup.toUpperCase() : null,
           address,
           city: city || "Karachi",
           phone: phone || null,
@@ -197,6 +207,7 @@ export async function POST(request: NextRequest) {
           photo: photo || null,
           classId: classId || null,
           sectionId: sectionId || null,
+          rollNo,
           academicYearId: currentAcademicYear.id,
           admissionDate: new Date(admissionDate || new Date()),
           previousSchool: previousSchool || null,
