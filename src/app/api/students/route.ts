@@ -263,8 +263,9 @@ export async function POST(request: NextRequest) {
       });
 
       // Generate admission fee voucher if there are fees
+      // Note: The admission page already filters selected fees, so we use fees directly
       let admissionVoucher = null;
-      const selectedFees = (fees || []).filter((f: any) => f.selected);
+      const selectedFees = fees || [];
       const hasAdmissionFees = selectedFees.length > 0 || monthlyFee > 0;
 
       if (hasAdmissionFees) {
