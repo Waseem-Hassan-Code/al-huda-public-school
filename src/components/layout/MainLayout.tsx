@@ -96,7 +96,7 @@ export default function MainLayout({ children }: MainLayoutProps) {
           backgroundColor: "#f5f7fa",
         }}
       >
-        <CircularProgress size={50} sx={{ color: "#1565c0" }} />
+        <CircularProgress size={50} sx={{ color: "#1a237e" }} />
       </Box>
     );
   }

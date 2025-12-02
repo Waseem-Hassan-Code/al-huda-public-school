@@ -46,6 +46,7 @@ interface ClassData {
   name: string;
   grade: number;
   sections?: { id: string; name: string }[];
+  subjects?: Subject[];
 }
 
 interface Subject {
@@ -72,7 +73,27 @@ interface TimetableEntry {
   teacher?: { id: string; firstName: string; lastName: string };
 }
 
-const DAYS = [
+interface PeriodConfig {
+  id: string;
+  label: string;
+  startTime: string;
+  endTime: string;
+  type: "period" | "break";
+}
+
+interface TimetableSettings {
+  periodsPerDay: number;
+  periodDuration: number;
+  periods: PeriodConfig[];
+}
+
+interface AttendanceSettings {
+  workingDays: string[];
+  schoolStartTime: string;
+  schoolEndTime: string;
+}
+
+const DEFAULT_DAYS = [
   "MONDAY",
   "TUESDAY",
   "WEDNESDAY",
@@ -80,17 +101,78 @@ const DAYS = [
   "FRIDAY",
   "SATURDAY",
 ];
-const TIME_SLOTS = [
-  { start: "08:00", end: "08:45", label: "Period 1" },
-  { start: "08:45", end: "09:30", label: "Period 2" },
-  { start: "09:30", end: "10:15", label: "Period 3" },
-  { start: "10:15", end: "10:45", label: "Break" },
-  { start: "10:45", end: "11:30", label: "Period 4" },
-  { start: "11:30", end: "12:15", label: "Period 5" },
-  { start: "12:15", end: "13:00", label: "Period 6" },
-  { start: "13:00", end: "13:30", label: "Lunch" },
-  { start: "13:30", end: "14:15", label: "Period 7" },
-  { start: "14:15", end: "15:00", label: "Period 8" },
+
+const DEFAULT_TIME_SLOTS: PeriodConfig[] = [
+  {
+    id: "period-1",
+    label: "Period 1",
+    startTime: "08:00",
+    endTime: "08:45",
+    type: "period",
+  },
+  {
+    id: "period-2",
+    label: "Period 2",
+    startTime: "08:45",
+    endTime: "09:30",
+    type: "period",
+  },
+  {
+    id: "period-3",
+    label: "Period 3",
+    startTime: "09:30",
+    endTime: "10:15",
+    type: "period",
+  },
+  {
+    id: "break-1",
+    label: "Break",
+    startTime: "10:15",
+    endTime: "10:45",
+    type: "break",
+  },
+  {
+    id: "period-4",
+    label: "Period 4",
+    startTime: "10:45",
+    endTime: "11:30",
+    type: "period",
+  },
+  {
+    id: "period-5",
+    label: "Period 5",
+    startTime: "11:30",
+    endTime: "12:15",
+    type: "period",
+  },
+  {
+    id: "period-6",
+    label: "Period 6",
+    startTime: "12:15",
+    endTime: "13:00",
+    type: "period",
+  },
+  {
+    id: "break-2",
+    label: "Lunch",
+    startTime: "13:00",
+    endTime: "13:30",
+    type: "break",
+  },
+  {
+    id: "period-7",
+    label: "Period 7",
+    startTime: "13:30",
+    endTime: "14:15",
+    type: "period",
+  },
+  {
+    id: "period-8",
+    label: "Period 8",
+    startTime: "14:15",
+    endTime: "15:00",
+    type: "period",
+  },
 ];
 
 export default function TimetablePage() {
@@ -98,7 +180,8 @@ export default function TimetablePage() {
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [teachers, setTeachers] = useState<Teacher[]>([]);
   const [timetable, setTimetable] = useState<TimetableEntry[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [classesLoading, setClassesLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [selectedClassId, setSelectedClassId] = useState("");
   const [selectedSectionId, setSelectedSectionId] = useState("");
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -107,6 +190,48 @@ export default function TimetablePage() {
     null
   );
   const [saving, setSaving] = useState(false);
+  const [currentAcademicYearId, setCurrentAcademicYearId] =
+    useState<string>("");
+
+  // Settings-based configuration
+  const [timeSlots, setTimeSlots] =
+    useState<PeriodConfig[]>(DEFAULT_TIME_SLOTS);
+  const [workingDays, setWorkingDays] = useState<string[]>(DEFAULT_DAYS);
+
+  // Load timetable settings from localStorage
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const savedTimetableSettings = localStorage.getItem("timetableSettings");
+      const savedAttendanceSettings =
+        localStorage.getItem("attendanceSettings");
+
+      if (savedTimetableSettings) {
+        try {
+          const settings: TimetableSettings = JSON.parse(
+            savedTimetableSettings
+          );
+          if (settings.periods && settings.periods.length > 0) {
+            setTimeSlots(settings.periods);
+          }
+        } catch (e) {
+          console.error("Failed to parse timetable settings", e);
+        }
+      }
+
+      if (savedAttendanceSettings) {
+        try {
+          const settings: AttendanceSettings = JSON.parse(
+            savedAttendanceSettings
+          );
+          if (settings.workingDays && settings.workingDays.length > 0) {
+            setWorkingDays(settings.workingDays);
+          }
+        } catch (e) {
+          console.error("Failed to parse attendance settings", e);
+        }
+      }
+    }
+  }, []);
 
   const [formData, setFormData] = useState({
     dayOfWeek: "MONDAY",
@@ -120,8 +245,12 @@ export default function TimetablePage() {
   const selectedClass = classes.find((c) => c.id === selectedClassId);
   const sections = selectedClass?.sections || [];
 
+  // Get subjects specific to the selected class
+  const classSubjects = selectedClass?.subjects || [];
+
   const fetchClasses = async () => {
     try {
+      setClassesLoading(true);
       const res = await fetch("/api/classes");
       const data = await res.json();
       if (res.ok) {
@@ -132,9 +261,13 @@ export default function TimetablePage() {
             setSelectedSectionId(data.classes[0].sections[0].id);
           }
         }
+      } else {
+        toast.error(data.error || "Failed to fetch classes");
       }
     } catch (error) {
       toast.error("Failed to fetch classes");
+    } finally {
+      setClassesLoading(false);
     }
   };
 
@@ -159,6 +292,20 @@ export default function TimetablePage() {
     }
   };
 
+  const fetchCurrentAcademicYear = async () => {
+    try {
+      const res = await fetch("/api/academic-years?current=true");
+      const data = await res.json();
+      if (res.ok && data.data?.length > 0) {
+        const currentYear =
+          data.data.find((y: any) => y.isCurrent) || data.data[0];
+        setCurrentAcademicYearId(currentYear.id);
+      }
+    } catch (error) {
+      console.error("Failed to fetch academic year", error);
+    }
+  };
+
   const fetchTimetable = useCallback(async () => {
     if (!selectedClassId || !selectedSectionId) return;
 
@@ -173,7 +320,20 @@ export default function TimetablePage() {
       const data = await res.json();
 
       if (res.ok) {
-        setTimetable(data.timetable || []);
+        // API returns grouped data by day, flatten it to a single array
+        if (data.type === "grouped" && data.data) {
+          const flattenedEntries: TimetableEntry[] = [];
+          Object.values(data.data).forEach((dayEntries: unknown) => {
+            if (Array.isArray(dayEntries)) {
+              flattenedEntries.push(...(dayEntries as TimetableEntry[]));
+            }
+          });
+          setTimetable(flattenedEntries);
+        } else if (Array.isArray(data.data)) {
+          setTimetable(data.data);
+        } else {
+          setTimetable([]);
+        }
       } else {
         toast.error(data.error || "Failed to fetch timetable");
       }
@@ -187,6 +347,7 @@ export default function TimetablePage() {
   useEffect(() => {
     fetchClasses();
     fetchSubjectsAndTeachers();
+    fetchCurrentAcademicYear();
   }, []);
 
   useEffect(() => {
@@ -208,7 +369,7 @@ export default function TimetablePage() {
 
   const handleOpenDialog = (
     day?: string,
-    slot?: { start: string; end: string },
+    slot?: PeriodConfig,
     entry?: TimetableEntry
   ) => {
     if (entry) {
@@ -224,9 +385,15 @@ export default function TimetablePage() {
     } else {
       setSelectedEntry(null);
       setFormData({
-        dayOfWeek: day || "MONDAY",
-        startTime: slot?.start || "08:00",
-        endTime: slot?.end || "08:45",
+        dayOfWeek: day || workingDays[0] || "MONDAY",
+        startTime:
+          slot?.startTime ||
+          timeSlots.find((s) => s.type === "period")?.startTime ||
+          "08:00",
+        endTime:
+          slot?.endTime ||
+          timeSlots.find((s) => s.type === "period")?.endTime ||
+          "08:45",
         subjectId: "",
         teacherId: "",
         room: "",
@@ -238,6 +405,31 @@ export default function TimetablePage() {
   const handleSave = async () => {
     if (!formData.subjectId) {
       toast.error("Please select a subject");
+      return;
+    }
+
+    if (!formData.teacherId) {
+      toast.error("Please select a teacher");
+      return;
+    }
+
+    if (!currentAcademicYearId) {
+      toast.error(
+        "No active academic year found. Please configure one in Settings."
+      );
+      return;
+    }
+
+    // Calculate period number from time slot
+    const periodSlots = timeSlots.filter((s) => s.type === "period");
+    const periodNo =
+      periodSlots.findIndex(
+        (s) =>
+          s.startTime === formData.startTime && s.endTime === formData.endTime
+      ) + 1;
+
+    if (periodNo === 0) {
+      toast.error("Invalid time slot selected");
       return;
     }
 
@@ -255,6 +447,8 @@ export default function TimetablePage() {
             ...formData,
             classId: selectedClassId,
             sectionId: selectedSectionId,
+            academicYearId: currentAcademicYearId,
+            periodNo,
           }),
         }
       );
@@ -305,16 +499,20 @@ export default function TimetablePage() {
     }
   };
 
-  const getEntryForSlot = (
-    day: string,
-    slot: { start: string; end: string }
-  ) => {
-    return timetable.find(
-      (entry) =>
+  const getEntryForSlot = (day: string, slot: PeriodConfig) => {
+    return timetable.find((entry) => {
+      // Normalize time strings for comparison (handle potential format differences)
+      const entryStart = entry.startTime?.trim();
+      const entryEnd = entry.endTime?.trim();
+      const slotStart = slot.startTime?.trim();
+      const slotEnd = slot.endTime?.trim();
+
+      return (
         entry.dayOfWeek === day &&
-        entry.startTime === slot.start &&
-        entry.endTime === slot.end
-    );
+        entryStart === slotStart &&
+        entryEnd === slotEnd
+      );
+    });
   };
 
   const handleCopyTimetable = async () => {
@@ -365,12 +563,19 @@ export default function TimetablePage() {
                   value={selectedClassId}
                   label="Class"
                   onChange={(e) => setSelectedClassId(e.target.value)}
+                  disabled={classesLoading}
                 >
-                  {classes.map((cls) => (
-                    <MenuItem key={cls.id} value={cls.id}>
-                      {cls.name}
-                    </MenuItem>
-                  ))}
+                  {classesLoading ? (
+                    <MenuItem disabled>Loading classes...</MenuItem>
+                  ) : classes.length === 0 ? (
+                    <MenuItem disabled>No classes available</MenuItem>
+                  ) : (
+                    classes.map((cls) => (
+                      <MenuItem key={cls.id} value={cls.id}>
+                        {cls.name}
+                      </MenuItem>
+                    ))
+                  )}
                 </Select>
               </FormControl>
             </Grid>
@@ -414,28 +619,32 @@ export default function TimetablePage() {
             </Typography>
           </Paper>
         ) : (
-          <TableContainer component={Paper}>
+          <TableContainer component={Paper} sx={{ overflow: "auto" }}>
             <Table size="small" sx={{ minWidth: 1200 }}>
               <TableHead>
                 <TableRow>
                   <TableCell
                     sx={{
-                      fontWeight: "bold",
-                      bgcolor: "primary.main",
-                      color: "white",
+                      fontWeight: 700,
+                      color: "#ffffff",
                       width: 120,
+                      borderBottom: "none",
+                      background:
+                        "linear-gradient(135deg, #1a237e 0%, #283593 100%)",
                     }}
                   >
                     Time
                   </TableCell>
-                  {DAYS.map((day) => (
+                  {workingDays.map((day) => (
                     <TableCell
                       key={day}
                       align="center"
                       sx={{
-                        fontWeight: "bold",
-                        bgcolor: "primary.main",
-                        color: "white",
+                        fontWeight: 700,
+                        color: "#ffffff",
+                        borderBottom: "none",
+                        background:
+                          "linear-gradient(135deg, #1a237e 0%, #283593 100%)",
                       }}
                     >
                       {day.charAt(0) + day.slice(1).toLowerCase()}
@@ -444,15 +653,11 @@ export default function TimetablePage() {
                 </TableRow>
               </TableHead>
               <TableBody>
-                {TIME_SLOTS.map((slot) => (
+                {timeSlots.map((slot) => (
                   <TableRow
-                    key={slot.start}
+                    key={slot.startTime}
                     sx={{
-                      bgcolor:
-                        slot.label.includes("Break") ||
-                        slot.label.includes("Lunch")
-                          ? "grey.100"
-                          : "inherit",
+                      bgcolor: slot.type === "break" ? "grey.100" : "inherit",
                     }}
                   >
                     <TableCell
@@ -466,14 +671,12 @@ export default function TimetablePage() {
                         {slot.label}
                       </Typography>
                       <Typography variant="caption" color="text.secondary">
-                        {slot.start} - {slot.end}
+                        {slot.startTime} - {slot.endTime}
                       </Typography>
                     </TableCell>
-                    {DAYS.map((day) => {
+                    {workingDays.map((day) => {
                       const entry = getEntryForSlot(day, slot);
-                      const isBreak =
-                        slot.label.includes("Break") ||
-                        slot.label.includes("Lunch");
+                      const isBreak = slot.type === "break";
 
                       if (isBreak) {
                         return (
@@ -512,24 +715,31 @@ export default function TimetablePage() {
                             <Card
                               variant="outlined"
                               sx={{
-                                bgcolor: "primary.light",
-                                borderColor: "primary.main",
+                                background:
+                                  "linear-gradient(135deg, #5c6bc0 0%, #3f51b5 100%)",
+                                borderColor: "#3f51b5",
+                                borderRadius: 2,
+                                boxShadow: "0 2px 8px rgba(63, 81, 181, 0.3)",
                               }}
                             >
                               <CardContent
-                                sx={{ py: 1, px: 1, "&:last-child": { pb: 1 } }}
+                                sx={{
+                                  py: 1,
+                                  px: 1.5,
+                                  "&:last-child": { pb: 1 },
+                                }}
                               >
                                 <Typography
                                   variant="body2"
                                   fontWeight="bold"
-                                  color="primary.dark"
+                                  sx={{ color: "#ffffff" }}
                                 >
                                   {entry.subject.name}
                                 </Typography>
                                 {entry.teacher && (
                                   <Typography
                                     variant="caption"
-                                    color="text.secondary"
+                                    sx={{ color: "rgba(255,255,255,0.9)" }}
                                     display="block"
                                   >
                                     {entry.teacher.firstName}{" "}
@@ -540,7 +750,13 @@ export default function TimetablePage() {
                                   <Chip
                                     label={entry.room}
                                     size="small"
-                                    sx={{ mt: 0.5, height: 18, fontSize: 10 }}
+                                    sx={{
+                                      mt: 0.5,
+                                      height: 18,
+                                      fontSize: 10,
+                                      bgcolor: "rgba(255,255,255,0.2)",
+                                      color: "#ffffff",
+                                    }}
                                   />
                                 )}
                               </CardContent>
@@ -641,7 +857,7 @@ export default function TimetablePage() {
                       setFormData({ ...formData, dayOfWeek: e.target.value })
                     }
                   >
-                    {DAYS.map((day) => (
+                    {workingDays.map((day) => (
                       <MenuItem key={day} value={day}>
                         {day.charAt(0) + day.slice(1).toLowerCase()}
                       </MenuItem>
@@ -664,18 +880,16 @@ export default function TimetablePage() {
                       });
                     }}
                   >
-                    {TIME_SLOTS.filter(
-                      (slot) =>
-                        !slot.label.includes("Break") &&
-                        !slot.label.includes("Lunch")
-                    ).map((slot) => (
-                      <MenuItem
-                        key={slot.start}
-                        value={`${slot.start}-${slot.end}`}
-                      >
-                        {slot.label} ({slot.start} - {slot.end})
-                      </MenuItem>
-                    ))}
+                    {timeSlots
+                      .filter((slot) => slot.type === "period")
+                      .map((slot) => (
+                        <MenuItem
+                          key={slot.startTime}
+                          value={`${slot.startTime}-${slot.endTime}`}
+                        >
+                          {slot.label} ({slot.startTime} - {slot.endTime})
+                        </MenuItem>
+                      ))}
                   </Select>
                 </FormControl>
               </Grid>
@@ -689,12 +903,28 @@ export default function TimetablePage() {
                       setFormData({ ...formData, subjectId: e.target.value })
                     }
                   >
-                    {subjects.map((subject) => (
-                      <MenuItem key={subject.id} value={subject.id}>
-                        {subject.name} ({subject.code})
+                    {classSubjects.length > 0 ? (
+                      classSubjects.map((subject) => (
+                        <MenuItem key={subject.id} value={subject.id}>
+                          {subject.name} ({subject.code})
+                        </MenuItem>
+                      ))
+                    ) : (
+                      <MenuItem disabled>
+                        No subjects assigned to this class
                       </MenuItem>
-                    ))}
+                    )}
                   </Select>
+                  {classSubjects.length === 0 && (
+                    <Typography
+                      variant="caption"
+                      color="error"
+                      sx={{ mt: 0.5 }}
+                    >
+                      Please assign subjects to this class in the Classes page
+                      first
+                    </Typography>
+                  )}
                 </FormControl>
               </Grid>
               <Grid size={{ xs: 12 }}>

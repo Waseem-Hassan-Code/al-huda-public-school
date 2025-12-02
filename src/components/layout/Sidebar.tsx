@@ -403,7 +403,7 @@ export default function Sidebar() {
         "& .MuiDrawer-paper": {
           width: currentDrawerWidth,
           boxSizing: "border-box",
-          background: "linear-gradient(180deg, #1565c0 0%, #0d47a1 100%)",
+          background: "linear-gradient(180deg, #1a237e 0%, #283593 100%)",
           color: "#fff",
           borderRight: "none",
           transition: "width 0.3s ease",
@@ -426,7 +426,7 @@ export default function Sidebar() {
           <Avatar
             sx={{
               bgcolor: "#fff",
-              color: "#1565c0",
+              color: "#1a237e",
               fontWeight: 700,
               width: 40,
               height: 40,

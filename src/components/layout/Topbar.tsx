@@ -107,7 +107,7 @@ export default function Topbar() {
       sx={{
         width: sidebarOpen ? `calc(100% - ${currentDrawerWidth}px)` : "100%",
         ml: sidebarOpen ? `${currentDrawerWidth}px` : 0,
-        background: "linear-gradient(90deg, #1565c0 0%, #0d47a1 100%)",
+        background: "linear-gradient(90deg, #1a237e 0%, #283593 100%)",
         boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
         transition: "all 0.3s ease",
       }}
@@ -240,7 +240,7 @@ export default function Topbar() {
           <Typography
             variant="caption"
             sx={{
-              backgroundColor: "#1565c0",
+              backgroundColor: "#1a237e",
               color: "#fff",
               px: 1,
               py: 0.25,

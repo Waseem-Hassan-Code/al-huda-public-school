@@ -50,6 +50,11 @@ import {
   DeleteForever as DeleteForeverIcon,
   Visibility,
   VisibilityOff,
+  AccessTime as AccessTimeIcon,
+  Coffee as CoffeeIcon,
+  DragIndicator as DragIcon,
+  ArrowUpward as ArrowUpIcon,
+  ArrowDownward as ArrowDownIcon,
 } from "@mui/icons-material";
 import { DatePicker, LocalizationProvider } from "@mui/x-date-pickers";
 import { AdapterDateFns } from "@mui/x-date-pickers/AdapterDateFns";
@@ -103,6 +108,22 @@ interface NotificationSettings {
   sendResultNotifications: boolean;
   smsEnabled: boolean;
   emailEnabled: boolean;
+}
+
+interface PeriodConfig {
+  id: string;
+  label: string;
+  startTime: string;
+  endTime: string;
+  type: "period" | "break";
+}
+
+interface TimetableSettings {
+  periodsPerDay: number;
+  periodDuration: number; // in minutes
+  breakDuration: number; // in minutes
+  schoolStartTime: string; // e.g., "07:30" or "08:00"
+  periods: PeriodConfig[];
 }
 
 const DAYS_OF_WEEK = [
@@ -182,6 +203,204 @@ export default function SettingsPage() {
       emailEnabled: true,
     });
 
+  // Generate default periods based on school timing
+  const generateDefaultPeriods = (
+    periodsPerDay: number,
+    periodDuration: number,
+    startTime: string
+  ): PeriodConfig[] => {
+    const periods: PeriodConfig[] = [];
+    const [startHour, startMin] = startTime.split(":").map(Number);
+
+    let currentTime = startHour * 60 + startMin;
+    let periodCount = 1;
+
+    // Generate periods with an automatic break after every 3 periods
+    for (let i = 0; i < periodsPerDay; i++) {
+      // Add a break after every 3 periods
+      if (i > 0 && i % 3 === 0) {
+        const breakStartH = Math.floor(currentTime / 60);
+        const breakStartM = currentTime % 60;
+        const breakDuration = 15; // 15-minute break
+        const breakEndH = Math.floor((currentTime + breakDuration) / 60);
+        const breakEndM = (currentTime + breakDuration) % 60;
+
+        periods.push({
+          id: `break-${Math.ceil(i / 3)}`,
+          label: `Break ${Math.ceil(i / 3)}`,
+          startTime: `${breakStartH.toString().padStart(2, "0")}:${breakStartM
+            .toString()
+            .padStart(2, "0")}`,
+          endTime: `${breakEndH.toString().padStart(2, "0")}:${breakEndM
+            .toString()
+            .padStart(2, "0")}`,
+          type: "break",
+        });
+
+        currentTime += breakDuration;
+      }
+
+      const startH = Math.floor(currentTime / 60);
+      const startM = currentTime % 60;
+      const endH = Math.floor((currentTime + periodDuration) / 60);
+      const endM = (currentTime + periodDuration) % 60;
+
+      periods.push({
+        id: `period-${periodCount}`,
+        label: `Period ${periodCount}`,
+        startTime: `${startH.toString().padStart(2, "0")}:${startM
+          .toString()
+          .padStart(2, "0")}`,
+        endTime: `${endH.toString().padStart(2, "0")}:${endM
+          .toString()
+          .padStart(2, "0")}`,
+        type: "period",
+      });
+
+      currentTime += periodDuration;
+      periodCount++;
+    }
+
+    return periods;
+  };
+
+  const [timetableSettings, setTimetableSettings] = useState<TimetableSettings>(
+    {
+      periodsPerDay: 8,
+      periodDuration: 45,
+      breakDuration: 30,
+      schoolStartTime: "08:00",
+      periods: [
+        {
+          id: "period-1",
+          label: "Period 1",
+          startTime: "08:00",
+          endTime: "08:45",
+          type: "period",
+        },
+        {
+          id: "period-2",
+          label: "Period 2",
+          startTime: "08:45",
+          endTime: "09:30",
+          type: "period",
+        },
+        {
+          id: "period-3",
+          label: "Period 3",
+          startTime: "09:30",
+          endTime: "10:15",
+          type: "period",
+        },
+        {
+          id: "break-1",
+          label: "Break",
+          startTime: "10:15",
+          endTime: "10:45",
+          type: "break",
+        },
+        {
+          id: "period-4",
+          label: "Period 4",
+          startTime: "10:45",
+          endTime: "11:30",
+          type: "period",
+        },
+        {
+          id: "period-5",
+          label: "Period 5",
+          startTime: "11:30",
+          endTime: "12:15",
+          type: "period",
+        },
+        {
+          id: "period-6",
+          label: "Period 6",
+          startTime: "12:15",
+          endTime: "13:00",
+          type: "period",
+        },
+        {
+          id: "break-2",
+          label: "Lunch",
+          startTime: "13:00",
+          endTime: "13:30",
+          type: "break",
+        },
+        {
+          id: "period-7",
+          label: "Period 7",
+          startTime: "13:30",
+          endTime: "14:15",
+          type: "period",
+        },
+        {
+          id: "period-8",
+          label: "Period 8",
+          startTime: "14:15",
+          endTime: "15:00",
+          type: "period",
+        },
+      ],
+    }
+  );
+
+  // Auto-generate timetable based on settings
+  const generateTimetable = () => {
+    const { periodsPerDay, periodDuration, breakDuration, schoolStartTime } =
+      timetableSettings;
+    const [startHour, startMin] = schoolStartTime.split(":").map(Number);
+    let currentTime = startHour * 60 + startMin;
+    const newPeriods: PeriodConfig[] = [];
+    let periodCount = 1;
+
+    for (let i = 0; i < periodsPerDay; i++) {
+      // Add a break after every 3 periods (customizable)
+      if (i > 0 && i % 3 === 0) {
+        const breakStartH = Math.floor(currentTime / 60);
+        const breakStartM = currentTime % 60;
+        const breakEndH = Math.floor((currentTime + breakDuration) / 60);
+        const breakEndM = (currentTime + breakDuration) % 60;
+
+        newPeriods.push({
+          id: `break-${Math.ceil(i / 3)}`,
+          label: i === 6 ? "Lunch" : "Break",
+          startTime: `${breakStartH.toString().padStart(2, "0")}:${breakStartM
+            .toString()
+            .padStart(2, "0")}`,
+          endTime: `${breakEndH.toString().padStart(2, "0")}:${breakEndM
+            .toString()
+            .padStart(2, "0")}`,
+          type: "break",
+        });
+        currentTime += breakDuration;
+      }
+
+      const startH = Math.floor(currentTime / 60);
+      const startM = currentTime % 60;
+      const endH = Math.floor((currentTime + periodDuration) / 60);
+      const endM = (currentTime + periodDuration) % 60;
+
+      newPeriods.push({
+        id: `period-${periodCount}`,
+        label: `Period ${periodCount}`,
+        startTime: `${startH.toString().padStart(2, "0")}:${startM
+          .toString()
+          .padStart(2, "0")}`,
+        endTime: `${endH.toString().padStart(2, "0")}:${endM
+          .toString()
+          .padStart(2, "0")}`,
+        type: "period",
+      });
+
+      currentTime += periodDuration;
+      periodCount++;
+    }
+
+    setTimetableSettings((prev) => ({ ...prev, periods: newPeriods }));
+    toast.success("Timetable generated successfully!");
+  };
+
   // Academic Year state
   const [academicYears, setAcademicYears] = useState<AcademicYear[]>([]);
   const [loadingAcademicYears, setLoadingAcademicYears] = useState(true);
@@ -241,6 +460,10 @@ export default function SettingsPage() {
         setAttendanceSettings(JSON.parse(savedAttendanceSettings));
       if (savedNotificationSettings)
         setNotificationSettings(JSON.parse(savedNotificationSettings));
+
+      const savedTimetableSettings = localStorage.getItem("timetableSettings");
+      if (savedTimetableSettings)
+        setTimetableSettings(JSON.parse(savedTimetableSettings));
     }
   }, []);
 
@@ -258,6 +481,10 @@ export default function SettingsPage() {
         "notificationSettings",
         JSON.stringify(notificationSettings)
       );
+      localStorage.setItem(
+        "timetableSettings",
+        JSON.stringify(timetableSettings)
+      );
 
       toast.success("Settings saved successfully");
     } catch (error) {
@@ -265,6 +492,82 @@ export default function SettingsPage() {
     } finally {
       setSaving(false);
     }
+  };
+
+  // Timetable period management functions
+  const handleAddPeriod = (type: "period" | "break") => {
+    const lastItem =
+      timetableSettings.periods[timetableSettings.periods.length - 1];
+    const [lastEndHour, lastEndMin] = (
+      lastItem?.endTime || attendanceSettings.schoolStartTime
+    )
+      .split(":")
+      .map(Number);
+    const startTime = `${lastEndHour.toString().padStart(2, "0")}:${lastEndMin
+      .toString()
+      .padStart(2, "0")}`;
+
+    const duration = type === "break" ? 30 : timetableSettings.periodDuration;
+    const endMinutes = lastEndHour * 60 + lastEndMin + duration;
+    const endHour = Math.floor(endMinutes / 60);
+    const endMin = endMinutes % 60;
+    const endTime = `${endHour.toString().padStart(2, "0")}:${endMin
+      .toString()
+      .padStart(2, "0")}`;
+
+    const periodCount =
+      timetableSettings.periods.filter((p) => p.type === type).length + 1;
+    const newPeriod: PeriodConfig = {
+      id: `${type}-${Date.now()}`,
+      label:
+        type === "break"
+          ? periodCount === 1
+            ? "Break"
+            : periodCount === 2
+            ? "Lunch"
+            : `Break ${periodCount}`
+          : `Period ${
+              timetableSettings.periods.filter((p) => p.type === "period")
+                .length + 1
+            }`,
+      startTime,
+      endTime,
+      type,
+    };
+
+    setTimetableSettings((prev) => ({
+      ...prev,
+      periods: [...prev.periods, newPeriod],
+    }));
+  };
+
+  const handleRemovePeriod = (periodId: string) => {
+    setTimetableSettings((prev) => ({
+      ...prev,
+      periods: prev.periods.filter((p) => p.id !== periodId),
+    }));
+  };
+
+  const handleUpdatePeriod = (
+    periodId: string,
+    field: keyof PeriodConfig,
+    value: string
+  ) => {
+    setTimetableSettings((prev) => ({
+      ...prev,
+      periods: prev.periods.map((p) =>
+        p.id === periodId ? { ...p, [field]: value } : p
+      ),
+    }));
+  };
+
+  const handleReorderPeriods = (fromIndex: number, toIndex: number) => {
+    setTimetableSettings((prev) => {
+      const newPeriods = [...prev.periods];
+      const [removed] = newPeriods.splice(fromIndex, 1);
+      newPeriods.splice(toIndex, 0, removed);
+      return { ...prev, periods: newPeriods };
+    });
   };
 
   const handleWorkingDaysChange = (day: string) => {
@@ -858,6 +1161,328 @@ export default function SettingsPage() {
                           label={day.label}
                         />
                       ))}
+                    </Box>
+                  </Grid>
+                </Grid>
+              </CardContent>
+            </Card>
+          </Grid>
+
+          {/* Timetable Settings */}
+          <Grid size={{ xs: 12 }}>
+            <Card>
+              <CardHeader
+                avatar={<AccessTimeIcon color="primary" />}
+                title="Timetable Settings"
+                subheader="Configure periods, breaks, and school schedule"
+                action={
+                  <Box sx={{ display: "flex", gap: 1 }}>
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      startIcon={<CoffeeIcon />}
+                      onClick={() => handleAddPeriod("break")}
+                    >
+                      Add Break
+                    </Button>
+                    <Button
+                      size="small"
+                      variant="contained"
+                      startIcon={<AddIcon />}
+                      onClick={() => handleAddPeriod("period")}
+                    >
+                      Add Period
+                    </Button>
+                  </Box>
+                }
+              />
+              <CardContent>
+                <Grid container spacing={2}>
+                  <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+                    <TextField
+                      fullWidth
+                      type="time"
+                      label="School Start Time"
+                      value={timetableSettings.schoolStartTime || "08:00"}
+                      onChange={(e) =>
+                        setTimetableSettings({
+                          ...timetableSettings,
+                          schoolStartTime: e.target.value,
+                        })
+                      }
+                      slotProps={{ inputLabel: { shrink: true } }}
+                      helperText="When does school start?"
+                    />
+                  </Grid>
+                  <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+                    <TextField
+                      fullWidth
+                      type="number"
+                      label="Number of Periods"
+                      value={timetableSettings.periodsPerDay}
+                      onChange={(e) =>
+                        setTimetableSettings({
+                          ...timetableSettings,
+                          periodsPerDay: parseInt(e.target.value) || 8,
+                        })
+                      }
+                      helperText="Periods per day (excluding breaks)"
+                    />
+                  </Grid>
+                  <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+                    <TextField
+                      fullWidth
+                      type="number"
+                      label="Period Duration (Minutes)"
+                      value={timetableSettings.periodDuration}
+                      onChange={(e) =>
+                        setTimetableSettings({
+                          ...timetableSettings,
+                          periodDuration: parseInt(e.target.value) || 45,
+                        })
+                      }
+                      helperText="Duration of each period"
+                    />
+                  </Grid>
+                  <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+                    <Button
+                      fullWidth
+                      variant="contained"
+                      color="secondary"
+                      sx={{ height: 56 }}
+                      onClick={() => {
+                        const periods = generateDefaultPeriods(
+                          timetableSettings.periodsPerDay,
+                          timetableSettings.periodDuration,
+                          timetableSettings.schoolStartTime || "08:00"
+                        );
+                        setTimetableSettings({
+                          ...timetableSettings,
+                          periods,
+                        });
+                      }}
+                    >
+                      Auto-Generate Schedule
+                    </Button>
+                  </Grid>
+                  <Grid size={{ xs: 12 }}>
+                    <Divider sx={{ my: 2 }} />
+                    <Typography
+                      variant="subtitle1"
+                      fontWeight="bold"
+                      gutterBottom
+                    >
+                      Schedule Configuration
+                    </Typography>
+                    <Typography
+                      variant="body2"
+                      color="text.secondary"
+                      sx={{ mb: 2 }}
+                    >
+                      Configure periods and breaks manually below, or use
+                      Auto-Generate above.
+                    </Typography>
+                    <TableContainer component={Paper} variant="outlined">
+                      <Table size="small">
+                        <TableHead>
+                          <TableRow sx={{ bgcolor: "grey.100" }}>
+                            <TableCell width={50}>Order</TableCell>
+                            <TableCell>Label</TableCell>
+                            <TableCell width={150}>Start Time</TableCell>
+                            <TableCell width={150}>End Time</TableCell>
+                            <TableCell width={100}>Type</TableCell>
+                            <TableCell width={100} align="center">
+                              Actions
+                            </TableCell>
+                          </TableRow>
+                        </TableHead>
+                        <TableBody>
+                          {timetableSettings.periods.map((period, index) => (
+                            <TableRow
+                              key={period.id}
+                              sx={{
+                                bgcolor:
+                                  period.type === "break"
+                                    ? "warning.50"
+                                    : "inherit",
+                                "&:hover": {
+                                  bgcolor:
+                                    period.type === "break"
+                                      ? "warning.100"
+                                      : "grey.50",
+                                },
+                              }}
+                            >
+                              <TableCell>
+                                <Box
+                                  sx={{
+                                    display: "flex",
+                                    flexDirection: "column",
+                                    alignItems: "center",
+                                  }}
+                                >
+                                  <IconButton
+                                    size="small"
+                                    disabled={index === 0}
+                                    onClick={() =>
+                                      handleReorderPeriods(index, index - 1)
+                                    }
+                                  >
+                                    <ArrowUpIcon fontSize="small" />
+                                  </IconButton>
+                                  <IconButton
+                                    size="small"
+                                    disabled={
+                                      index ===
+                                      timetableSettings.periods.length - 1
+                                    }
+                                    onClick={() =>
+                                      handleReorderPeriods(index, index + 1)
+                                    }
+                                  >
+                                    <ArrowDownIcon fontSize="small" />
+                                  </IconButton>
+                                </Box>
+                              </TableCell>
+                              <TableCell>
+                                <TextField
+                                  size="small"
+                                  value={period.label}
+                                  onChange={(e) =>
+                                    handleUpdatePeriod(
+                                      period.id,
+                                      "label",
+                                      e.target.value
+                                    )
+                                  }
+                                  variant="standard"
+                                  fullWidth
+                                  InputProps={{
+                                    startAdornment:
+                                      period.type === "break" ? (
+                                        <CoffeeIcon
+                                          sx={{
+                                            mr: 1,
+                                            color: "warning.main",
+                                            fontSize: 18,
+                                          }}
+                                        />
+                                      ) : (
+                                        <ScheduleIcon
+                                          sx={{
+                                            mr: 1,
+                                            color: "primary.main",
+                                            fontSize: 18,
+                                          }}
+                                        />
+                                      ),
+                                  }}
+                                />
+                              </TableCell>
+                              <TableCell>
+                                <TextField
+                                  size="small"
+                                  type="time"
+                                  value={period.startTime}
+                                  onChange={(e) =>
+                                    handleUpdatePeriod(
+                                      period.id,
+                                      "startTime",
+                                      e.target.value
+                                    )
+                                  }
+                                  variant="outlined"
+                                  InputLabelProps={{ shrink: true }}
+                                />
+                              </TableCell>
+                              <TableCell>
+                                <TextField
+                                  size="small"
+                                  type="time"
+                                  value={period.endTime}
+                                  onChange={(e) =>
+                                    handleUpdatePeriod(
+                                      period.id,
+                                      "endTime",
+                                      e.target.value
+                                    )
+                                  }
+                                  variant="outlined"
+                                  InputLabelProps={{ shrink: true }}
+                                />
+                              </TableCell>
+                              <TableCell>
+                                <Chip
+                                  size="small"
+                                  label={
+                                    period.type === "break" ? "Break" : "Period"
+                                  }
+                                  color={
+                                    period.type === "break"
+                                      ? "warning"
+                                      : "primary"
+                                  }
+                                  variant="outlined"
+                                />
+                              </TableCell>
+                              <TableCell align="center">
+                                <IconButton
+                                  size="small"
+                                  color="error"
+                                  onClick={() => handleRemovePeriod(period.id)}
+                                >
+                                  <DeleteIcon fontSize="small" />
+                                </IconButton>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                          {timetableSettings.periods.length === 0 && (
+                            <TableRow>
+                              <TableCell
+                                colSpan={6}
+                                align="center"
+                                sx={{ py: 4 }}
+                              >
+                                <Typography color="text.secondary">
+                                  No periods configured. Add periods or breaks
+                                  to create the schedule.
+                                </Typography>
+                              </TableCell>
+                            </TableRow>
+                          )}
+                        </TableBody>
+                      </Table>
+                    </TableContainer>
+                    <Box
+                      sx={{ mt: 2, p: 2, bgcolor: "info.50", borderRadius: 1 }}
+                    >
+                      <Typography variant="body2" color="info.main">
+                        <strong>Summary:</strong>{" "}
+                        {
+                          timetableSettings.periods.filter(
+                            (p) => p.type === "period"
+                          ).length
+                        }{" "}
+                        periods,{" "}
+                        {
+                          timetableSettings.periods.filter(
+                            (p) => p.type === "break"
+                          ).length
+                        }{" "}
+                        break(s)
+                        {timetableSettings.periods.length > 0 && (
+                          <>
+                            {" "}
+                            • School hours:{" "}
+                            {timetableSettings.periods[0]?.startTime} -{" "}
+                            {
+                              timetableSettings.periods[
+                                timetableSettings.periods.length - 1
+                              ]?.endTime
+                            }
+                          </>
+                        )}
+                      </Typography>
                     </Box>
                   </Grid>
                 </Grid>
