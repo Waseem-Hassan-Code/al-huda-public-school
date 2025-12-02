@@ -6,6 +6,33 @@ import { hasPermission, Permission } from "@/lib/permissions";
 import { getNextSequenceValue } from "@/lib/sequences";
 import { logCreate } from "@/lib/transaction-log";
 
+// Blood group mapping from display format to enum format
+const bloodGroupMap: Record<string, string> = {
+  "A+": "A_POSITIVE",
+  "A-": "A_NEGATIVE",
+  "B+": "B_POSITIVE",
+  "B-": "B_NEGATIVE",
+  "O+": "O_POSITIVE",
+  "O-": "O_NEGATIVE",
+  "AB+": "AB_POSITIVE",
+  "AB-": "AB_NEGATIVE",
+  A_POSITIVE: "A_POSITIVE",
+  A_NEGATIVE: "A_NEGATIVE",
+  B_POSITIVE: "B_POSITIVE",
+  B_NEGATIVE: "B_NEGATIVE",
+  O_POSITIVE: "O_POSITIVE",
+  O_NEGATIVE: "O_NEGATIVE",
+  AB_POSITIVE: "AB_POSITIVE",
+  AB_NEGATIVE: "AB_NEGATIVE",
+};
+
+// Convert blood group to enum format
+const convertBloodGroup = (value: string | null | undefined): string | null => {
+  if (!value) return null;
+  const mapped = bloodGroupMap[value.toUpperCase()];
+  return mapped || null;
+};
+
 // GET - List students with pagination and filtering
 export async function GET(request: NextRequest) {
   try {
@@ -199,7 +226,7 @@ export async function POST(request: NextRequest) {
           cnic: cnic || null,
           religion: religion ? religion.toUpperCase() : "ISLAM",
           nationality: nationality || "Pakistani",
-          bloodGroup: bloodGroup ? bloodGroup.toUpperCase() : null,
+          bloodGroup: convertBloodGroup(bloodGroup),
           address,
           city: city || "Karachi",
           phone: phone || null,

@@ -37,6 +37,8 @@ import SimpleTable, { SimpleColumn } from "@/components/common/SimpleTable";
 import StatusBadge from "@/components/common/StatusBadge";
 import { formatDate, getInitials, debounce } from "@/lib/utils";
 import { toast } from "sonner";
+import { usePermissions } from "@/hooks/usePermissions";
+import { Permission } from "@/lib/permissions";
 
 interface Student {
   id: string;
@@ -66,6 +68,7 @@ interface ClassOption {
 export default function StudentsPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
+  const { can } = usePermissions();
   const [loading, setLoading] = useState(true);
   const [students, setStudents] = useState<Student[]>([]);
   const [total, setTotal] = useState(0);
@@ -78,6 +81,11 @@ export default function StudentsPage() {
   const [classes, setClasses] = useState<ClassOption[]>([]);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [studentToDelete, setStudentToDelete] = useState<Student | null>(null);
+
+  // Permission checks
+  const canCreateStudent = can(Permission.CREATE_STUDENT);
+  const canUpdateStudent = can(Permission.UPDATE_STUDENT);
+  const canDeleteStudent = can(Permission.DELETE_STUDENT);
 
   useEffect(() => {
     if (status === "unauthenticated") {
@@ -260,26 +268,30 @@ export default function StudentsPage() {
               <ViewIcon fontSize="small" />
             </IconButton>
           </Tooltip>
-          <Tooltip title="Edit">
-            <IconButton
-              size="small"
-              onClick={() => router.push(`/students/${row.id}/edit`)}
-            >
-              <EditIcon fontSize="small" />
-            </IconButton>
-          </Tooltip>
-          <Tooltip title="Delete">
-            <IconButton
-              size="small"
-              color="error"
-              onClick={() => {
-                setStudentToDelete(row);
-                setDeleteDialogOpen(true);
-              }}
-            >
-              <DeleteIcon fontSize="small" />
-            </IconButton>
-          </Tooltip>
+          {canUpdateStudent && (
+            <Tooltip title="Edit">
+              <IconButton
+                size="small"
+                onClick={() => router.push(`/students/${row.id}/edit`)}
+              >
+                <EditIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          )}
+          {canDeleteStudent && (
+            <Tooltip title="Delete">
+              <IconButton
+                size="small"
+                color="error"
+                onClick={() => {
+                  setStudentToDelete(row);
+                  setDeleteDialogOpen(true);
+                }}
+              >
+                <DeleteIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          )}
         </Box>
       ),
     },
@@ -316,13 +328,15 @@ export default function StudentsPage() {
             >
               Export
             </Button>
-            <Button
-              variant="contained"
-              startIcon={<AddIcon />}
-              onClick={() => router.push("/students/admission")}
-            >
-              New Admission
-            </Button>
+            {canCreateStudent && (
+              <Button
+                variant="contained"
+                startIcon={<AddIcon />}
+                onClick={() => router.push("/students/admission")}
+              >
+                New Admission
+              </Button>
+            )}
           </Box>
         </Box>
 

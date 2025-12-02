@@ -319,11 +319,12 @@ model AcademicYear {
   updatedAt   DateTime @updatedAt
 
   // Relations
-  students      Student[]
-  feeStructures FeeStructure[]
-  exams         Exam[]
-  examResults   ExamResult[]
-  timetables    Timetable[]
+  students        Student[]
+  feeStructures   FeeStructure[]
+  exams           Exam[]
+  examResults     ExamResult[]
+  timetables      Timetable[]
+  studentSubjects StudentSubject[]  // Student subject enrollments for this academic year
 
   @@map("academic_years")
 }
@@ -368,6 +369,7 @@ model Section {
   timetables     Timetable[]
   attendance     Attendance[]
   exams          Exam[]
+  classSubjects  ClassSubject[]
 
   @@unique([classId, name])
   @@map("sections")
@@ -384,26 +386,34 @@ model Subject {
   updatedAt     DateTime @updatedAt
 
   // Relations
-  classSubjects ClassSubject[]
+  classSubjects   ClassSubject[]
   teacherSubjects TeacherSubject[]
-  timetables    Timetable[]
-  exams         Exam[]
-  studentMarks  StudentMark[]
+  timetables      Timetable[]
+  exams           Exam[]
+  studentMarks    StudentMark[]
+  studentSubjects StudentSubject[]  // Students enrolled in this subject as optional
 
   @@map("subjects")
 }
 
 model ClassSubject {
-  id          String   @id @default(uuid())
-  classId     String
-  class       Class    @relation(fields: [classId], references: [id], onDelete: Cascade)
-  subjectId   String
-  subject     Subject  @relation(fields: [subjectId], references: [id], onDelete: Cascade)
-  isOptional  Boolean  @default(false)
-  isActive    Boolean  @default(true)
-  createdAt   DateTime @default(now())
+  id              String   @id @default(uuid())
+  classId         String
+  class           Class    @relation(fields: [classId], references: [id], onDelete: Cascade)
+  sectionId       String?
+  section         Section? @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  subjectId       String
+  subject         Subject  @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  isOptional      Boolean  @default(false)
+  totalMarks      Float    @default(100) // Default total marks for this subject
+  passingMarks    Float    @default(33) // Default passing marks
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
 
-  @@unique([classId, subjectId])
+  // Relations
+  studentSubjects StudentSubject[]  // Students enrolled if this is an optional subject
+
+  @@unique([classId, sectionId, subjectId])
   @@map("class_subjects")
 }
 
@@ -490,8 +500,33 @@ model Student {
   studentMarks        StudentMark[]
   promotionHistory    PromotionHistory[]
   messages            Message[]
+  studentSubjects     StudentSubject[]  // Optional subjects enrolled by student
 
   @@map("students")
+}
+
+// StudentSubject - Tracks optional/elective subjects chosen by each student
+model StudentSubject {
+  id              String       @id @default(uuid())
+  studentId       String
+  student         Student      @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  subjectId       String
+  subject         Subject      @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  classSubjectId  String?      // Reference to the ClassSubject for validation
+  classSubject    ClassSubject? @relation(fields: [classSubjectId], references: [id], onDelete: Cascade)
+  academicYearId  String
+  academicYear    AcademicYear @relation(fields: [academicYearId], references: [id])
+  
+  isActive        Boolean      @default(true)
+  enrolledAt      DateTime     @default(now())
+  droppedAt       DateTime?
+  remarks         String?
+  
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  @@unique([studentId, subjectId, academicYearId])
+  @@map("student_subjects")
 }
 
 model PromotionHistory {

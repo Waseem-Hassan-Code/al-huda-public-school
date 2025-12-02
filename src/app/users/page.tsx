@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import {
   Box,
   Paper,
@@ -175,6 +176,7 @@ const ALL_PERMISSIONS = [
 ];
 
 export default function UsersPage() {
+  const router = useRouter();
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -218,7 +220,7 @@ export default function UsersPage() {
       const data = await res.json();
 
       if (res.ok) {
-        setUsers(data.users || []);
+        setUsers(data.data || []);
         setTotalPages(data.pagination?.totalPages || 1);
       } else {
         toast.error(data.error || "Failed to fetch users");
@@ -256,7 +258,7 @@ export default function UsersPage() {
         firstName: "",
         lastName: "",
         phone: "",
-        role: "TEACHER",
+        role: "",
         isActive: true,
         avatar: "",
       });
@@ -597,9 +599,27 @@ export default function UsersPage() {
                       />
                     </TableCell>
                     <TableCell>
-                      <Typography variant="body2">
-                        {user.permissions?.length || 0} permissions
-                      </Typography>
+                      <Tooltip title="Click to manage permissions">
+                        <Chip
+                          icon={<Security />}
+                          label={
+                            user.permissions?.length
+                              ? `${user.permissions.length} permissions`
+                              : "No permissions"
+                          }
+                          size="small"
+                          color={
+                            user.permissions?.length ? "primary" : "warning"
+                          }
+                          variant={
+                            user.permissions?.length ? "filled" : "outlined"
+                          }
+                          onClick={() =>
+                            router.push(`/users/${user.id}/permissions`)
+                          }
+                          sx={{ cursor: "pointer" }}
+                        />
+                      </Tooltip>
                     </TableCell>
                     <TableCell>
                       {user.lastLogin ? formatDate(user.lastLogin) : "Never"}
@@ -615,7 +635,10 @@ export default function UsersPage() {
                         <Tooltip title="Manage Permissions">
                           <IconButton
                             size="small"
-                            onClick={() => handleOpenPermissionsDialog(user)}
+                            color="primary"
+                            onClick={() =>
+                              router.push(`/users/${user.id}/permissions`)
+                            }
                           >
                             <Security />
                           </IconButton>
@@ -777,14 +800,17 @@ export default function UsersPage() {
               </Grid>
               <Grid size={{ xs: 12, sm: 6 }}>
                 <FormControl fullWidth>
-                  <InputLabel>Role</InputLabel>
+                  <InputLabel>Role (Optional)</InputLabel>
                   <Select
                     value={formData.role}
-                    label="Role"
+                    label="Role (Optional)"
                     onChange={(e) =>
                       setFormData({ ...formData, role: e.target.value })
                     }
                   >
+                    <MenuItem value="">
+                      <em>No Role - Custom Permissions</em>
+                    </MenuItem>
                     {ROLES.map((role) => (
                       <MenuItem key={role} value={role}>
                         {role}

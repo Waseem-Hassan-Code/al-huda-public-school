@@ -100,7 +100,7 @@ export async function PUT(
     }
 
     const body = await request.json();
-    const { permissions, resetToDefault } = body;
+    const { permissions, role, resetToDefault } = body;
 
     const user = await prisma.user.findUnique({
       where: { id },
@@ -115,7 +115,8 @@ export async function PUT(
 
     if (resetToDefault) {
       // Reset to role's default permissions
-      newPermissions = rolePermissions[user.role] || [];
+      const targetRole = role || user.role;
+      newPermissions = rolePermissions[targetRole] || [];
     } else {
       // Validate that all provided permissions are valid
       const allPermissions = Object.values(Permission);
@@ -133,8 +134,17 @@ export async function PUT(
       newPermissions = permissions;
     }
 
-    // Update permissions by deleting existing and creating new ones
+    // Update user role and permissions
     await prisma.$transaction([
+      // Update user role if provided
+      ...(role
+        ? [
+            prisma.user.update({
+              where: { id },
+              data: { role },
+            }),
+          ]
+        : []),
       // Delete existing permissions
       prisma.userPermission.deleteMany({
         where: { userId: id },

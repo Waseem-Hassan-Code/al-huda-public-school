@@ -56,12 +56,7 @@ interface ClassData {
   id: string;
   name: string;
   grade: number;
-}
-
-interface Subject {
-  id: string;
-  name: string;
-  code: string;
+  sections?: { id: string; name: string }[];
 }
 
 interface Exam {
@@ -69,7 +64,7 @@ interface Exam {
   name: string;
   examType: string;
   classId: string;
-  subjectId: string;
+  sectionId: string | null;
   date: string;
   startTime: string;
   endTime: string;
@@ -77,9 +72,9 @@ interface Exam {
   passingMarks: number;
   status: string;
   class: { id: string; name: string };
-  subject: { id: string; name: string; code: string };
+  section: { id: string; name: string } | null;
   academicYear: { id: string; name: string };
-  _count?: { results: number };
+  _count?: { studentMarks: number };
 }
 
 interface ExamResult {
@@ -101,7 +96,9 @@ interface ExamResult {
 export default function ExamsPage() {
   const [exams, setExams] = useState<Exam[]>([]);
   const [classes, setClasses] = useState<ClassData[]>([]);
-  const [subjects, setSubjects] = useState<Subject[]>([]);
+  const [sections, setSections] = useState<
+    { id: string; name: string; classId: string }[]
+  >([]);
   const [results, setResults] = useState<ExamResult[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -118,7 +115,7 @@ export default function ExamsPage() {
     name: "",
     examType: "MONTHLY",
     classId: "",
-    subjectId: "",
+    sectionId: "",
     date: new Date(),
     startTime: "09:00",
     endTime: "12:00",
@@ -153,24 +150,26 @@ export default function ExamsPage() {
     }
   }, [classFilter, statusFilter]);
 
-  const fetchClassesAndSubjects = async () => {
+  const fetchClassesAndSections = async () => {
     try {
-      const [classesRes, subjectsRes] = await Promise.all([
-        fetch("/api/classes"),
-        fetch("/api/subjects"),
-      ]);
+      const classesRes = await fetch("/api/classes");
 
       if (classesRes.ok) {
         const data = await classesRes.json();
         setClasses(data.classes || []);
-      }
-
-      if (subjectsRes.ok) {
-        const data = await subjectsRes.json();
-        setSubjects(data.subjects || []);
+        // Flatten sections from all classes
+        const allSections: { id: string; name: string; classId: string }[] = [];
+        (data.classes || []).forEach(
+          (cls: { id: string; sections?: { id: string; name: string }[] }) => {
+            (cls.sections || []).forEach((sec) => {
+              allSections.push({ ...sec, classId: cls.id });
+            });
+          }
+        );
+        setSections(allSections);
       }
     } catch (error) {
-      console.error("Failed to fetch classes/subjects", error);
+      console.error("Failed to fetch classes", error);
     }
   };
 
@@ -259,7 +258,7 @@ export default function ExamsPage() {
   }, [fetchExams]);
 
   useEffect(() => {
-    fetchClassesAndSubjects();
+    fetchClassesAndSections();
   }, []);
 
   const handleOpenExamDialog = (exam?: Exam) => {
@@ -269,7 +268,7 @@ export default function ExamsPage() {
         name: exam.name,
         examType: exam.examType,
         classId: exam.classId,
-        subjectId: exam.subjectId,
+        sectionId: exam.sectionId || "",
         date: new Date(exam.date),
         startTime: exam.startTime || "09:00",
         endTime: exam.endTime || "12:00",
@@ -282,7 +281,7 @@ export default function ExamsPage() {
         name: "",
         examType: "MONTHLY",
         classId: "",
-        subjectId: "",
+        sectionId: "",
         date: new Date(),
         startTime: "09:00",
         endTime: "12:00",
@@ -294,11 +293,7 @@ export default function ExamsPage() {
   };
 
   const handleSaveExam = async () => {
-    if (
-      !examFormData.name ||
-      !examFormData.classId ||
-      !examFormData.subjectId
-    ) {
+    if (!examFormData.name || !examFormData.classId) {
       toast.error("Please fill all required fields");
       return;
     }
@@ -314,8 +309,15 @@ export default function ExamsPage() {
         method,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          ...examFormData,
-          date: examFormData.date.toISOString(),
+          name: examFormData.name,
+          examType: examFormData.examType,
+          classId: examFormData.classId,
+          sectionId: examFormData.sectionId || null,
+          examDate: examFormData.date.toISOString(),
+          startTime: examFormData.startTime,
+          endTime: examFormData.endTime,
+          totalMarks: examFormData.totalMarks,
+          passingMarks: examFormData.passingMarks,
         }),
       });
 
@@ -441,7 +443,7 @@ export default function ExamsPage() {
     return (
       exam.name.toLowerCase().includes(search.toLowerCase()) ||
       exam.class.name.toLowerCase().includes(search.toLowerCase()) ||
-      exam.subject.name.toLowerCase().includes(search.toLowerCase())
+      (exam.section?.name || "").toLowerCase().includes(search.toLowerCase())
     );
   });
 
@@ -608,7 +610,10 @@ export default function ExamsPage() {
                           <Box>
                             <Typography variant="h6">{exam.name}</Typography>
                             <Typography variant="body2" color="text.secondary">
-                              {exam.class.name} • {exam.subject.name}
+                              {exam.class.name}
+                              {exam.section
+                                ? ` • ${exam.section.name}`
+                                : " • All Sections"}
                             </Typography>
                           </Box>
                           <Chip
@@ -676,10 +681,10 @@ export default function ExamsPage() {
                                 variant="caption"
                                 color="text.secondary"
                               >
-                                Results Entered
+                                Marks Entered
                               </Typography>
                               <Typography variant="body2">
-                                {exam._count.results} students
+                                {exam._count.studentMarks} entries
                               </Typography>
                             </Grid>
                           )}
@@ -819,23 +824,26 @@ export default function ExamsPage() {
                   </FormControl>
                 </Grid>
                 <Grid size={{ xs: 12, sm: 6 }}>
-                  <FormControl fullWidth required>
-                    <InputLabel>Subject</InputLabel>
+                  <FormControl fullWidth>
+                    <InputLabel>Section (Optional)</InputLabel>
                     <Select
-                      value={examFormData.subjectId}
-                      label="Subject"
+                      value={examFormData.sectionId}
+                      label="Section (Optional)"
                       onChange={(e) =>
                         setExamFormData({
                           ...examFormData,
-                          subjectId: e.target.value,
+                          sectionId: e.target.value,
                         })
                       }
                     >
-                      {subjects.map((subject) => (
-                        <MenuItem key={subject.id} value={subject.id}>
-                          {subject.name}
-                        </MenuItem>
-                      ))}
+                      <MenuItem value="">All Sections</MenuItem>
+                      {sections
+                        .filter((sec) => sec.classId === examFormData.classId)
+                        .map((section) => (
+                          <MenuItem key={section.id} value={section.id}>
+                            {section.name}
+                          </MenuItem>
+                        ))}
                     </Select>
                   </FormControl>
                 </Grid>
@@ -942,8 +950,11 @@ export default function ExamsPage() {
               </Box>
               {selectedExam && (
                 <Typography variant="body2" color="text.secondary">
-                  {selectedExam.class.name} • {selectedExam.subject.name} •
-                  Total: {selectedExam.totalMarks}, Passing:{" "}
+                  {selectedExam.class.name}
+                  {selectedExam.section
+                    ? ` • ${selectedExam.section.name}`
+                    : " • All Sections"}{" "}
+                  • Total: {selectedExam.totalMarks}, Passing:{" "}
                   {selectedExam.passingMarks}
                 </Typography>
               )}

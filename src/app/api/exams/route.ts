@@ -77,7 +77,7 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// POST - Create exam
+// POST - Create exam for all subjects of a class
 export async function POST(request: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
@@ -97,8 +97,6 @@ export async function POST(request: NextRequest) {
       academicYearId,
       classId,
       sectionId,
-      subjectId,
-      teacherId,
       totalMarks,
       passingMarks,
       examDate,
@@ -132,15 +130,16 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Create exam WITHOUT a specific subject - this is for all subjects of the class
     const exam = await prisma.exam.create({
       data: {
         name,
         examType,
         academicYearId: targetAcademicYearId,
         classId,
-        sectionId,
-        subjectId,
-        teacherId,
+        sectionId: sectionId || null,
+        subjectId: null, // No specific subject - exam covers all class subjects
+        teacherId: null,
         totalMarks: totalMarks || 100,
         passingMarks: passingMarks || 33,
         examDate: examDate ? new Date(examDate) : null,
@@ -153,7 +152,6 @@ export async function POST(request: NextRequest) {
       include: {
         class: true,
         section: true,
-        subject: true,
         academicYear: true,
       },
     });
