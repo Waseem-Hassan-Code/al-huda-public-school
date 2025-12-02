@@ -48,6 +48,7 @@ interface Student {
   lastName: string;
   email: string;
   phone: string;
+  photo?: string;
   dateOfBirth: string;
   gender: string;
   status: string;
@@ -179,30 +180,28 @@ export default function StudentsPage() {
 
   const columns: SimpleColumn<Student>[] = [
     {
-      id: "registrationNo",
-      label: "Registration No",
-      minWidth: 140,
-      renderCell: (row: Student) => (
-        <Typography variant="body2" fontWeight="500">
-          {row.registrationNo}
-        </Typography>
-      ),
-    },
-    {
       id: "name",
-      label: "Name",
-      minWidth: 200,
+      label: "Student",
+      minWidth: 220,
       renderCell: (row: Student) => (
-        <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-          <Avatar sx={{ width: 32, height: 32, fontSize: 14 }}>
+        <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
+          <Avatar
+            src={row.photo || undefined}
+            sx={{
+              width: 40,
+              height: 40,
+              fontSize: 16,
+              bgcolor: "primary.main",
+            }}
+          >
             {getInitials(row.firstName, row.lastName)}
           </Avatar>
           <Box>
-            <Typography variant="body2" fontWeight="500">
+            <Typography variant="body2" fontWeight="600">
               {row.firstName} {row.lastName}
             </Typography>
             <Typography variant="caption" color="text.secondary">
-              {row.email}
+              {row.registrationNo}
             </Typography>
           </Box>
         </Box>

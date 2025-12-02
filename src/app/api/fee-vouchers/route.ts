@@ -193,7 +193,8 @@ export async function POST(request: NextRequest) {
         // Calculate total amount from monthly fee
         const subtotal = student.monthlyFee;
 
-        // Calculate previous balance from ALL unpaid/partial vouchers
+        // Calculate previous balance from ALL unpaid/partial vouchers (for display/reference only)
+        // NOTE: We do NOT add this to the current voucher's balanceDue to avoid compounding
         const previousBalance = unpaidVouchers.reduce(
           (sum, v) => sum + v.balanceDue,
           0
@@ -205,8 +206,10 @@ export async function POST(request: NextRequest) {
         // Generate voucher number
         const voucherNo = await getNextSequenceValue("VOUCHER");
 
-        // Total amount = current month fee + all previous unpaid balances
-        const totalAmount = subtotal + previousBalance;
+        // Total amount for THIS voucher = just the current subtotal
+        // The previousBalance is stored for reference but NOT added to balanceDue
+        // This prevents the compounding balance issue
+        const totalAmount = subtotal;
 
         // Create voucher with proper linking
         const voucher = await prisma.feeVoucher.create({
@@ -218,8 +221,8 @@ export async function POST(request: NextRequest) {
             dueDate,
             subtotal,
             totalAmount,
-            previousBalance,
-            balanceDue: totalAmount,
+            previousBalance, // Stored for reference/display only
+            balanceDue: totalAmount, // Only this voucher's amount
             paidAmount: 0,
             status: FeeStatus.UNPAID,
             previousVoucherId: lastUnpaidVoucher?.id || null,

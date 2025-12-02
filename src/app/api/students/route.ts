@@ -4,7 +4,8 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { hasPermission, Permission } from "@/lib/permissions";
 import { getNextSequenceValue } from "@/lib/sequences";
-import { logCreate } from "@/lib/transaction-log";
+import { logCreate, logTransaction } from "@/lib/transaction-log";
+import { FeeStatus, FeeType } from "@prisma/client";
 
 // Blood group mapping from display format to enum format
 const bloodGroupMap: Record<string, string> = {
@@ -261,21 +262,121 @@ export async function POST(request: NextRequest) {
         },
       });
 
-      return student;
+      // Generate admission fee voucher if there are fees
+      let admissionVoucher = null;
+      const selectedFees = (fees || []).filter((f: any) => f.selected);
+      const hasAdmissionFees = selectedFees.length > 0 || monthlyFee > 0;
+
+      if (hasAdmissionFees) {
+        const currentDate = new Date();
+        const currentMonth = currentDate.getMonth() + 1;
+        const currentYear = currentDate.getFullYear();
+        const dueDate = new Date(
+          currentYear,
+          currentDate.getMonth(),
+          currentDate.getDate() + 15
+        ); // Due in 15 days
+
+        // Calculate totals
+        const additionalFeesTotal = selectedFees.reduce(
+          (sum: number, f: any) => sum + (f.amount - (f.discount || 0)),
+          0
+        );
+        const subtotal = (monthlyFee || 0) + additionalFeesTotal;
+
+        // Generate voucher number
+        const voucherNo = await getNextSequenceValue("VOUCHER");
+
+        // Create fee voucher with items
+        const feeItems = [];
+
+        // Add monthly fee as first item if > 0
+        if (monthlyFee > 0) {
+          feeItems.push({
+            feeType: FeeType.MONTHLY_FEE,
+            description: `Monthly Tuition Fee - ${currentMonth}/${currentYear}`,
+            amount: monthlyFee,
+          });
+        }
+
+        // Add selected additional fees with their proper fee types
+        for (const fee of selectedFees) {
+          const netAmount = fee.amount - (fee.discount || 0);
+          if (netAmount > 0) {
+            // Use the fee type from the fee structure, fallback to ADMISSION_FEE
+            const feeTypeValue =
+              fee.feeType && FeeType[fee.feeType as keyof typeof FeeType]
+                ? FeeType[fee.feeType as keyof typeof FeeType]
+                : FeeType.ADMISSION_FEE;
+
+            feeItems.push({
+              feeType: feeTypeValue,
+              description:
+                fee.name +
+                (fee.discountReason
+                  ? ` (Discount: ${fee.discountReason})`
+                  : ""),
+              amount: netAmount,
+            });
+          }
+        }
+
+        admissionVoucher = await tx.feeVoucher.create({
+          data: {
+            voucherNo,
+            studentId: student.id,
+            month: currentMonth,
+            year: currentYear,
+            dueDate,
+            subtotal,
+            totalAmount: subtotal,
+            balanceDue: subtotal,
+            paidAmount: 0,
+            status: FeeStatus.UNPAID,
+            remarks:
+              "Admission Fee Voucher - Auto-generated on student registration",
+            createdById: session.user.id,
+            feeItems: {
+              create: feeItems,
+            },
+          },
+        });
+      }
+
+      return { student, admissionVoucher };
     });
 
-    // Log the transaction
+    // Log the student creation
     await logCreate(
       "STUDENT",
-      result.id,
+      result.student.id,
       { registrationNo, firstName, lastName, monthlyFee },
       session.user.id
     );
 
+    // Log the voucher creation if generated
+    if (result.admissionVoucher) {
+      await logTransaction({
+        action: "FEE_GENERATED",
+        entityType: "FEE",
+        entityId: result.admissionVoucher.id,
+        userId: session.user.id,
+        details: {
+          voucherNo: result.admissionVoucher.voucherNo,
+          studentId: result.student.id,
+          studentName: `${firstName} ${lastName}`,
+          registrationNo,
+          type: "ADMISSION",
+          totalAmount: result.admissionVoucher.totalAmount,
+        },
+      });
+    }
+
     return NextResponse.json(
       {
-        ...result,
-        studentId: result.registrationNo, // For backward compatibility
+        ...result.student,
+        studentId: result.student.registrationNo, // For backward compatibility
+        admissionVoucher: result.admissionVoucher,
       },
       { status: 201 }
     );

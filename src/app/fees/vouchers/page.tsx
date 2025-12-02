@@ -47,8 +47,11 @@ import { toast } from "sonner";
 interface FeeVoucher {
   id: string;
   voucherNo: string;
+  subtotal: number;
+  previousBalance: number;
   totalAmount: number;
   paidAmount: number;
+  balanceDue: number;
   status: string;
   dueDate: string;
   month: number;
@@ -472,11 +475,11 @@ export default function FeeVouchersPage() {
             <Card>
               <CardContent>
                 <Typography color="text.secondary" gutterBottom>
-                  Total Amount
+                  Total Invoiced
                 </Typography>
                 <Typography variant="h5">
                   {formatCurrency(
-                    vouchers.reduce((sum, v) => sum + v.totalAmount, 0)
+                    vouchers.reduce((sum, v) => sum + v.subtotal, 0)
                   )}
                 </Typography>
               </CardContent>
@@ -803,10 +806,7 @@ export default function FeeVouchersPage() {
                     >
                       <Typography>Balance</Typography>
                       <Typography color="error.main">
-                        {formatCurrency(
-                          selectedVoucher.totalAmount -
-                            selectedVoucher.paidAmount
-                        )}
+                        {formatCurrency(selectedVoucher.balanceDue)}
                       </Typography>
                     </Box>
                   </Grid>

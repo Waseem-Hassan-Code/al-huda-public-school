@@ -487,13 +487,14 @@ export default function StudentProfilePage({
     let runningBalance = 0;
 
     // Combine and sort by date
+    // Use subtotal for vouchers to show actual amount charged (not including previousBalance)
     const allTransactions = [
       ...(student.feeVouchers || []).map((v) => ({
         date: new Date(v.dueDate),
         type: "VOUCHER" as const,
         reference: v.voucherNo,
         description: `Fee Voucher - ${monthNames[v.month - 1]} ${v.year}`,
-        amount: v.totalAmount,
+        amount: v.subtotal, // Use subtotal to avoid double-counting previousBalance
         id: v.id,
       })),
       ...(student.feeVouchers || []).flatMap((v) =>
@@ -540,15 +541,18 @@ export default function StudentProfilePage({
   const ledgerData = buildLedgerData();
 
   // Calculate totals
+  // Use subtotal for actual invoiced amount (not including carried forward balances)
   const totalInvoiced =
-    student?.feeVouchers?.reduce((sum, v) => sum + v.totalAmount, 0) || 0;
+    student?.feeVouchers?.reduce((sum, v) => sum + v.subtotal, 0) || 0;
   const totalPaid =
     student?.feeVouchers?.reduce(
       (sum, v) =>
         sum + (v.payments?.reduce((pSum, p) => pSum + p.amount, 0) || 0),
       0
     ) || 0;
-  const totalBalance = totalInvoiced - totalPaid;
+  // Balance due is totalInvoiced - totalPaid (or sum of all balanceDue)
+  const totalBalance =
+    student?.feeVouchers?.reduce((sum, v) => sum + v.balanceDue, 0) || 0;
 
   const getStatusColor = (status: string) => {
     switch (status) {

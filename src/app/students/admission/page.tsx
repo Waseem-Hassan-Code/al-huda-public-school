@@ -93,6 +93,7 @@ interface FormData {
   fees: {
     feeStructureId: string;
     name: string;
+    feeType: string;
     amount: number;
     discount: number;
     discountReason: string;
@@ -112,6 +113,7 @@ interface FeeStructure {
   amount: number;
   frequency: string;
   classId: string | null;
+  feeType: string;
 }
 
 export default function AdmissionPage() {
@@ -206,6 +208,7 @@ export default function AdmissionPage() {
         .map((f) => ({
           feeStructureId: f.id,
           name: f.name,
+          feeType: f.feeType,
           amount: f.amount,
           discount: 0,
           discountReason: "",
@@ -304,6 +307,8 @@ export default function AdmissionPage() {
         .filter((f) => f.selected)
         .map((f) => ({
           feeStructureId: f.feeStructureId,
+          name: f.name, // Include fee name for voucher description
+          feeType: f.feeType, // Include fee type for proper categorization
           amount: f.amount,
           discount: f.discount,
           discountReason: f.discountReason,

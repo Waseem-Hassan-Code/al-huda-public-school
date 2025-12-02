@@ -50,8 +50,10 @@ interface FeeVoucher {
   voucherNumber: string;
   month: number;
   year: number;
+  subtotal: number;
   totalAmount: number;
   paidAmount: number;
+  balanceDue: number;
   previousBalance: number;
   status: string;
   dueDate: string;
@@ -179,7 +181,7 @@ export default function FeesPage() {
     if (!selectedVoucher || !paymentAmount) return;
 
     const amount = parseFloat(paymentAmount);
-    const remaining = selectedVoucher.totalAmount - selectedVoucher.paidAmount;
+    const remaining = selectedVoucher.balanceDue;
 
     if (amount <= 0 || amount > remaining) {
       toast.error(
@@ -299,12 +301,8 @@ export default function FeesPage() {
       label: "Balance",
       minWidth: 120,
       renderCell: (row: FeeVoucher) => (
-        <Typography
-          color={
-            row.totalAmount - row.paidAmount > 0 ? "error.main" : "success.main"
-          }
-        >
-          {formatCurrency(row.totalAmount - row.paidAmount)}
+        <Typography color={row.balanceDue > 0 ? "error.main" : "success.main"}>
+          {formatCurrency(row.balanceDue)}
         </Typography>
       ),
     },
@@ -334,9 +332,7 @@ export default function FeesPage() {
                 disabled={row.status === "PAID"}
                 onClick={() => {
                   setSelectedVoucher(row);
-                  setPaymentAmount(
-                    (row.totalAmount - row.paidAmount).toString()
-                  );
+                  setPaymentAmount(row.balanceDue.toString());
                   setPaymentDialogOpen(true);
                 }}
               >
@@ -556,9 +552,7 @@ export default function FeesPage() {
                   <Paper sx={{ p: 2, flex: 1, bgcolor: "error.light" }}>
                     <Typography variant="caption">Balance</Typography>
                     <Typography variant="h6">
-                      {formatCurrency(
-                        selectedVoucher.totalAmount - selectedVoucher.paidAmount
-                      )}
+                      {formatCurrency(selectedVoucher.balanceDue)}
                     </Typography>
                   </Paper>
                 </Box>
