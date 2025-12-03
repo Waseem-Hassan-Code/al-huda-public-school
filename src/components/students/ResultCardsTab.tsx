@@ -144,7 +144,42 @@ export default function ResultCardsTab({
       const res = await fetch(`/api/students/${studentId}/result-card`);
       if (!res.ok) throw new Error("Failed to fetch result cards");
       const data = await res.json();
-      setResultCards(data.exams || []);
+
+      // Transform API response to ResultCard format
+      const results = data.results || [];
+      const transformed: ResultCard[] = results.map((result: any) => ({
+        examId: result.exam.id,
+        examName: result.exam.name,
+        examDate: result.exam.examDate,
+        subjects: result.subjects.map((sub: any) => ({
+          id: sub.id,
+          markId: sub.id, // Use subject id as markId for now
+          name: sub.name,
+          code: sub.code || "",
+          marksObtained: sub.marksObtained,
+          totalMarks: sub.totalMarks,
+          passingMarks: result.exam.passingMarks || 33,
+          isAbsent: sub.isAbsent,
+          isPassed: sub.isPassed,
+          grade: getGrade(
+            sub.marksObtained !== null && sub.totalMarks > 0
+              ? (sub.marksObtained / sub.totalMarks) * 100
+              : 0
+          ),
+        })),
+        totalObtained: result.summary.obtainedMarks,
+        totalMaxMarks: result.summary.totalMarks,
+        totalPassingMarks:
+          result.exam.passingMarks * (result.subjects.length || 1),
+        percentage: result.summary.percentage,
+        isPassed: result.status.isPassed,
+        grade: result.summary.grade,
+        isComplete: result.status.isComplete,
+        subjectsEntered: result.status.marksEntered,
+        totalSubjects: result.status.totalSubjects,
+      }));
+
+      setResultCards(transformed);
     } catch (error) {
       console.error("Error fetching result cards:", error);
       // Fall back to processing studentMarks locally

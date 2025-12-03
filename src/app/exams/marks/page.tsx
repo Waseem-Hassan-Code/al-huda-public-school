@@ -84,17 +84,29 @@ export default function MarksEntryPage() {
     }
   }, []);
 
+  // Fetch subjects based on selected class
   const fetchSubjects = useCallback(async () => {
+    if (!selectedClass) {
+      setSubjects([]);
+      return;
+    }
     try {
-      const response = await fetch("/api/subjects?limit=100");
+      const response = await fetch(
+        `/api/class-subjects?classId=${selectedClass}`
+      );
       const data = await response.json();
       if (response.ok) {
-        setSubjects(data.subjects || []);
+        const subjectData = (data.data || []).map((cs: any) => ({
+          id: cs.subject?.id || cs.subjectId,
+          name: cs.subject?.name || "Unknown",
+          code: cs.subject?.code || "",
+        }));
+        setSubjects(subjectData);
       }
     } catch (error) {
       console.error("Failed to fetch subjects:", error);
     }
-  }, []);
+  }, [selectedClass]);
 
   const fetchExams = useCallback(async () => {
     try {
@@ -139,14 +151,21 @@ export default function MarksEntryPage() {
   useEffect(() => {
     if (status === "authenticated") {
       fetchClasses();
-      fetchSubjects();
       fetchExams();
     }
-  }, [status, fetchClasses, fetchSubjects, fetchExams]);
+  }, [status, fetchClasses, fetchExams]);
+
+  // Fetch subjects when class changes
+  useEffect(() => {
+    fetchSubjects();
+    setSelectedSubject(""); // Reset subject when class changes
+  }, [fetchSubjects]);
 
   useEffect(() => {
     if (selectedClass) {
       fetchStudents();
+    } else {
+      setStudents([]);
     }
   }, [selectedClass, selectedSection, fetchStudents]);
 
@@ -298,23 +317,6 @@ export default function MarksEntryPage() {
             </Grid>
             <Grid size={{ xs: 12, md: 2 }}>
               <FormControl fullWidth>
-                <InputLabel>Subject</InputLabel>
-                <Select
-                  value={selectedSubject}
-                  label="Subject"
-                  onChange={(e) => setSelectedSubject(e.target.value)}
-                >
-                  <MenuItem value="">Select Subject</MenuItem>
-                  {subjects.map((subject) => (
-                    <MenuItem key={subject.id} value={subject.id}>
-                      {subject.name} ({subject.code})
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-            </Grid>
-            <Grid size={{ xs: 12, md: 2 }}>
-              <FormControl fullWidth>
                 <InputLabel>Class</InputLabel>
                 <Select
                   value={selectedClass}
@@ -322,6 +324,7 @@ export default function MarksEntryPage() {
                   onChange={(e) => {
                     setSelectedClass(e.target.value);
                     setSelectedSection("");
+                    setSelectedSubject("");
                   }}
                 >
                   <MenuItem value="">Select Class</MenuItem>
@@ -346,6 +349,24 @@ export default function MarksEntryPage() {
                   {selectedClassData?.sections?.map((section) => (
                     <MenuItem key={section.id} value={section.id}>
                       {section.name}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            </Grid>
+            <Grid size={{ xs: 12, md: 2 }}>
+              <FormControl fullWidth>
+                <InputLabel>Subject</InputLabel>
+                <Select
+                  value={selectedSubject}
+                  label="Subject"
+                  onChange={(e) => setSelectedSubject(e.target.value)}
+                  disabled={!selectedClass}
+                >
+                  <MenuItem value="">Select Subject</MenuItem>
+                  {subjects.map((subject) => (
+                    <MenuItem key={subject.id} value={subject.id}>
+                      {subject.name} ({subject.code})
                     </MenuItem>
                   ))}
                 </Select>

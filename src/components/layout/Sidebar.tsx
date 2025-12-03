@@ -266,9 +266,8 @@ export default function Sidebar() {
 
   const renderMenuItem = (item: MenuItem, depth: number = 0) => {
     const hasChildren = item.children && item.children.length > 0;
-    const isActive = item.path
-      ? pathname === item.path || pathname?.startsWith(item.path + "/")
-      : false;
+    // Fix: Only match exact path OR if it's a child path that doesn't belong to a sibling
+    const isActive = item.path ? pathname === item.path : false;
     // Check if any child is active to auto-expand the menu
     const hasActiveChild =
       hasChildren &&

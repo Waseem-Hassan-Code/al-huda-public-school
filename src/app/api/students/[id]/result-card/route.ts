@@ -7,7 +7,7 @@ import { hasPermission, Permission } from "@/lib/permissions";
 // GET - Get result card for a student
 export async function GET(
   request: NextRequest,
-  { params }: { params: Promise<{ studentId: string }> }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await getServerSession(authOptions);
@@ -20,7 +20,7 @@ export async function GET(
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    const { studentId } = await params;
+    const { id: studentId } = await params;
     const searchParams = request.nextUrl.searchParams;
     const examId = searchParams.get("examId");
     const academicYearId = searchParams.get("academicYearId");
@@ -261,7 +261,7 @@ function calculateGrade(percentage: number): string {
 // PUT - Update individual marks for a student (for editing from profile)
 export async function PUT(
   request: NextRequest,
-  { params }: { params: Promise<{ studentId: string }> }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await getServerSession(authOptions);
@@ -274,7 +274,7 @@ export async function PUT(
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    const { studentId } = await params;
+    const { id: studentId } = await params;
     const body = await request.json();
     const { examId, subjectId, marksObtained, isAbsent, remarks, totalMarks } =
       body;

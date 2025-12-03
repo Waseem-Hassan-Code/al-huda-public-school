@@ -108,7 +108,6 @@ interface Exam {
 }
 
 interface ExamFormData {
-  name: string;
   examType: string;
   classId: string;
   sectionId: string;
@@ -127,18 +126,40 @@ interface ScheduleFormData {
   venue: string;
   invigilatorId: string;
   remarks: string;
+  examPart: "THEORY" | "PRACTICAL" | "BOTH";
+}
+
+interface SubjectScheduleRow {
+  subjectId: string;
+  subjectName: string;
+  subjectCode: string;
+  theoryMarks: number;
+  practicalMarks: number;
+  hasPractical: boolean;
+  examDate: Date | null;
+  startTime: Date | null;
+  endTime: Date | null;
 }
 
 const EXAM_TYPES = [
-  { value: "MONTHLY_TEST", label: "Monthly Test" },
-  { value: "MID_TERM", label: "Mid Term" },
-  { value: "FINAL_TERM", label: "Final Term" },
-  { value: "WEEKLY_TEST", label: "Weekly Test" },
-  { value: "SURPRISE_TEST", label: "Surprise Test" },
-  { value: "PRACTICAL", label: "Practical" },
-  { value: "ASSIGNMENT", label: "Assignment" },
-  { value: "PROJECT", label: "Project" },
+  { value: "MONTHLY_TEST", label: "Monthly Test", color: "#2196f3" },
+  { value: "MID_TERM", label: "Mid Term", color: "#ff9800" },
+  { value: "FINAL_TERM", label: "Final Term", color: "#f44336" },
+  { value: "WEEKLY_TEST", label: "Weekly Test", color: "#4caf50" },
+  { value: "SURPRISE_TEST", label: "Surprise Test", color: "#9c27b0" },
+  { value: "ASSIGNMENT", label: "Assignment", color: "#607d8b" },
+  { value: "PROJECT", label: "Project", color: "#795548" },
 ];
+
+const EXAM_TYPE_COLORS: Record<string, string> = {
+  MONTHLY_TEST: "#2196f3",
+  MID_TERM: "#ff9800",
+  FINAL_TERM: "#f44336",
+  WEEKLY_TEST: "#4caf50",
+  SURPRISE_TEST: "#9c27b0",
+  ASSIGNMENT: "#607d8b",
+  PROJECT: "#795548",
+};
 
 export default function ExamsPage() {
   // State
@@ -168,7 +189,6 @@ export default function ExamsPage() {
 
   // Form data
   const [examFormData, setExamFormData] = useState<ExamFormData>({
-    name: "",
     examType: "MONTHLY_TEST",
     classId: "",
     sectionId: "",
@@ -187,7 +207,13 @@ export default function ExamsPage() {
     venue: "",
     invigilatorId: "",
     remarks: "",
+    examPart: "THEORY",
   });
+
+  // Subject schedule rows for bulk entry
+  const [subjectScheduleRows, setSubjectScheduleRows] = useState<
+    SubjectScheduleRow[]
+  >([]);
 
   // Get sections for selected class
   const sections =
@@ -252,7 +278,7 @@ export default function ExamsPage() {
       const response = await fetch("/api/teachers?limit=100");
       if (response.ok) {
         const data = await response.json();
-        setTeachers(data.data || []);
+        setTeachers(data.teachers || []);
       }
     } catch (error) {
       console.error("Error fetching teachers:", error);
@@ -288,7 +314,6 @@ export default function ExamsPage() {
     if (exam) {
       setSelectedExam(exam);
       setExamFormData({
-        name: exam.name,
         examType: exam.examType,
         classId: exam.classId,
         sectionId: exam.sectionId || "",
@@ -299,7 +324,6 @@ export default function ExamsPage() {
     } else {
       setSelectedExam(null);
       setExamFormData({
-        name: "",
         examType: "MONTHLY_TEST",
         classId: "",
         sectionId: "",
@@ -311,12 +335,21 @@ export default function ExamsPage() {
     setExamDialogOpen(true);
   };
 
-  // Save exam
+  // Save exam - auto-generate name from type and year
   const handleSaveExam = async () => {
-    if (!examFormData.name || !examFormData.classId) {
-      toast.error("Please fill in required fields");
+    if (!examFormData.classId) {
+      toast.error("Please select a class");
       return;
     }
+
+    // Auto-generate name from exam type and current year
+    const examTypeLabel =
+      EXAM_TYPES.find((t) => t.value === examFormData.examType)?.label ||
+      examFormData.examType;
+    const year = examFormData.startDate
+      ? examFormData.startDate.getFullYear()
+      : new Date().getFullYear();
+    const autoName = `${examTypeLabel} (${year})`;
 
     try {
       const url = selectedExam ? `/api/exams/${selectedExam.id}` : "/api/exams";
@@ -326,7 +359,7 @@ export default function ExamsPage() {
         method,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          name: examFormData.name,
+          name: autoName,
           examType: examFormData.examType,
           classId: examFormData.classId,
           sectionId: examFormData.sectionId || null,
@@ -377,10 +410,48 @@ export default function ExamsPage() {
     }
   };
 
-  // Open schedule dialog
-  const openScheduleDialog = (exam: Exam, schedule?: ExamSchedule) => {
+  // Open schedule dialog - auto-populate all subjects
+  const openScheduleDialog = async (exam: Exam, schedule?: ExamSchedule) => {
     setSelectedExam(exam);
-    fetchSubjectsForClass(exam.classId);
+
+    // Fetch subjects for this class
+    try {
+      const response = await fetch(
+        `/api/class-subjects?classId=${exam.classId}`
+      );
+      if (response.ok) {
+        const data = await response.json();
+        const subjectData = (data.data || []).map((cs: any) => ({
+          id: cs.subject?.id || cs.subjectId,
+          name: cs.subject?.name || "Unknown",
+          code: cs.subject?.code || "",
+        }));
+        setSubjects(subjectData);
+
+        // Auto-populate subject rows if no existing schedules
+        if (
+          !schedule &&
+          (!exam.examSchedules || exam.examSchedules.length === 0)
+        ) {
+          const rows: SubjectScheduleRow[] = subjectData.map(
+            (subj: Subject) => ({
+              subjectId: subj.id,
+              subjectName: subj.name,
+              subjectCode: subj.code,
+              theoryMarks: 100,
+              practicalMarks: 0,
+              hasPractical: false,
+              examDate: exam.startDate ? new Date(exam.startDate) : null,
+              startTime: parseTimeToDate("09:00"),
+              endTime: parseTimeToDate("12:00"),
+            })
+          );
+          setSubjectScheduleRows(rows);
+        }
+      }
+    } catch (error) {
+      console.error("Error fetching subjects:", error);
+    }
 
     if (schedule) {
       setSelectedSchedule(schedule);
@@ -394,6 +465,7 @@ export default function ExamsPage() {
         venue: schedule.venue || "",
         invigilatorId: schedule.invigilatorId || "",
         remarks: schedule.remarks || "",
+        examPart: "THEORY",
       });
     } else {
       setSelectedSchedule(null);
@@ -407,6 +479,7 @@ export default function ExamsPage() {
         venue: "",
         invigilatorId: "",
         remarks: "",
+        examPart: "THEORY",
       });
     }
     setScheduleDialogOpen(true);
@@ -446,6 +519,12 @@ export default function ExamsPage() {
         : "/api/exam-schedules";
       const method = selectedSchedule ? "PUT" : "POST";
 
+      // Include exam part in remarks for tracking
+      const remarksWithPart =
+        scheduleFormData.examPart !== "THEORY"
+          ? `[${scheduleFormData.examPart}] ${scheduleFormData.remarks || ""}`
+          : scheduleFormData.remarks || null;
+
       const response = await fetch(url, {
         method,
         headers: { "Content-Type": "application/json" },
@@ -459,7 +538,7 @@ export default function ExamsPage() {
           passingMarks: scheduleFormData.passingMarks,
           venue: scheduleFormData.venue || null,
           invigilatorId: scheduleFormData.invigilatorId || null,
-          remarks: scheduleFormData.remarks || null,
+          remarks: remarksWithPart,
         }),
       });
 
@@ -661,132 +740,191 @@ export default function ExamsPage() {
             </Paper>
           ) : (
             <Grid container spacing={3}>
-              {filteredExams.map((exam) => (
-                <Grid key={exam.id} size={{ xs: 12, md: 6, lg: 4 }}>
-                  <Card
-                    sx={{
-                      borderRadius: 2,
-                      transition: "all 0.2s",
-                      "&:hover": {
-                        boxShadow: 4,
-                        transform: "translateY(-2px)",
-                      },
-                    }}
-                  >
-                    <CardContent>
-                      {/* Header */}
+              {filteredExams.map((exam) => {
+                const examYear = exam.startDate
+                  ? new Date(exam.startDate).getFullYear()
+                  : new Date().getFullYear();
+                const typeColor = EXAM_TYPE_COLORS[exam.examType] || "#607d8b";
+
+                return (
+                  <Grid key={exam.id} size={{ xs: 12, md: 6, lg: 4 }}>
+                    <Card
+                      sx={{
+                        borderRadius: 3,
+                        transition: "all 0.2s",
+                        overflow: "hidden",
+                        "&:hover": {
+                          boxShadow: 6,
+                          transform: "translateY(-4px)",
+                        },
+                      }}
+                    >
+                      {/* Fancy Header Banner */}
                       <Box
                         sx={{
-                          display: "flex",
-                          justifyContent: "space-between",
-                          alignItems: "flex-start",
-                          mb: 2,
+                          background: `linear-gradient(135deg, ${typeColor} 0%, ${typeColor}dd 100%)`,
+                          color: "white",
+                          p: 2,
+                          position: "relative",
+                          overflow: "hidden",
                         }}
                       >
-                        <Box>
-                          <Typography variant="h6" fontWeight="bold">
-                            {exam.name}
-                          </Typography>
-                          <Typography variant="body2" color="text.secondary">
-                            {exam.class.name}
-                            {exam.section
-                              ? ` • ${exam.section.name}`
-                              : " • All Sections"}
-                          </Typography>
-                        </Box>
-                        <Chip
-                          label={getExamTypeLabel(exam.examType)}
-                          size="small"
-                          color={getExamTypeColor(exam.examType) as any}
+                        <Box
+                          sx={{
+                            position: "absolute",
+                            top: -20,
+                            right: -20,
+                            width: 80,
+                            height: 80,
+                            borderRadius: "50%",
+                            bgcolor: "rgba(255,255,255,0.1)",
+                          }}
                         />
+                        <Box
+                          sx={{
+                            position: "absolute",
+                            bottom: -30,
+                            left: -30,
+                            width: 100,
+                            height: 100,
+                            borderRadius: "50%",
+                            bgcolor: "rgba(255,255,255,0.05)",
+                          }}
+                        />
+                        <Box sx={{ position: "relative", zIndex: 1 }}>
+                          <Typography
+                            variant="h5"
+                            fontWeight="bold"
+                            sx={{ mb: 0.5 }}
+                          >
+                            {getExamTypeLabel(exam.examType)}
+                          </Typography>
+                          <Chip
+                            label={examYear}
+                            size="small"
+                            sx={{
+                              bgcolor: "rgba(255,255,255,0.2)",
+                              color: "white",
+                              fontWeight: "bold",
+                              fontSize: "0.85rem",
+                            }}
+                          />
+                        </Box>
                       </Box>
 
-                      {/* Info */}
-                      <Grid container spacing={1} sx={{ mb: 2 }}>
-                        <Grid size={{ xs: 6 }}>
-                          <Typography variant="caption" color="text.secondary">
-                            Start Date
+                      <CardContent>
+                        {/* Class Info */}
+                        <Box sx={{ mb: 2 }}>
+                          <Typography
+                            variant="subtitle1"
+                            fontWeight="bold"
+                            color="text.primary"
+                          >
+                            {exam.class.name}
+                            {exam.section ? ` - ${exam.section.name}` : ""}
                           </Typography>
-                          <Typography variant="body2">
-                            {exam.startDate
-                              ? formatDate(exam.startDate)
-                              : "Not set"}
-                          </Typography>
-                        </Grid>
-                        <Grid size={{ xs: 6 }}>
-                          <Typography variant="caption" color="text.secondary">
-                            End Date
-                          </Typography>
-                          <Typography variant="body2">
-                            {exam.endDate
-                              ? formatDate(exam.endDate)
-                              : "Not set"}
-                          </Typography>
-                        </Grid>
-                        <Grid size={{ xs: 6 }}>
-                          <Typography variant="caption" color="text.secondary">
-                            Subjects Scheduled
-                          </Typography>
-                          <Typography variant="body2">
-                            {exam._count?.examSchedules ||
-                              exam.examSchedules?.length ||
-                              0}
-                          </Typography>
-                        </Grid>
-                        <Grid size={{ xs: 6 }}>
-                          <Typography variant="caption" color="text.secondary">
-                            Status
-                          </Typography>
-                          <Box>
+                          {!exam.section && (
+                            <Chip
+                              label="All Sections"
+                              size="small"
+                              variant="outlined"
+                              sx={{ mt: 0.5 }}
+                            />
+                          )}
+                        </Box>
+
+                        {/* Info */}
+                        <Grid container spacing={1} sx={{ mb: 2 }}>
+                          <Grid size={{ xs: 6 }}>
+                            <Typography
+                              variant="caption"
+                              color="text.secondary"
+                            >
+                              Start Date
+                            </Typography>
+                            <Typography variant="body2" fontWeight="medium">
+                              {exam.startDate
+                                ? formatDate(exam.startDate)
+                                : "Not set"}
+                            </Typography>
+                          </Grid>
+                          <Grid size={{ xs: 6 }}>
+                            <Typography
+                              variant="caption"
+                              color="text.secondary"
+                            >
+                              End Date
+                            </Typography>
+                            <Typography variant="body2" fontWeight="medium">
+                              {exam.endDate
+                                ? formatDate(exam.endDate)
+                                : "Not set"}
+                            </Typography>
+                          </Grid>
+                          <Grid size={{ xs: 6 }}>
+                            <Typography
+                              variant="caption"
+                              color="text.secondary"
+                            >
+                              Subjects
+                            </Typography>
+                            <Typography variant="body2" fontWeight="medium">
+                              {exam._count?.examSchedules ||
+                                exam.examSchedules?.length ||
+                                0}{" "}
+                              scheduled
+                            </Typography>
+                          </Grid>
+                          <Grid size={{ xs: 6 }}>
                             <Chip
                               label={exam.isPublished ? "Published" : "Draft"}
                               size="small"
                               color={exam.isPublished ? "success" : "default"}
-                              sx={{ height: 20, fontSize: "0.7rem" }}
+                              sx={{ mt: 1.5 }}
                             />
-                          </Box>
+                          </Grid>
                         </Grid>
-                      </Grid>
 
-                      <Divider sx={{ my: 2 }} />
+                        <Divider sx={{ my: 2 }} />
 
-                      {/* Actions */}
-                      <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
-                        <Button
-                          size="small"
-                          variant="contained"
-                          startIcon={<Schedule />}
-                          onClick={() => openViewScheduleDialog(exam)}
-                          sx={{ flex: 1 }}
-                        >
-                          Timetable
-                        </Button>
-                        <Tooltip title="Edit Exam">
-                          <IconButton
+                        {/* Actions */}
+                        <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
+                          <Button
                             size="small"
-                            onClick={() => openExamDialog(exam)}
-                            color="primary"
+                            variant="contained"
+                            startIcon={<Schedule />}
+                            onClick={() => openViewScheduleDialog(exam)}
+                            sx={{ flex: 1, bgcolor: typeColor }}
                           >
-                            <Edit fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
-                        <Tooltip title="Delete Exam">
-                          <IconButton
-                            size="small"
-                            onClick={() => {
-                              setExamToDelete(exam);
-                              setDeleteDialogOpen(true);
-                            }}
-                            color="error"
-                          >
-                            <Delete fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
-                      </Box>
-                    </CardContent>
-                  </Card>
-                </Grid>
-              ))}
+                            Timetable
+                          </Button>
+                          <Tooltip title="Edit Exam">
+                            <IconButton
+                              size="small"
+                              onClick={() => openExamDialog(exam)}
+                              color="primary"
+                            >
+                              <Edit fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                          <Tooltip title="Delete Exam">
+                            <IconButton
+                              size="small"
+                              onClick={() => {
+                                setExamToDelete(exam);
+                                setDeleteDialogOpen(true);
+                              }}
+                              color="error"
+                            >
+                              <Delete fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                        </Box>
+                      </CardContent>
+                    </Card>
+                  </Grid>
+                );
+              })}
             </Grid>
           )}
 
@@ -809,17 +947,6 @@ export default function ExamsPage() {
             <DialogContent dividers>
               <Grid container spacing={2} sx={{ mt: 1 }}>
                 <Grid size={{ xs: 12 }}>
-                  <TextField
-                    fullWidth
-                    label="Exam Name *"
-                    value={examFormData.name}
-                    onChange={(e) =>
-                      setExamFormData({ ...examFormData, name: e.target.value })
-                    }
-                    placeholder="e.g., Monthly Test - December 2025"
-                  />
-                </Grid>
-                <Grid size={{ xs: 12 }}>
                   <FormControl fullWidth>
                     <InputLabel>Exam Type *</InputLabel>
                     <Select
@@ -834,7 +961,23 @@ export default function ExamsPage() {
                     >
                       {EXAM_TYPES.map((type) => (
                         <MenuItem key={type.value} value={type.value}>
-                          {type.label}
+                          <Box
+                            sx={{
+                              display: "flex",
+                              alignItems: "center",
+                              gap: 1,
+                            }}
+                          >
+                            <Box
+                              sx={{
+                                width: 12,
+                                height: 12,
+                                borderRadius: "50%",
+                                bgcolor: type.color,
+                              }}
+                            />
+                            {type.label}
+                          </Box>
                         </MenuItem>
                       ))}
                     </Select>
@@ -935,13 +1078,29 @@ export default function ExamsPage() {
           <Dialog
             open={viewScheduleDialogOpen}
             onClose={() => setViewScheduleDialogOpen(false)}
-            maxWidth="md"
+            maxWidth="lg"
             fullWidth
           >
             <DialogTitle>
               <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
                 <Schedule color="primary" />
-                Exam Timetable - {selectedExam?.name}
+                Exam Timetable
+                {selectedExam && (
+                  <Chip
+                    label={`${getExamTypeLabel(selectedExam.examType)} (${
+                      selectedExam.startDate
+                        ? new Date(selectedExam.startDate).getFullYear()
+                        : new Date().getFullYear()
+                    })`}
+                    size="small"
+                    sx={{
+                      bgcolor:
+                        EXAM_TYPE_COLORS[selectedExam.examType] || "#607d8b",
+                      color: "white",
+                      fontWeight: "bold",
+                    }}
+                  />
+                )}
               </Box>
               <Typography variant="body2" color="text.secondary">
                 {selectedExam?.class.name}
@@ -962,14 +1121,23 @@ export default function ExamsPage() {
                 <TableContainer>
                   <Table size="small">
                     <TableHead>
-                      <TableRow>
-                        <TableCell>Date</TableCell>
-                        <TableCell>Subject</TableCell>
-                        <TableCell>Time</TableCell>
-                        <TableCell>Marks</TableCell>
-                        <TableCell>Venue</TableCell>
-                        <TableCell>Invigilator</TableCell>
-                        <TableCell align="right">Actions</TableCell>
+                      <TableRow sx={{ bgcolor: "grey.100" }}>
+                        <TableCell sx={{ fontWeight: "bold" }}>Date</TableCell>
+                        <TableCell sx={{ fontWeight: "bold" }}>
+                          Subject
+                        </TableCell>
+                        <TableCell sx={{ fontWeight: "bold" }}>Type</TableCell>
+                        <TableCell sx={{ fontWeight: "bold" }}>Time</TableCell>
+                        <TableCell sx={{ fontWeight: "bold" }}>
+                          Total Marks
+                        </TableCell>
+                        <TableCell sx={{ fontWeight: "bold" }}>
+                          Pass Marks
+                        </TableCell>
+                        <TableCell sx={{ fontWeight: "bold" }}>Venue</TableCell>
+                        <TableCell align="right" sx={{ fontWeight: "bold" }}>
+                          Actions
+                        </TableCell>
                       </TableRow>
                     </TableHead>
                     <TableBody>
@@ -980,7 +1148,7 @@ export default function ExamsPage() {
                             new Date(b.examDate).getTime()
                         )
                         .map((schedule) => (
-                          <TableRow key={schedule.id}>
+                          <TableRow key={schedule.id} hover>
                             <TableCell>
                               {formatDate(schedule.examDate)}
                             </TableCell>
@@ -996,18 +1164,34 @@ export default function ExamsPage() {
                               </Typography>
                             </TableCell>
                             <TableCell>
+                              <Chip
+                                label={
+                                  schedule.remarks?.includes("PRACTICAL")
+                                    ? "Practical"
+                                    : "Theory"
+                                }
+                                size="small"
+                                color={
+                                  schedule.remarks?.includes("PRACTICAL")
+                                    ? "secondary"
+                                    : "primary"
+                                }
+                                variant="outlined"
+                              />
+                            </TableCell>
+                            <TableCell>
                               {schedule.startTime} - {schedule.endTime}
                             </TableCell>
                             <TableCell>
-                              {schedule.totalMarks} (Pass:{" "}
-                              {schedule.passingMarks})
+                              <Typography
+                                fontWeight="bold"
+                                color="primary.main"
+                              >
+                                {schedule.totalMarks}
+                              </Typography>
                             </TableCell>
+                            <TableCell>{schedule.passingMarks}</TableCell>
                             <TableCell>{schedule.venue || "-"}</TableCell>
-                            <TableCell>
-                              {schedule.invigilator
-                                ? `${schedule.invigilator.firstName} ${schedule.invigilator.lastName}`
-                                : "-"}
-                            </TableCell>
                             <TableCell align="right">
                               <IconButton
                                 size="small"
@@ -1084,7 +1268,7 @@ export default function ExamsPage() {
             </DialogTitle>
             <DialogContent dividers>
               <Grid container spacing={2} sx={{ mt: 1 }}>
-                <Grid size={{ xs: 12 }}>
+                <Grid size={{ xs: 12, md: 8 }}>
                   <FormControl fullWidth>
                     <InputLabel>Subject *</InputLabel>
                     <Select
@@ -1103,6 +1287,28 @@ export default function ExamsPage() {
                           {subject.name} ({subject.code})
                         </MenuItem>
                       ))}
+                    </Select>
+                  </FormControl>
+                </Grid>
+                <Grid size={{ xs: 12, md: 4 }}>
+                  <FormControl fullWidth>
+                    <InputLabel>Exam Type</InputLabel>
+                    <Select
+                      value={scheduleFormData.examPart}
+                      onChange={(e) =>
+                        setScheduleFormData({
+                          ...scheduleFormData,
+                          examPart: e.target.value as
+                            | "THEORY"
+                            | "PRACTICAL"
+                            | "BOTH",
+                        })
+                      }
+                      label="Exam Type"
+                    >
+                      <MenuItem value="THEORY">Theory</MenuItem>
+                      <MenuItem value="PRACTICAL">Practical</MenuItem>
+                      <MenuItem value="BOTH">Theory + Practical</MenuItem>
                     </Select>
                   </FormControl>
                 </Grid>
@@ -1149,7 +1355,11 @@ export default function ExamsPage() {
                   <TextField
                     fullWidth
                     type="number"
-                    label="Total Marks"
+                    label={
+                      scheduleFormData.examPart === "PRACTICAL"
+                        ? "Practical Marks"
+                        : "Total Marks"
+                    }
                     value={scheduleFormData.totalMarks}
                     onChange={(e) =>
                       setScheduleFormData({
