@@ -15,6 +15,7 @@ import {
   DialogTitle,
   DialogContent,
   DialogActions,
+  DialogContentText,
   Grid,
   FormControl,
   InputLabel,
@@ -45,11 +46,12 @@ interface FeeStructure {
   description?: string;
   amount: number;
   frequency: string;
-  academicYear: string;
+  feeType: string;
   isOptional: boolean;
   isActive: boolean;
+  isRecurring: boolean;
   class?: { id: string; name: string };
-  feeType: { id: string; name: string };
+  academicYear?: { id: string; name: string };
 }
 
 interface FeeType {
@@ -81,6 +83,10 @@ export default function FeeStructurePage() {
   const [filterClass, setFilterClass] = useState("");
   const [dialogOpen, setDialogOpen] = useState(false);
   const [typeDialogOpen, setTypeDialogOpen] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [structureToDelete, setStructureToDelete] =
+    useState<FeeStructure | null>(null);
+  const [deleting, setDeleting] = useState(false);
   const [editingStructure, setEditingStructure] = useState<FeeStructure | null>(
     null
   );
@@ -180,11 +186,12 @@ export default function FeeStructurePage() {
       setFormData({
         name: structure.name,
         description: structure.description || "",
-        feeTypeId: structure.feeType.id,
+        feeTypeId: structure.feeType || "",
         classId: structure.class?.id || "",
         amount: structure.amount,
-        frequency: structure.frequency,
-        academicYear: structure.academicYear,
+        frequency: structure.isRecurring ? "MONTHLY" : "ONCE",
+        academicYear:
+          structure.academicYear?.name || new Date().getFullYear().toString(),
         isOptional: structure.isOptional,
         isActive: structure.isActive,
       });
@@ -281,23 +288,42 @@ export default function FeeStructurePage() {
   };
 
   const handleDelete = async (structure: FeeStructure) => {
-    if (!confirm(`Are you sure you want to delete ${structure.name}?`)) return;
+    setStructureToDelete(structure);
+    setDeleteDialogOpen(true);
+  };
 
+  const confirmDelete = async () => {
+    if (!structureToDelete) return;
+
+    setDeleting(true);
     try {
-      const response = await fetch(`/api/fee-structures?id=${structure.id}`, {
-        method: "DELETE",
-      });
+      const response = await fetch(
+        `/api/fee-structures?id=${structureToDelete.id}`,
+        {
+          method: "DELETE",
+        }
+      );
 
       if (response.ok) {
         toast.success("Fee structure deleted successfully");
         fetchFeeStructures(search, filterClass);
+        setDeleteDialogOpen(false);
+        setStructureToDelete(null);
       } else {
         const data = await response.json();
         toast.error(data.error || "Failed to delete fee structure");
       }
     } catch (error) {
       toast.error("Failed to delete fee structure");
+    } finally {
+      setDeleting(false);
     }
+  };
+
+  // Helper function to format fee type for display
+  const formatFeeType = (feeType: string) => {
+    if (!feeType) return "N/A";
+    return feeType.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
   };
 
   const columns: SimpleColumn[] = [
@@ -306,7 +332,12 @@ export default function FeeStructurePage() {
       id: "feeType",
       label: "Type",
       render: (row: FeeStructure) => (
-        <Chip label={row.feeType?.name} size="small" />
+        <Chip
+          label={formatFeeType(row.feeType)}
+          size="small"
+          color="primary"
+          variant="outlined"
+        />
       ),
     },
     {
@@ -728,6 +759,42 @@ export default function FeeStructurePage() {
             <Button onClick={() => setTypeDialogOpen(false)}>Cancel</Button>
             <Button variant="contained" onClick={handleSubmitType}>
               {editingType ? "Update" : "Create"}
+            </Button>
+          </DialogActions>
+        </Dialog>
+
+        {/* Delete Confirmation Dialog */}
+        <Dialog
+          open={deleteDialogOpen}
+          onClose={() => {
+            setDeleteDialogOpen(false);
+            setStructureToDelete(null);
+          }}
+        >
+          <DialogTitle>Confirm Delete</DialogTitle>
+          <DialogContent>
+            <DialogContentText>
+              Are you sure you want to delete the fee structure &quot;
+              {structureToDelete?.name}&quot;? This action cannot be undone.
+            </DialogContentText>
+          </DialogContent>
+          <DialogActions>
+            <Button
+              onClick={() => {
+                setDeleteDialogOpen(false);
+                setStructureToDelete(null);
+              }}
+              disabled={deleting}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="contained"
+              color="error"
+              onClick={confirmDelete}
+              disabled={deleting}
+            >
+              {deleting ? "Deleting..." : "Delete"}
             </Button>
           </DialogActions>
         </Dialog>

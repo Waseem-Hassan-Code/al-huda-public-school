@@ -52,7 +52,7 @@ export async function GET(request: NextRequest) {
     });
 
     return NextResponse.json({
-      data: feeStructures,
+      feeStructures,
     });
   } catch (error) {
     console.error("Fee Structures GET Error:", error);
@@ -185,6 +185,65 @@ export async function POST(request: NextRequest) {
     console.error("Fee Structures POST Error:", error);
     return NextResponse.json(
       { error: "Failed to create fee structure" },
+      { status: 500 }
+    );
+  }
+}
+
+// DELETE - Delete fee structure
+export async function DELETE(request: NextRequest) {
+  try {
+    const session = await getServerSession(authOptions);
+
+    if (!session) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    if (!hasPermission(session.user.role, Permission.MANAGE_FEE_STRUCTURE)) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
+    const searchParams = request.nextUrl.searchParams;
+    const id = searchParams.get("id");
+
+    if (!id) {
+      return NextResponse.json(
+        { error: "Fee structure ID is required" },
+        { status: 400 }
+      );
+    }
+
+    // Check if fee structure exists
+    const existingStructure = await prisma.feeStructure.findUnique({
+      where: { id },
+    });
+
+    if (!existingStructure) {
+      return NextResponse.json(
+        { error: "Fee structure not found" },
+        { status: 404 }
+      );
+    }
+
+    // Delete the fee structure
+    await prisma.feeStructure.delete({
+      where: { id },
+    });
+
+    // Log the transaction
+    await logTransaction({
+      action: "DELETE",
+      entityType: "FeeStructure",
+      entityId: id,
+      userId: session.user.id,
+      details: { name: existingStructure.name },
+    });
+
+    return NextResponse.json({ message: "Fee structure deleted successfully" });
+  } catch (error) {
+    console.error("Fee Structures DELETE Error:", error);
+    return NextResponse.json(
+      { error: "Failed to delete fee structure" },
       { status: 500 }
     );
   }
