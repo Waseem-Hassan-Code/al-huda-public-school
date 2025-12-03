@@ -22,13 +22,15 @@ export async function GET(request: NextRequest) {
 
     const searchParams = request.nextUrl.searchParams;
     const page = parseInt(searchParams.get("page") || "1");
-    const limit = parseInt(searchParams.get("limit") || "10");
+    const limit = parseInt(searchParams.get("limit") || "50");
     const search = searchParams.get("search") || "";
     const studentId = searchParams.get("studentId");
+    const classId = searchParams.get("classId");
+    const sectionId = searchParams.get("sectionId");
     const status = searchParams.get("status");
     const month = searchParams.get("month");
     const year = searchParams.get("year");
-    const sortBy = searchParams.get("sortBy") || "dueDate";
+    const sortBy = searchParams.get("sortBy") || "createdAt";
     const sortOrder = searchParams.get("sortOrder") || "desc";
 
     const skip = (page - 1) * limit;
@@ -52,17 +54,26 @@ export async function GET(request: NextRequest) {
       where.studentId = studentId;
     }
 
+    // Filter by class
+    if (classId) {
+      where.student = { ...where.student, classId };
+    }
+
+    // Filter by section
+    if (sectionId) {
+      where.student = { ...where.student, sectionId };
+    }
+
     if (status) {
       where.status = status;
     }
 
-    if (month && year) {
-      const startDate = new Date(parseInt(year), parseInt(month) - 1, 1);
-      const endDate = new Date(parseInt(year), parseInt(month), 0);
-      where.dueDate = {
-        gte: startDate,
-        lte: endDate,
-      };
+    if (month) {
+      where.month = parseInt(month);
+    }
+
+    if (year) {
+      where.year = parseInt(year);
     }
 
     const [vouchers, total] = await Promise.all([
@@ -75,6 +86,7 @@ export async function GET(request: NextRequest) {
               section: true,
             },
           },
+          feeItems: true,
           payments: {
             orderBy: { paymentDate: "desc" },
           },
@@ -87,7 +99,7 @@ export async function GET(request: NextRequest) {
     ]);
 
     return NextResponse.json({
-      data: vouchers,
+      vouchers,
       pagination: {
         page,
         limit,

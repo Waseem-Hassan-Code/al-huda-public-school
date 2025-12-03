@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { hasPermission, Permission } from "@/lib/permissions";
 import { logTransaction } from "@/lib/transaction-log";
+import { FeeType } from "@prisma/client";
 
 // GET - List fee structures
 export async function GET(request: NextRequest) {
@@ -15,6 +16,19 @@ export async function GET(request: NextRequest) {
     }
 
     const searchParams = request.nextUrl.searchParams;
+    const feeTypesOnly = searchParams.get("feeTypes") === "true";
+
+    // Return just fee types if requested
+    if (feeTypesOnly) {
+      const feeTypeValues = Object.values(FeeType);
+      // Format fee types as objects with id and name for the dropdown
+      const feeTypes = feeTypeValues.map((type) => ({
+        id: type,
+        name: type.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
+      }));
+      return NextResponse.json({ feeTypes });
+    }
+
     const classId = searchParams.get("classId");
     const includeInactive = searchParams.get("includeInactive") === "true";
 

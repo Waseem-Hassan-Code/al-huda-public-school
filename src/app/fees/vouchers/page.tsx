@@ -31,6 +31,10 @@ import {
   TableRow,
   Checkbox,
   Divider,
+  Tooltip,
+  Avatar,
+  LinearProgress,
+  alpha,
 } from "@mui/material";
 import {
   Add as AddIcon,
@@ -38,6 +42,13 @@ import {
   Visibility as ViewIcon,
   Print as PrintIcon,
   Refresh as RefreshIcon,
+  Receipt as ReceiptIcon,
+  Payment as PaymentIcon,
+  TrendingUp as TrendingUpIcon,
+  TrendingDown as TrendingDownIcon,
+  CalendarMonth as CalendarIcon,
+  FilterList as FilterIcon,
+  OpenInNew as OpenIcon,
 } from "@mui/icons-material";
 import MainLayout from "@/components/layout/MainLayout";
 import SimpleTable, { SimpleColumn } from "@/components/common/SimpleTable";
@@ -65,7 +76,7 @@ interface FeeVoucher {
     class: { name: string };
     section?: { name: string };
   };
-  items: {
+  feeItems: {
     id: string;
     feeType: string;
     amount: number;
@@ -321,18 +332,40 @@ export default function FeeVouchersPage() {
   const selectedClass = classes.find((c) => c.id === filterClass);
 
   const columns: SimpleColumn[] = [
-    { id: "voucherNo", label: "Voucher No", width: 120 },
+    {
+      id: "voucherNo",
+      label: "Voucher No",
+      width: 130,
+      render: (row: FeeVoucher) => (
+        <Typography variant="body2" fontWeight="medium" color="primary.main">
+          {row.voucherNo}
+        </Typography>
+      ),
+    },
     {
       id: "student",
       label: "Student",
       render: (row: FeeVoucher) => (
-        <Box>
-          <Typography variant="body2" fontWeight="medium">
-            {row.student.firstName} {row.student.lastName}
-          </Typography>
-          <Typography variant="caption" color="text.secondary">
-            {row.student.registrationNo}
-          </Typography>
+        <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
+          <Avatar
+            sx={{
+              width: 32,
+              height: 32,
+              bgcolor: "primary.light",
+              fontSize: 14,
+            }}
+          >
+            {row.student.firstName[0]}
+            {row.student.lastName[0]}
+          </Avatar>
+          <Box>
+            <Typography variant="body2" fontWeight="medium">
+              {row.student.firstName} {row.student.lastName}
+            </Typography>
+            <Typography variant="caption" color="text.secondary">
+              {row.student.registrationNo}
+            </Typography>
+          </Box>
         </Box>
       ),
     },
@@ -340,26 +373,57 @@ export default function FeeVouchersPage() {
       id: "class",
       label: "Class",
       render: (row: FeeVoucher) => (
-        <span>
-          {row.student.class?.name}
-          {row.student.section?.name && ` - ${row.student.section.name}`}
-        </span>
+        <Chip
+          label={`${row.student.class?.name}${
+            row.student.section?.name ? ` - ${row.student.section.name}` : ""
+          }`}
+          size="small"
+          variant="outlined"
+        />
       ),
     },
     {
       id: "period",
       label: "Period",
-      render: (row: FeeVoucher) => `${MONTHS[row.month - 1]} ${row.year}`,
+      render: (row: FeeVoucher) => (
+        <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+          <CalendarIcon fontSize="small" color="action" />
+          <Typography variant="body2">
+            {MONTHS[row.month - 1]} {row.year}
+          </Typography>
+        </Box>
+      ),
     },
     {
       id: "totalAmount",
       label: "Total",
-      render: (row: FeeVoucher) => formatCurrency(row.totalAmount),
+      render: (row: FeeVoucher) => (
+        <Typography variant="body2" fontWeight="bold">
+          {formatCurrency(row.totalAmount)}
+        </Typography>
+      ),
     },
     {
       id: "paidAmount",
       label: "Paid",
-      render: (row: FeeVoucher) => formatCurrency(row.paidAmount),
+      render: (row: FeeVoucher) => (
+        <Typography variant="body2" color="success.main" fontWeight="medium">
+          {formatCurrency(row.paidAmount)}
+        </Typography>
+      ),
+    },
+    {
+      id: "balance",
+      label: "Balance",
+      render: (row: FeeVoucher) => (
+        <Typography
+          variant="body2"
+          color={row.balanceDue > 0 ? "error.main" : "text.secondary"}
+          fontWeight="medium"
+        >
+          {formatCurrency(row.balanceDue)}
+        </Typography>
+      ),
     },
     {
       id: "status",
@@ -369,33 +433,58 @@ export default function FeeVouchersPage() {
           label={row.status}
           color={STATUS_COLORS[row.status] || "default"}
           size="small"
+          variant="filled"
         />
       ),
     },
     {
-      id: "dueDate",
-      label: "Due Date",
-      render: (row: FeeVoucher) => formatDate(row.dueDate),
-    },
-    {
       id: "actions",
       label: "Actions",
-      width: 120,
+      width: 130,
       render: (row: FeeVoucher) => (
-        <Box>
-          <IconButton size="small" onClick={() => handleViewVoucher(row)}>
-            <ViewIcon fontSize="small" />
-          </IconButton>
-          <IconButton
-            size="small"
-            onClick={() => toast.info("Print functionality coming soon")}
-          >
-            <PrintIcon fontSize="small" />
-          </IconButton>
+        <Box sx={{ display: "flex", gap: 0.5 }}>
+          <Tooltip title="View Details">
+            <IconButton
+              size="small"
+              onClick={() => handleViewVoucher(row)}
+              sx={{ color: "primary.main" }}
+            >
+              <ViewIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
+          <Tooltip title="Open Full Page">
+            <IconButton
+              size="small"
+              onClick={() => router.push(`/fees/vouchers/${row.id}`)}
+              sx={{ color: "info.main" }}
+            >
+              <OpenIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
+          <Tooltip title="Print Voucher">
+            <IconButton
+              size="small"
+              onClick={() => toast.info("Print functionality coming soon")}
+              sx={{ color: "text.secondary" }}
+            >
+              <PrintIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
         </Box>
       ),
     },
   ];
+
+  // Calculate summary statistics
+  const totalVouchers = vouchers.length;
+  const paidVouchers = vouchers.filter((v) => v.status === "PAID").length;
+  const unpaidVouchers = vouchers.filter((v) => v.status === "UNPAID").length;
+  const partialVouchers = vouchers.filter((v) => v.status === "PARTIAL").length;
+  const totalInvoiced = vouchers.reduce((sum, v) => sum + v.totalAmount, 0);
+  const totalCollected = vouchers.reduce((sum, v) => sum + v.paidAmount, 0);
+  const totalPending = vouchers.reduce((sum, v) => sum + v.balanceDue, 0);
+  const collectionRate =
+    totalInvoiced > 0 ? (totalCollected / totalInvoiced) * 100 : 0;
 
   if (status === "loading") {
     return (
@@ -415,6 +504,7 @@ export default function FeeVouchersPage() {
   return (
     <MainLayout>
       <Box sx={{ p: 3 }}>
+        {/* Header */}
         <Box
           sx={{
             display: "flex",
@@ -423,64 +513,232 @@ export default function FeeVouchersPage() {
             mb: 3,
           }}
         >
-          <Typography variant="h4" fontWeight="bold">
-            Fee Vouchers
-          </Typography>
-          <Button
-            variant="contained"
-            startIcon={<AddIcon />}
-            onClick={handleOpenGenerateDialog}
-          >
-            Generate Vouchers
-          </Button>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
+            <Avatar sx={{ bgcolor: "primary.main", width: 48, height: 48 }}>
+              <ReceiptIcon />
+            </Avatar>
+            <Box>
+              <Typography variant="h4" fontWeight="bold">
+                Fee Vouchers
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                {MONTHS[filterMonth - 1]} {filterYear}
+              </Typography>
+            </Box>
+          </Box>
+          <Box sx={{ display: "flex", gap: 1 }}>
+            <Tooltip title="Refresh">
+              <IconButton
+                onClick={() =>
+                  fetchVouchers(
+                    search,
+                    filterClass,
+                    filterSection,
+                    filterStatus
+                  )
+                }
+              >
+                <RefreshIcon />
+              </IconButton>
+            </Tooltip>
+            <Button
+              variant="contained"
+              startIcon={<AddIcon />}
+              onClick={handleOpenGenerateDialog}
+            >
+              Generate Vouchers
+            </Button>
+          </Box>
         </Box>
 
         {/* Summary Cards */}
         <Grid container spacing={2} sx={{ mb: 3 }}>
           <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-            <Card>
+            <Card
+              sx={{
+                background: (theme) =>
+                  `linear-gradient(135deg, ${alpha(
+                    theme.palette.primary.main,
+                    0.1
+                  )} 0%, ${alpha(theme.palette.primary.main, 0.05)} 100%)`,
+                border: 1,
+                borderColor: "primary.light",
+              }}
+            >
               <CardContent>
-                <Typography color="text.secondary" gutterBottom>
-                  Total Vouchers
+                <Box
+                  sx={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    mb: 1,
+                  }}
+                >
+                  <Typography color="text.secondary" variant="body2">
+                    Total Vouchers
+                  </Typography>
+                  <Avatar
+                    sx={{ bgcolor: "primary.main", width: 36, height: 36 }}
+                  >
+                    <ReceiptIcon fontSize="small" />
+                  </Avatar>
+                </Box>
+                <Typography variant="h4" fontWeight="bold">
+                  {totalVouchers}
                 </Typography>
-                <Typography variant="h4">{vouchers.length}</Typography>
+                <Box sx={{ display: "flex", gap: 1, mt: 1 }}>
+                  <Chip
+                    label={`${paidVouchers} Paid`}
+                    size="small"
+                    color="success"
+                    variant="outlined"
+                  />
+                  <Chip
+                    label={`${partialVouchers} Partial`}
+                    size="small"
+                    color="warning"
+                    variant="outlined"
+                  />
+                </Box>
               </CardContent>
             </Card>
           </Grid>
           <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-            <Card>
+            <Card
+              sx={{
+                background: (theme) =>
+                  `linear-gradient(135deg, ${alpha(
+                    theme.palette.success.main,
+                    0.1
+                  )} 0%, ${alpha(theme.palette.success.main, 0.05)} 100%)`,
+                border: 1,
+                borderColor: "success.light",
+              }}
+            >
               <CardContent>
-                <Typography color="text.secondary" gutterBottom>
-                  Paid
+                <Box
+                  sx={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    mb: 1,
+                  }}
+                >
+                  <Typography color="text.secondary" variant="body2">
+                    Collected
+                  </Typography>
+                  <Avatar
+                    sx={{ bgcolor: "success.main", width: 36, height: 36 }}
+                  >
+                    <TrendingUpIcon fontSize="small" />
+                  </Avatar>
+                </Box>
+                <Typography variant="h5" fontWeight="bold" color="success.main">
+                  {formatCurrency(totalCollected)}
                 </Typography>
-                <Typography variant="h4" color="success.main">
-                  {vouchers.filter((v) => v.status === "PAID").length}
+                <Box sx={{ mt: 1 }}>
+                  <Box
+                    sx={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      mb: 0.5,
+                    }}
+                  >
+                    <Typography variant="caption" color="text.secondary">
+                      Collection Rate
+                    </Typography>
+                    <Typography variant="caption" fontWeight="bold">
+                      {collectionRate.toFixed(1)}%
+                    </Typography>
+                  </Box>
+                  <LinearProgress
+                    variant="determinate"
+                    value={collectionRate}
+                    color="success"
+                    sx={{ height: 6, borderRadius: 3 }}
+                  />
+                </Box>
+              </CardContent>
+            </Card>
+          </Grid>
+          <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+            <Card
+              sx={{
+                background: (theme) =>
+                  `linear-gradient(135deg, ${alpha(
+                    theme.palette.error.main,
+                    0.1
+                  )} 0%, ${alpha(theme.palette.error.main, 0.05)} 100%)`,
+                border: 1,
+                borderColor: "error.light",
+              }}
+            >
+              <CardContent>
+                <Box
+                  sx={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    mb: 1,
+                  }}
+                >
+                  <Typography color="text.secondary" variant="body2">
+                    Pending
+                  </Typography>
+                  <Avatar sx={{ bgcolor: "error.main", width: 36, height: 36 }}>
+                    <TrendingDownIcon fontSize="small" />
+                  </Avatar>
+                </Box>
+                <Typography variant="h5" fontWeight="bold" color="error.main">
+                  {formatCurrency(totalPending)}
+                </Typography>
+                <Typography
+                  variant="body2"
+                  color="text.secondary"
+                  sx={{ mt: 1 }}
+                >
+                  {unpaidVouchers} unpaid vouchers
                 </Typography>
               </CardContent>
             </Card>
           </Grid>
           <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-            <Card>
+            <Card
+              sx={{
+                background: (theme) =>
+                  `linear-gradient(135deg, ${alpha(
+                    theme.palette.info.main,
+                    0.1
+                  )} 0%, ${alpha(theme.palette.info.main, 0.05)} 100%)`,
+                border: 1,
+                borderColor: "info.light",
+              }}
+            >
               <CardContent>
-                <Typography color="text.secondary" gutterBottom>
-                  Unpaid
+                <Box
+                  sx={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    mb: 1,
+                  }}
+                >
+                  <Typography color="text.secondary" variant="body2">
+                    Total Invoiced
+                  </Typography>
+                  <Avatar sx={{ bgcolor: "info.main", width: 36, height: 36 }}>
+                    <PaymentIcon fontSize="small" />
+                  </Avatar>
+                </Box>
+                <Typography variant="h5" fontWeight="bold">
+                  {formatCurrency(totalInvoiced)}
                 </Typography>
-                <Typography variant="h4" color="error.main">
-                  {vouchers.filter((v) => v.status === "UNPAID").length}
-                </Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-          <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-            <Card>
-              <CardContent>
-                <Typography color="text.secondary" gutterBottom>
-                  Total Invoiced
-                </Typography>
-                <Typography variant="h5">
-                  {formatCurrency(
-                    vouchers.reduce((sum, v) => sum + v.subtotal, 0)
-                  )}
+                <Typography
+                  variant="body2"
+                  color="text.secondary"
+                  sx={{ mt: 1 }}
+                >
+                  For {MONTHS[filterMonth - 1]} {filterYear}
                 </Typography>
               </CardContent>
             </Card>
@@ -489,10 +747,15 @@ export default function FeeVouchersPage() {
 
         {/* Filters */}
         <Paper sx={{ p: 2, mb: 3 }}>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 2 }}>
+            <FilterIcon fontSize="small" color="action" />
+            <Typography variant="subtitle2">Filters</Typography>
+          </Box>
           <Grid container spacing={2} alignItems="center">
             <Grid size={{ xs: 12, md: 3 }}>
               <TextField
                 fullWidth
+                size="small"
                 placeholder="Search by student name or voucher no..."
                 value={search}
                 onChange={handleSearchChange}
@@ -506,7 +769,7 @@ export default function FeeVouchersPage() {
               />
             </Grid>
             <Grid size={{ xs: 6, md: 2 }}>
-              <FormControl fullWidth>
+              <FormControl fullWidth size="small">
                 <InputLabel>Class</InputLabel>
                 <Select
                   value={filterClass}
@@ -523,7 +786,7 @@ export default function FeeVouchersPage() {
               </FormControl>
             </Grid>
             <Grid size={{ xs: 6, md: 2 }}>
-              <FormControl fullWidth>
+              <FormControl fullWidth size="small">
                 <InputLabel>Section</InputLabel>
                 <Select
                   value={filterSection}
@@ -543,7 +806,7 @@ export default function FeeVouchersPage() {
               </FormControl>
             </Grid>
             <Grid size={{ xs: 6, md: 2 }}>
-              <FormControl fullWidth>
+              <FormControl fullWidth size="small">
                 <InputLabel>Month</InputLabel>
                 <Select
                   value={filterMonth}
@@ -561,6 +824,7 @@ export default function FeeVouchersPage() {
             <Grid size={{ xs: 6, md: 1 }}>
               <TextField
                 fullWidth
+                size="small"
                 type="number"
                 label="Year"
                 value={filterYear}
@@ -570,7 +834,7 @@ export default function FeeVouchersPage() {
               />
             </Grid>
             <Grid size={{ xs: 6, md: 2 }}>
-              <FormControl fullWidth>
+              <FormControl fullWidth size="small">
                 <InputLabel>Status</InputLabel>
                 <Select
                   value={filterStatus}
@@ -590,11 +854,26 @@ export default function FeeVouchersPage() {
 
         {/* Vouchers Table */}
         <Paper sx={{ p: 2 }}>
+          <Box
+            sx={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              mb: 2,
+            }}
+          >
+            <Typography variant="subtitle1" fontWeight="medium">
+              Vouchers List
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              Showing {vouchers.length} vouchers
+            </Typography>
+          </Box>
           <SimpleTable
             columns={columns}
             rows={vouchers}
             loading={loading}
-            emptyMessage="No vouchers found"
+            emptyMessage="No vouchers found for the selected period. Try generating new vouchers or changing filters."
           />
         </Paper>
 
@@ -771,7 +1050,7 @@ export default function FeeVouchersPage() {
                     <Typography variant="subtitle2" gutterBottom>
                       Fee Items
                     </Typography>
-                    {selectedVoucher.items?.map((item) => (
+                    {selectedVoucher.feeItems?.map((item) => (
                       <Box
                         key={item.id}
                         sx={{
