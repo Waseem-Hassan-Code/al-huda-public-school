@@ -63,6 +63,7 @@ import { toast } from "sonner";
 import ImageUpload from "@/components/common/ImageUpload";
 import MainLayout from "@/components/layout/MainLayout";
 import ReceivePaymentDialog from "@/components/dialogs/ReceivePaymentDialog";
+import ResultCardsTab from "@/components/students/ResultCardsTab";
 import AttendanceCalendar from "@/components/common/AttendanceCalendar";
 
 interface FeeVoucher {
@@ -111,7 +112,9 @@ interface ExamResult {
     name: string;
     code: string;
   };
-  marksObtained: number;
+  marksObtained: number | null;
+  totalMarks: number;
+  isAbsent: boolean;
   grade?: string;
   remarks?: string;
 }
@@ -1572,70 +1575,11 @@ export default function StudentProfilePage({
 
         {/* Results Tab */}
         <TabPanel value={tabValue} index={5}>
-          <Paper sx={{ p: 3, borderRadius: 3 }}>
-            <Typography variant="h6" sx={{ mb: 2, color: "#1a237e" }}>
-              Exam Results
-            </Typography>
-            {student.studentMarks && student.studentMarks.length > 0 ? (
-              <TableContainer>
-                <Table>
-                  <TableHead>
-                    <TableRow>
-                      <TableCell sx={{ fontWeight: "bold" }}>Exam</TableCell>
-                      <TableCell sx={{ fontWeight: "bold" }}>Date</TableCell>
-                      <TableCell sx={{ fontWeight: "bold" }}>Subject</TableCell>
-                      <TableCell sx={{ fontWeight: "bold" }} align="center">
-                        Marks
-                      </TableCell>
-                      <TableCell sx={{ fontWeight: "bold" }} align="center">
-                        Grade
-                      </TableCell>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {student.studentMarks.map((result) => (
-                      <TableRow key={result.id} hover>
-                        <TableCell>{result.exam.name}</TableCell>
-                        <TableCell>
-                          {formatDate(result.exam.examDate)}
-                        </TableCell>
-                        <TableCell>{result.subject.name}</TableCell>
-                        <TableCell align="center">
-                          <Typography
-                            color={
-                              result.marksObtained >= result.exam.passingMarks
-                                ? "success.main"
-                                : "error.main"
-                            }
-                            fontWeight="medium"
-                          >
-                            {result.marksObtained} / {result.exam.totalMarks}
-                          </Typography>
-                        </TableCell>
-                        <TableCell align="center">
-                          <Chip
-                            label={result.grade || "N/A"}
-                            size="small"
-                            color={
-                              result.marksObtained >= result.exam.passingMarks
-                                ? "success"
-                                : "error"
-                            }
-                          />
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </TableContainer>
-            ) : (
-              <Box sx={{ textAlign: "center", py: 5 }}>
-                <Typography color="text.secondary">
-                  No exam results found
-                </Typography>
-              </Box>
-            )}
-          </Paper>
+          <ResultCardsTab
+            studentId={student.id}
+            studentMarks={student.studentMarks || []}
+            onRefresh={fetchStudent}
+          />
         </TabPanel>
 
         {/* Receive Payment Dialog */}
