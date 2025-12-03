@@ -82,17 +82,67 @@ export async function POST(request: NextRequest) {
       description,
       amount,
       feeType,
+      feeTypeId, // Frontend sends this
       academicYearId,
+      academicYear, // Frontend sends this as string like "2025"
       classId,
       dueDay,
       lateFeeAmount,
       lateFeeAfterDays,
       isRecurring,
+      frequency,
+      isOptional,
+      isActive,
     } = body;
 
-    if (!name || !amount || !feeType || !academicYearId) {
+    // Use feeTypeId if feeType is not provided (frontend compatibility)
+    const finalFeeType = feeType || feeTypeId;
+
+    // If academicYear is provided as string (e.g., "2025"), find or use the academicYearId
+    let finalAcademicYearId = academicYearId;
+    if (!finalAcademicYearId && academicYear) {
+      // Find the academic year by the year string
+      const academicYearRecord = await prisma.academicYear.findFirst({
+        where: {
+          OR: [
+            { name: { contains: academicYear } },
+            {
+              startDate: {
+                gte: new Date(`${academicYear}-01-01`),
+                lt: new Date(`${parseInt(academicYear) + 1}-01-01`),
+              },
+            },
+          ],
+        },
+        orderBy: { startDate: "desc" },
+      });
+
+      if (academicYearRecord) {
+        finalAcademicYearId = academicYearRecord.id;
+      } else {
+        // If no academic year found, get the current/active one
+        const currentAcademicYear = await prisma.academicYear.findFirst({
+          where: { isCurrent: true },
+        });
+        if (currentAcademicYear) {
+          finalAcademicYearId = currentAcademicYear.id;
+        }
+      }
+    }
+
+    if (!name || !amount || !finalFeeType) {
       return NextResponse.json(
-        { error: "Name, amount, feeType, and academicYearId are required" },
+        { error: "Name, amount, and fee type are required" },
+        { status: 400 }
+      );
+    }
+
+    if (!finalAcademicYearId) {
+      return NextResponse.json(
+        {
+          error:
+            "No academic year found. Please create an academic year first.",
+        },
         { status: 400 }
       );
     }
@@ -101,15 +151,19 @@ export async function POST(request: NextRequest) {
       data: {
         name,
         description,
-        amount,
-        feeType,
-        academicYearId,
+        amount: parseFloat(amount.toString()),
+        feeType: finalFeeType,
+        academicYearId: finalAcademicYearId,
         classId: classId || null,
         dueDay: dueDay || 10,
         lateFeeAmount: lateFeeAmount || 0,
         lateFeeAfterDays: lateFeeAfterDays || 15,
-        isRecurring: isRecurring || false,
-        isActive: true,
+        isRecurring:
+          isRecurring ||
+          frequency === "MONTHLY" ||
+          frequency === "QUARTERLY" ||
+          frequency === "YEARLY",
+        isActive: isActive !== undefined ? isActive : true,
       },
       include: {
         class: true,

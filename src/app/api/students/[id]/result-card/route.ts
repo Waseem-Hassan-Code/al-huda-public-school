@@ -4,7 +4,6 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { hasPermission, Permission } from "@/lib/permissions";
 
-// GET - Get result card for a student
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
