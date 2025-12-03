@@ -8,7 +8,6 @@ import {
   Button,
   Paper,
   TextField,
-  InputAdornment,
   Grid,
   FormControl,
   InputLabel,
@@ -22,8 +21,10 @@ import {
   TableRow,
   Chip,
   Alert,
+  CircularProgress,
+  Checkbox,
 } from "@mui/material";
-import { Save as SaveIcon, Search as SearchIcon } from "@mui/icons-material";
+import { Save as SaveIcon, Lock as LockIcon } from "@mui/icons-material";
 import MainLayout from "@/components/layout/MainLayout";
 import { toast } from "sonner";
 
@@ -32,8 +33,13 @@ interface Student {
   registrationNo: string;
   firstName: string;
   lastName: string;
-  marks?: number;
-  grade?: string;
+}
+
+interface ExistingMark {
+  studentId: string;
+  marksObtained: number | null;
+  isAbsent: boolean;
+  remarks?: string;
 }
 
 interface Class {
@@ -52,7 +58,7 @@ interface Exam {
   id: string;
   name: string;
   examType: string;
-  academicYear: string;
+  totalMarks: number;
 }
 
 export default function MarksEntryPage() {
@@ -68,7 +74,12 @@ export default function MarksEntryPage() {
   const [selectedSubject, setSelectedSubject] = useState("");
   const [selectedExam, setSelectedExam] = useState("");
   const [totalMarks, setTotalMarks] = useState(100);
-  const [marksData, setMarksData] = useState<Record<string, number>>({});
+  const [marksData, setMarksData] = useState<
+    Record<string, { marks: number; isAbsent: boolean }>
+  >({});
+  const [existingMarks, setExistingMarks] = useState<ExistingMark[]>([]);
+  const [isReadOnly, setIsReadOnly] = useState(false);
+  const [loadingMarks, setLoadingMarks] = useState(false);
 
   const fetchClasses = useCallback(async () => {
     try {
@@ -84,7 +95,6 @@ export default function MarksEntryPage() {
     }
   }, []);
 
-  // Fetch subjects based on selected class
   const fetchSubjects = useCallback(async () => {
     if (!selectedClass) {
       setSubjects([]);
@@ -133,11 +143,15 @@ export default function MarksEntryPage() {
       const response = await fetch(`/api/students?${params}`);
       const data = await response.json();
       if (response.ok) {
-        setStudents(data.students || []);
+        const studentList = data.data || data.students || [];
+        setStudents(studentList);
         // Initialize marks data
-        const initialMarks: Record<string, number> = {};
-        (data.students || []).forEach((student: Student) => {
-          initialMarks[student.id] = 0;
+        const initialMarks: Record<
+          string,
+          { marks: number; isAbsent: boolean }
+        > = {};
+        studentList.forEach((student: Student) => {
+          initialMarks[student.id] = { marks: 0, isAbsent: false };
         });
         setMarksData(initialMarks);
       }
@@ -148,6 +162,64 @@ export default function MarksEntryPage() {
     }
   }, [selectedClass, selectedSection]);
 
+  // Fetch existing marks when exam, class, and subject are selected
+  const fetchExistingMarks = useCallback(async () => {
+    if (!selectedExam || !selectedClass || !selectedSubject) {
+      setExistingMarks([]);
+      setIsReadOnly(false);
+      return;
+    }
+
+    try {
+      setLoadingMarks(true);
+      const params = new URLSearchParams();
+      params.append("examId", selectedExam);
+      params.append("subjectId", selectedSubject);
+      params.append("classId", selectedClass);
+      if (selectedSection) params.append("sectionId", selectedSection);
+
+      const response = await fetch(`/api/results?${params}`);
+      const data = await response.json();
+
+      if (response.ok && data.data && data.data.length > 0) {
+        setExistingMarks(data.data);
+        setIsReadOnly(true);
+
+        // Populate marks data with existing marks
+        const existingMarksMap: Record<
+          string,
+          { marks: number; isAbsent: boolean }
+        > = {};
+        data.data.forEach((mark: any) => {
+          existingMarksMap[mark.studentId] = {
+            marks: mark.marksObtained || 0,
+            isAbsent: mark.isAbsent || false,
+          };
+        });
+
+        // Merge with students who don't have marks yet
+        setMarksData((prev) => {
+          const newData = { ...prev };
+          Object.keys(existingMarksMap).forEach((studentId) => {
+            newData[studentId] = existingMarksMap[studentId];
+          });
+          return newData;
+        });
+
+        toast.info(
+          "Marks already entered for this combination. Showing in read-only mode."
+        );
+      } else {
+        setExistingMarks([]);
+        setIsReadOnly(false);
+      }
+    } catch (error) {
+      console.error("Failed to fetch existing marks:", error);
+    } finally {
+      setLoadingMarks(false);
+    }
+  }, [selectedExam, selectedClass, selectedSubject, selectedSection]);
+
   useEffect(() => {
     if (status === "authenticated") {
       fetchClasses();
@@ -155,10 +227,9 @@ export default function MarksEntryPage() {
     }
   }, [status, fetchClasses, fetchExams]);
 
-  // Fetch subjects when class changes
   useEffect(() => {
     fetchSubjects();
-    setSelectedSubject(""); // Reset subject when class changes
+    setSelectedSubject("");
   }, [fetchSubjects]);
 
   useEffect(() => {
@@ -169,22 +240,57 @@ export default function MarksEntryPage() {
     }
   }, [selectedClass, selectedSection, fetchStudents]);
 
+  // Fetch existing marks when selection changes
+  useEffect(() => {
+    if (
+      selectedExam &&
+      selectedClass &&
+      selectedSubject &&
+      students.length > 0
+    ) {
+      fetchExistingMarks();
+    }
+  }, [selectedExam, selectedSubject, students.length, fetchExistingMarks]);
+
+  // Update total marks when exam changes
+  useEffect(() => {
+    const exam = exams.find((e) => e.id === selectedExam);
+    if (exam?.totalMarks) {
+      setTotalMarks(exam.totalMarks);
+    }
+  }, [selectedExam, exams]);
+
   const handleMarksChange = (studentId: string, marks: number) => {
+    if (isReadOnly) return;
     if (marks < 0) marks = 0;
     if (marks > totalMarks) marks = totalMarks;
     setMarksData((prev) => ({
       ...prev,
-      [studentId]: marks,
+      [studentId]: { ...prev[studentId], marks, isAbsent: false },
     }));
   };
 
-  const calculateGrade = (marks: number): string => {
+  const handleAbsentChange = (studentId: string, isAbsent: boolean) => {
+    if (isReadOnly) return;
+    setMarksData((prev) => ({
+      ...prev,
+      [studentId]: {
+        ...prev[studentId],
+        isAbsent,
+        marks: isAbsent ? 0 : prev[studentId]?.marks || 0,
+      },
+    }));
+  };
+
+  const calculateGrade = (marks: number, isAbsent: boolean): string => {
+    if (isAbsent) return "AB";
     const percentage = (marks / totalMarks) * 100;
     if (percentage >= 90) return "A+";
     if (percentage >= 80) return "A";
     if (percentage >= 70) return "B";
     if (percentage >= 60) return "C";
     if (percentage >= 50) return "D";
+    if (percentage >= 33) return "E";
     return "F";
   };
 
@@ -200,7 +306,9 @@ export default function MarksEntryPage() {
       case "C":
         return "warning";
       case "D":
+      case "E":
       case "F":
+      case "AB":
         return "error";
       default:
         return "default";
@@ -213,27 +321,38 @@ export default function MarksEntryPage() {
       return;
     }
 
+    if (students.length === 0) {
+      toast.error("No students to save marks for");
+      return;
+    }
+
     setSaving(true);
     try {
-      // Prepare results data
-      const results = Object.entries(marksData).map(([studentId, marks]) => ({
-        studentId,
-        examId: selectedExam,
-        subjectId: selectedSubject,
-        marksObtained: marks,
-        totalMarks,
-        grade: calculateGrade(marks),
+      // Prepare marks in the format the API expects
+      const marks = students.map((student) => ({
+        studentId: student.id,
+        marksObtained: marksData[student.id]?.isAbsent
+          ? null
+          : marksData[student.id]?.marks || 0,
+        isAbsent: marksData[student.id]?.isAbsent || false,
+        remarks: "",
       }));
 
       const response = await fetch("/api/results", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ results, bulk: true }),
+        body: JSON.stringify({
+          examId: selectedExam,
+          subjectId: selectedSubject,
+          marks,
+        }),
       });
 
       const data = await response.json();
       if (response.ok) {
-        toast.success(`Marks saved for ${results.length} students`);
+        toast.success(`Marks saved for ${marks.length} students`);
+        // Refresh to show read-only mode
+        fetchExistingMarks();
       } else {
         toast.error(data.error || "Failed to save marks");
       }
@@ -255,7 +374,7 @@ export default function MarksEntryPage() {
           alignItems="center"
           minHeight="60vh"
         >
-          <Typography>Loading...</Typography>
+          <CircularProgress />
         </Box>
       </MainLayout>
     );
@@ -275,25 +394,34 @@ export default function MarksEntryPage() {
           <Typography variant="h4" fontWeight="bold">
             Enter Marks
           </Typography>
-          <Button
-            variant="contained"
-            startIcon={<SaveIcon />}
-            onClick={handleSaveMarks}
-            disabled={
-              saving ||
-              students.length === 0 ||
-              !selectedExam ||
-              !selectedSubject
-            }
-          >
-            {saving ? "Saving..." : "Save Marks"}
-          </Button>
+          {!isReadOnly && (
+            <Button
+              variant="contained"
+              startIcon={<SaveIcon />}
+              onClick={handleSaveMarks}
+              disabled={
+                saving ||
+                students.length === 0 ||
+                !selectedExam ||
+                !selectedSubject
+              }
+            >
+              {saving ? "Saving..." : "Save Marks"}
+            </Button>
+          )}
         </Box>
 
-        <Alert severity="info" sx={{ mb: 3 }}>
-          Select class, section, exam, and subject to enter marks for students.
-          Grades are calculated automatically.
-        </Alert>
+        {isReadOnly ? (
+          <Alert severity="warning" icon={<LockIcon />} sx={{ mb: 3 }}>
+            Marks have already been entered for this exam, class, and subject
+            combination. Displaying in read-only mode.
+          </Alert>
+        ) : (
+          <Alert severity="info" sx={{ mb: 3 }}>
+            Select exam, class, section, and subject to enter marks for
+            students. Grades are calculated automatically.
+          </Alert>
+        )}
 
         {/* Selection Filters */}
         <Paper sx={{ p: 2, mb: 3 }}>
@@ -304,7 +432,11 @@ export default function MarksEntryPage() {
                 <Select
                   value={selectedExam}
                   label="Exam"
-                  onChange={(e) => setSelectedExam(e.target.value)}
+                  onChange={(e) => {
+                    setSelectedExam(e.target.value);
+                    setIsReadOnly(false);
+                    setExistingMarks([]);
+                  }}
                 >
                   <MenuItem value="">Select Exam</MenuItem>
                   {exams.map((exam) => (
@@ -325,6 +457,8 @@ export default function MarksEntryPage() {
                     setSelectedClass(e.target.value);
                     setSelectedSection("");
                     setSelectedSubject("");
+                    setIsReadOnly(false);
+                    setExistingMarks([]);
                   }}
                 >
                   <MenuItem value="">Select Class</MenuItem>
@@ -342,7 +476,11 @@ export default function MarksEntryPage() {
                 <Select
                   value={selectedSection}
                   label="Section"
-                  onChange={(e) => setSelectedSection(e.target.value)}
+                  onChange={(e) => {
+                    setSelectedSection(e.target.value);
+                    setIsReadOnly(false);
+                    setExistingMarks([]);
+                  }}
                   disabled={!selectedClass}
                 >
                   <MenuItem value="">All Sections</MenuItem>
@@ -360,7 +498,11 @@ export default function MarksEntryPage() {
                 <Select
                   value={selectedSubject}
                   label="Subject"
-                  onChange={(e) => setSelectedSubject(e.target.value)}
+                  onChange={(e) => {
+                    setSelectedSubject(e.target.value);
+                    setIsReadOnly(false);
+                    setExistingMarks([]);
+                  }}
                   disabled={!selectedClass}
                 >
                   <MenuItem value="">Select Subject</MenuItem>
@@ -379,12 +521,20 @@ export default function MarksEntryPage() {
                 label="Total Marks"
                 value={totalMarks}
                 onChange={(e) => setTotalMarks(parseInt(e.target.value) || 100)}
+                disabled={isReadOnly}
               />
             </Grid>
             <Grid size={{ xs: 12, md: 2 }}>
-              <Typography variant="body2" color="text.secondary">
-                Students: {students.length}
-              </Typography>
+              <Box>
+                <Typography variant="body2" color="text.secondary">
+                  Students: {students.length}
+                </Typography>
+                {loadingMarks && (
+                  <Typography variant="caption" color="primary">
+                    Checking existing marks...
+                  </Typography>
+                )}
+              </Box>
             </Grid>
           </Grid>
         </Paper>
@@ -392,7 +542,13 @@ export default function MarksEntryPage() {
         {/* Marks Entry Table */}
         <Paper sx={{ p: 2 }}>
           {loading ? (
-            <Box display="flex" justifyContent="center" p={4}>
+            <Box
+              display="flex"
+              justifyContent="center"
+              alignItems="center"
+              p={4}
+            >
+              <CircularProgress size={24} sx={{ mr: 2 }} />
               <Typography>Loading students...</Typography>
             </Box>
           ) : students.length === 0 ? (
@@ -406,9 +562,10 @@ export default function MarksEntryPage() {
               <Table>
                 <TableHead>
                   <TableRow>
-                    <TableCell width={80}>#</TableCell>
-                    <TableCell width={150}>Registration No</TableCell>
+                    <TableCell width={60}>#</TableCell>
+                    <TableCell width={140}>Registration No</TableCell>
                     <TableCell>Student Name</TableCell>
+                    <TableCell width={100}>Absent</TableCell>
                     <TableCell width={150}>Marks Obtained</TableCell>
                     <TableCell width={100}>Percentage</TableCell>
                     <TableCell width={100}>Grade</TableCell>
@@ -416,9 +573,18 @@ export default function MarksEntryPage() {
                 </TableHead>
                 <TableBody>
                   {students.map((student, index) => {
-                    const marks = marksData[student.id] || 0;
-                    const percentage = ((marks / totalMarks) * 100).toFixed(1);
-                    const grade = calculateGrade(marks);
+                    const studentMarks = marksData[student.id] || {
+                      marks: 0,
+                      isAbsent: false,
+                    };
+                    const percentage = studentMarks.isAbsent
+                      ? 0
+                      : (studentMarks.marks / totalMarks) * 100;
+                    const grade = calculateGrade(
+                      studentMarks.marks,
+                      studentMarks.isAbsent
+                    );
+
                     return (
                       <TableRow key={student.id}>
                         <TableCell>{index + 1}</TableCell>
@@ -427,10 +593,22 @@ export default function MarksEntryPage() {
                           {student.firstName} {student.lastName}
                         </TableCell>
                         <TableCell>
+                          <Checkbox
+                            checked={studentMarks.isAbsent}
+                            onChange={(e) =>
+                              handleAbsentChange(student.id, e.target.checked)
+                            }
+                            disabled={isReadOnly}
+                            size="small"
+                          />
+                        </TableCell>
+                        <TableCell>
                           <TextField
                             type="number"
                             size="small"
-                            value={marks}
+                            value={
+                              studentMarks.isAbsent ? "" : studentMarks.marks
+                            }
                             onChange={(e) =>
                               handleMarksChange(
                                 student.id,
@@ -438,7 +616,9 @@ export default function MarksEntryPage() {
                               )
                             }
                             inputProps={{ min: 0, max: totalMarks }}
-                            sx={{ width: 100 }}
+                            sx={{ width: 80 }}
+                            disabled={isReadOnly || studentMarks.isAbsent}
+                            placeholder={studentMarks.isAbsent ? "AB" : "0"}
                           />
                           <Typography
                             variant="caption"
@@ -448,7 +628,11 @@ export default function MarksEntryPage() {
                             / {totalMarks}
                           </Typography>
                         </TableCell>
-                        <TableCell>{percentage}%</TableCell>
+                        <TableCell>
+                          {studentMarks.isAbsent
+                            ? "-"
+                            : `${percentage.toFixed(1)}%`}
+                        </TableCell>
                         <TableCell>
                           <Chip
                             label={grade}
@@ -476,7 +660,9 @@ export default function MarksEntryPage() {
             <Chip label="B (70-79%)" color="info" size="small" />
             <Chip label="C (60-69%)" color="warning" size="small" />
             <Chip label="D (50-59%)" color="error" size="small" />
-            <Chip label="F (Below 50%)" color="error" size="small" />
+            <Chip label="E (33-49%)" color="error" size="small" />
+            <Chip label="F (Below 33%)" color="error" size="small" />
+            <Chip label="AB (Absent)" color="error" size="small" />
           </Box>
         </Paper>
       </Box>
