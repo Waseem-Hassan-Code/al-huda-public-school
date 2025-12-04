@@ -37,6 +37,7 @@ import {
   Assessment as AssessmentIcon,
   AccountBalance as AccountBalanceIcon,
   Message as MessageIcon,
+  Sync as SyncIcon,
 } from "@mui/icons-material";
 import { useRouter, usePathname } from "next/navigation";
 import { useTranslation } from "react-i18next";
@@ -239,8 +240,21 @@ export default function Sidebar() {
     {
       text: t("common.settings"),
       icon: <SettingsIcon />,
-      path: "/settings",
       permission: Permission.VIEW_SETTINGS,
+      children: [
+        {
+          text: "General Settings",
+          icon: <SettingsIcon />,
+          path: "/settings",
+          permission: Permission.VIEW_SETTINGS,
+        },
+        {
+          text: "Firebase Sync",
+          icon: <SyncIcon />,
+          path: "/settings/firebase-sync",
+          permission: Permission.VIEW_SETTINGS,
+        },
+      ],
     },
   ];
 

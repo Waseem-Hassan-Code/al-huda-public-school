@@ -29,6 +29,7 @@
     "bcryptjs": "^3.0.3",
     "clsx": "^2.1.0",
     "date-fns": "^4.1.0",
+    "firebase": "^12.6.0",
     "i18next": "^25.6.3",
     "next": "16.0.5",
     "next-auth": "^4.24.13",
@@ -49,6 +50,7 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
+    "@types/firebase": "^2.4.32",
     "@types/node": "^20",
     "@types/node-cron": "^3.0.11",
     "@types/react": "^19",
