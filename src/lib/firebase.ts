@@ -464,7 +464,9 @@ export async function syncExamsToFirebase(
         subjectName: exam.subject?.name || undefined,
         totalMarks: exam.totalMarks || 100,
         passingMarks: exam.passingMarks || 33,
-        examDate: exam.examDate ? exam.examDate.toISOString().split("T")[0] : undefined,
+        examDate: exam.examDate
+          ? exam.examDate.toISOString().split("T")[0]
+          : undefined,
         isActive: exam.isActive ?? true,
         isPublished: exam.isPublished ?? false,
         lastSyncedAt: now,
@@ -922,9 +924,7 @@ export async function deleteAllExams(): Promise<number> {
   const db = getFirestoreDb();
   try {
     const snapshot = await getDocs(collection(db, COLLECTIONS.EXAMS));
-    console.log(
-      `Found ${snapshot.docs.length} exams to delete from Firebase`
-    );
+    console.log(`Found ${snapshot.docs.length} exams to delete from Firebase`);
 
     if (snapshot.docs.length === 0) {
       console.log("No exams to delete");
