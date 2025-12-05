@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { hasPermission, Permission } from "@/lib/permissions";
 import { logTransaction } from "@/lib/transaction-log";
+import { notifyAttendanceMarked } from "@/lib/notifications";
 
 // GET - Get attendance records
 export async function GET(request: NextRequest) {
@@ -271,6 +272,35 @@ export async function POST(request: NextRequest) {
       leave: results.filter((r: any) => r.status === "LEAVE").length,
       halfDay: results.filter((r: any) => r.status === "HALF_DAY").length,
     };
+
+    // Send notification for attendance submission
+    try {
+      // Get class and section names
+      const sectionInfo = await prisma.section.findUnique({
+        where: { id: sectionId },
+        include: {
+          class: { select: { name: true } },
+        },
+      });
+
+      if (sectionInfo) {
+        await notifyAttendanceMarked(
+          sectionInfo.class.name,
+          sectionInfo.name,
+          date,
+          {
+            total: summary.total,
+            present: summary.present,
+            absent: summary.absent,
+            late: summary.late,
+          },
+          session.user.id
+        );
+      }
+    } catch (notifyError) {
+      // Don't fail the request if notification fails
+      console.error("Failed to send attendance notification:", notifyError);
+    }
 
     return NextResponse.json({
       message: "Attendance marked successfully",

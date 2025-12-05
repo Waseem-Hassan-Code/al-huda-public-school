@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { hasPermission, Permission } from "@/lib/permissions";
 import { getNextSequenceValue } from "@/lib/sequences";
 import { logCreate, logTransaction } from "@/lib/transaction-log";
+import { notifyStudentRegistered } from "@/lib/notifications";
 import { FeeStatus, FeeType } from "@prisma/client";
 
 // Blood group mapping from display format to enum format
@@ -371,6 +372,32 @@ export async function POST(request: NextRequest) {
           totalAmount: result.admissionVoucher.totalAmount,
         },
       });
+    }
+
+    // Send notification for new student registration
+    try {
+      // Get class and section names
+      const classInfo = await prisma.class.findUnique({
+        where: { id: classId },
+        select: { name: true },
+      });
+      const sectionInfo = sectionId
+        ? await prisma.section.findUnique({
+            where: { id: sectionId },
+            select: { name: true },
+          })
+        : null;
+
+      await notifyStudentRegistered(
+        `${firstName} ${lastName}`,
+        registrationNo,
+        classInfo?.name || "Unknown Class",
+        sectionInfo?.name,
+        session.user.id
+      );
+    } catch (notifyError) {
+      // Don't fail the request if notification fails
+      console.error("Failed to send registration notification:", notifyError);
     }
 
     return NextResponse.json(

@@ -65,6 +65,7 @@ export const COLLECTIONS = {
   STUDENTS: "students",
   CLASSES: "classes",
   SUBJECTS: "subjects",
+  EXAMS: "exams",
   TIMETABLE: "timetable",
   ATTENDANCE: "attendance",
   RESULTS: "results",
@@ -132,6 +133,24 @@ export interface FirebaseSubject {
   code?: string;
   classId: string;
   className: string;
+  lastSyncedAt: Timestamp;
+}
+
+export interface FirebaseExam {
+  id: string;
+  name: string;
+  examType: string;
+  classId: string;
+  className: string;
+  sectionId?: string;
+  sectionName?: string;
+  subjectId?: string;
+  subjectName?: string;
+  totalMarks: number;
+  passingMarks: number;
+  examDate?: string;
+  isActive: boolean;
+  isPublished: boolean;
   lastSyncedAt: Timestamp;
 }
 
@@ -416,6 +435,48 @@ export async function syncSubjectsToFirebase(
     }
 
     await batch.commit();
+  }
+
+  return { success, failed };
+}
+
+export async function syncExamsToFirebase(
+  exams: any[]
+): Promise<{ success: number; failed: number }> {
+  const db = getFirestoreDb();
+  let success = 0;
+  let failed = 0;
+
+  const now = Timestamp.now();
+
+  for (const exam of exams) {
+    try {
+      const examRef = doc(db, COLLECTIONS.EXAMS, exam.id);
+      const firebaseExam: FirebaseExam = {
+        id: exam.id,
+        name: exam.name || "",
+        examType: exam.examType || "MONTHLY",
+        classId: exam.classId || "",
+        className: exam.class?.name || "",
+        sectionId: exam.sectionId || undefined,
+        sectionName: exam.section?.name || undefined,
+        subjectId: exam.subjectId || undefined,
+        subjectName: exam.subject?.name || undefined,
+        totalMarks: exam.totalMarks || 100,
+        passingMarks: exam.passingMarks || 33,
+        examDate: exam.examDate ? exam.examDate.toISOString().split("T")[0] : undefined,
+        isActive: exam.isActive ?? true,
+        isPublished: exam.isPublished ?? false,
+        lastSyncedAt: now,
+      };
+
+      await setDoc(examRef, firebaseExam, { merge: true });
+      success++;
+      console.log(`Synced exam: ${exam.id} - ${exam.name}`);
+    } catch (error) {
+      console.error(`Failed to sync exam ${exam.id}:`, error);
+      failed++;
+    }
   }
 
   return { success, failed };
@@ -852,6 +913,39 @@ export async function deleteAllSubjects(): Promise<number> {
     return count;
   } catch (error) {
     console.error("Error deleting all subjects:", error);
+    throw error;
+  }
+}
+
+// Force delete ALL exams from Firebase
+export async function deleteAllExams(): Promise<number> {
+  const db = getFirestoreDb();
+  try {
+    const snapshot = await getDocs(collection(db, COLLECTIONS.EXAMS));
+    console.log(
+      `Found ${snapshot.docs.length} exams to delete from Firebase`
+    );
+
+    if (snapshot.docs.length === 0) {
+      console.log("No exams to delete");
+      return 0;
+    }
+
+    let count = 0;
+    for (const docSnap of snapshot.docs) {
+      try {
+        await deleteDoc(docSnap.ref);
+        count++;
+        console.log(`  ✓ Deleted exam ${docSnap.id}`);
+      } catch (error) {
+        console.error(`  ✗ Failed to delete exam ${docSnap.id}:`, error);
+      }
+    }
+
+    console.log(`Deleted ${count} exams`);
+    return count;
+  } catch (error) {
+    console.error("Error deleting all exams:", error);
     throw error;
   }
 }

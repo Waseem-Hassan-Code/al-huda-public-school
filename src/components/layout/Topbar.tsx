@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import {
   AppBar,
   Toolbar,
@@ -15,6 +15,14 @@ import {
   Divider,
   ListItemIcon,
   Select,
+  Popover,
+  List,
+  ListItem,
+  ListItemText,
+  ListItemAvatar,
+  Button,
+  Chip,
+  CircularProgress,
 } from "@mui/material";
 import {
   Menu as MenuIcon,
@@ -24,6 +32,12 @@ import {
   Person as PersonIcon,
   Settings as SettingsIcon,
   Translate as TranslateIcon,
+  PersonAdd as PersonAddIcon,
+  CheckCircle as CheckCircleIcon,
+  Close as CloseIcon,
+  DoneAll as DoneAllIcon,
+  School as SchoolIcon,
+  EventNote as EventNoteIcon,
 } from "@mui/icons-material";
 import { signOut } from "next-auth/react";
 import { useRouter } from "next/navigation";
@@ -56,6 +70,21 @@ interface AuthState {
   } | null;
 }
 
+interface Notification {
+  id: string;
+  type: string;
+  title: string;
+  message: string;
+  data?: any;
+  isRead: boolean;
+  createdAt: string;
+  sentBy?: {
+    id: string;
+    name: string;
+    avatar?: string;
+  };
+}
+
 export default function Topbar() {
   const router = useRouter();
   const dispatch = useAppDispatch();
@@ -67,6 +96,112 @@ export default function Topbar() {
 
   const [anchorEl, setAnchorEl] = React.useState<null | HTMLElement>(null);
   const open = Boolean(anchorEl);
+
+  // Notification state
+  const [notificationAnchor, setNotificationAnchor] =
+    useState<null | HTMLElement>(null);
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [loadingNotifications, setLoadingNotifications] = useState(false);
+  const notificationOpen = Boolean(notificationAnchor);
+
+  // Fetch notifications
+  const fetchNotifications = useCallback(async () => {
+    try {
+      setLoadingNotifications(true);
+      const res = await fetch("/api/notifications?limit=20");
+      if (res.ok) {
+        const data = await res.json();
+        setNotifications(data.notifications || []);
+        setUnreadCount(data.unreadCount || 0);
+      }
+    } catch (error) {
+      console.error("Failed to fetch notifications:", error);
+    } finally {
+      setLoadingNotifications(false);
+    }
+  }, []);
+
+  // Initial fetch and polling
+  useEffect(() => {
+    fetchNotifications();
+    // Poll every 30 seconds
+    const interval = setInterval(fetchNotifications, 30000);
+    return () => clearInterval(interval);
+  }, [fetchNotifications]);
+
+  const handleNotificationOpen = (event: React.MouseEvent<HTMLElement>) => {
+    setNotificationAnchor(event.currentTarget);
+    fetchNotifications();
+  };
+
+  const handleNotificationClose = () => {
+    setNotificationAnchor(null);
+  };
+
+  const handleMarkAsRead = async (id: string) => {
+    try {
+      await fetch(`/api/notifications/${id}`, { method: "PUT" });
+      // Remove from list after marking as read
+      setNotifications((prev) => prev.filter((n) => n.id !== id));
+      setUnreadCount((prev) => Math.max(0, prev - 1));
+    } catch (error) {
+      console.error("Failed to mark notification as read:", error);
+    }
+  };
+
+  const handleDeleteNotification = async (id: string) => {
+    try {
+      await fetch(`/api/notifications/${id}`, { method: "DELETE" });
+      setNotifications((prev) => prev.filter((n) => n.id !== id));
+      const notification = notifications.find((n) => n.id === id);
+      if (notification && !notification.isRead) {
+        setUnreadCount((prev) => Math.max(0, prev - 1));
+      }
+    } catch (error) {
+      console.error("Failed to delete notification:", error);
+    }
+  };
+
+  const handleMarkAllAsRead = async () => {
+    try {
+      await fetch("/api/notifications/read-all", { method: "POST" });
+      setNotifications([]);
+      setUnreadCount(0);
+    } catch (error) {
+      console.error("Failed to mark all as read:", error);
+    }
+  };
+
+  const getNotificationIcon = (type: string) => {
+    switch (type) {
+      case "STUDENT_REGISTERED":
+        return <PersonAddIcon sx={{ color: "#4caf50" }} />;
+      case "ATTENDANCE_MARKED":
+      case "ATTENDANCE":
+        return <EventNoteIcon sx={{ color: "#2196f3" }} />;
+      case "FEE_GENERATED":
+      case "FEE_DUE":
+        return <SchoolIcon sx={{ color: "#ff9800" }} />;
+      default:
+        return <NotificationsIcon sx={{ color: "#9e9e9e" }} />;
+    }
+  };
+
+  const formatTimeAgo = (dateString: string) => {
+    const date = new Date(dateString);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+    const diffDays = Math.floor(diffMs / 86400000);
+
+    if (diffMins < 1) return "Just now";
+    if (diffMins < 60) return `${diffMins}m ago`;
+    if (diffHours < 24) return `${diffHours}h ago`;
+    if (diffDays < 7) return `${diffDays}d ago`;
+    return date.toLocaleDateString();
+  };
 
   const handleMenuOpen = (event: React.MouseEvent<HTMLElement>) => {
     setAnchorEl(event.currentTarget);
@@ -189,8 +324,8 @@ export default function Topbar() {
 
           {/* Notifications */}
           <Tooltip title="Notifications">
-            <IconButton sx={{ color: "#fff" }}>
-              <Badge badgeContent={3} color="error">
+            <IconButton onClick={handleNotificationOpen} sx={{ color: "#fff" }}>
+              <Badge badgeContent={unreadCount} color="error">
                 <NotificationsIcon />
               </Badge>
             </IconButton>
@@ -273,6 +408,169 @@ export default function Topbar() {
           {t("common.logout")}
         </MenuItem>
       </Menu>
+
+      {/* Notifications Popover */}
+      <Popover
+        open={notificationOpen}
+        anchorEl={notificationAnchor}
+        onClose={handleNotificationClose}
+        anchorOrigin={{
+          vertical: "bottom",
+          horizontal: "right",
+        }}
+        transformOrigin={{
+          vertical: "top",
+          horizontal: "right",
+        }}
+        slotProps={{
+          paper: {
+            sx: {
+              mt: 1.5,
+              width: 380,
+              maxHeight: 500,
+              borderRadius: 2,
+              boxShadow: "0 4px 20px rgba(0,0,0,0.15)",
+            },
+          },
+        }}
+      >
+        {/* Header */}
+        <Box
+          sx={{
+            p: 2,
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            borderBottom: "1px solid",
+            borderColor: "divider",
+            position: "sticky",
+            top: 0,
+            bgcolor: "background.paper",
+            zIndex: 1,
+          }}
+        >
+          <Typography variant="h6" fontWeight={600}>
+            Notifications
+            {unreadCount > 0 && (
+              <Chip
+                label={unreadCount}
+                size="small"
+                color="error"
+                sx={{ ml: 1, height: 20, fontSize: "0.75rem" }}
+              />
+            )}
+          </Typography>
+          {notifications.length > 0 && (
+            <Tooltip title="Mark all as read & clear">
+              <IconButton size="small" onClick={handleMarkAllAsRead}>
+                <DoneAllIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          )}
+        </Box>
+
+        {/* Notification List */}
+        <Box sx={{ maxHeight: 400, overflow: "auto" }}>
+          {loadingNotifications && notifications.length === 0 ? (
+            <Box sx={{ display: "flex", justifyContent: "center", p: 4 }}>
+              <CircularProgress size={24} />
+            </Box>
+          ) : notifications.length === 0 ? (
+            <Box sx={{ textAlign: "center", py: 6, px: 2 }}>
+              <NotificationsIcon
+                sx={{ fontSize: 48, color: "text.disabled", mb: 1 }}
+              />
+              <Typography color="text.secondary">No notifications</Typography>
+            </Box>
+          ) : (
+            <List sx={{ p: 0 }}>
+              {notifications.map((notification, index) => (
+                <React.Fragment key={notification.id}>
+                  <ListItem
+                    sx={{
+                      bgcolor: notification.isRead
+                        ? "transparent"
+                        : "action.hover",
+                      "&:hover": {
+                        bgcolor: "action.selected",
+                      },
+                      alignItems: "flex-start",
+                      py: 1.5,
+                    }}
+                    secondaryAction={
+                      <IconButton
+                        edge="end"
+                        size="small"
+                        onClick={() =>
+                          handleDeleteNotification(notification.id)
+                        }
+                        sx={{ opacity: 0.6, "&:hover": { opacity: 1 } }}
+                      >
+                        <CloseIcon fontSize="small" />
+                      </IconButton>
+                    }
+                  >
+                    <ListItemAvatar sx={{ minWidth: 44 }}>
+                      <Avatar
+                        sx={{
+                          width: 36,
+                          height: 36,
+                          bgcolor: "transparent",
+                        }}
+                      >
+                        {getNotificationIcon(notification.type)}
+                      </Avatar>
+                    </ListItemAvatar>
+                    <ListItemText
+                      primary={
+                        <Typography
+                          variant="body2"
+                          fontWeight={notification.isRead ? 400 : 600}
+                          sx={{ pr: 3 }}
+                        >
+                          {notification.title}
+                        </Typography>
+                      }
+                      secondary={
+                        <Box>
+                          <Typography
+                            variant="caption"
+                            color="text.secondary"
+                            sx={{
+                              display: "-webkit-box",
+                              WebkitLineClamp: 2,
+                              WebkitBoxOrient: "vertical",
+                              overflow: "hidden",
+                            }}
+                          >
+                            {notification.message}
+                          </Typography>
+                          <Typography
+                            variant="caption"
+                            color="text.disabled"
+                            sx={{ display: "block", mt: 0.5 }}
+                          >
+                            {formatTimeAgo(notification.createdAt)}
+                          </Typography>
+                        </Box>
+                      }
+                      onClick={() => {
+                        if (!notification.isRead) {
+                          handleMarkAsRead(notification.id);
+                        }
+                      }}
+                      sx={{ cursor: "pointer" }}
+                    />
+                  </ListItem>
+                  {index < notifications.length - 1 && (
+                    <Divider variant="inset" component="li" />
+                  )}
+                </React.Fragment>
+              ))}
+            </List>
+          )}
+        </Box>
+      </Popover>
     </AppBar>
   );
 }

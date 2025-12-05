@@ -8,6 +8,7 @@ import {
   syncStudentsToFirebase,
   syncClassesToFirebase,
   syncSubjectsToFirebase,
+  syncExamsToFirebase,
   syncAttendanceFromFirebase,
   syncResultsFromFirebase,
   markAttendanceSynced,
@@ -20,6 +21,7 @@ import {
   deleteAllStudents,
   deleteAllClasses,
   deleteAllSubjects,
+  deleteAllExams,
   createSyncLog,
   updateSyncLog,
   getRecentSyncLogs,
@@ -48,12 +50,13 @@ export async function GET(request: NextRequest) {
     }
 
     // Get counts for sync preview
-    const [teacherCount, studentCount, classCount, subjectCount] =
+    const [teacherCount, studentCount, classCount, subjectCount, examCount] =
       await Promise.all([
         prisma.teacher.count({ where: { status: "ACTIVE" } }),
         prisma.student.count({ where: { status: "ACTIVE" } }),
         prisma.class.count(),
         prisma.classSubject.count(),
+        prisma.exam.count({ where: { isActive: true } }),
       ]);
 
     return NextResponse.json({
@@ -62,6 +65,7 @@ export async function GET(request: NextRequest) {
         students: studentCount,
         classes: classCount,
         subjects: subjectCount,
+        exams: examCount,
       },
     });
   } catch (error) {
@@ -95,6 +99,7 @@ export async function POST(request: NextRequest) {
       "STUDENTS",
       "CLASSES",
       "SUBJECTS",
+      "EXAMS",
       "PULL_ATTENDANCE",
       "PULL_RESULTS",
       "CLEANUP",
@@ -122,7 +127,7 @@ export async function POST(request: NextRequest) {
       switch (syncType) {
         case "FULL":
           // Sync all data to Firebase
-          const [teachers, students, classes, classSubjects] =
+          const [teachers, students, classes, classSubjects, exams] =
             await Promise.all([
               prisma.teacher.findMany({
                 where: { status: "ACTIVE" },
@@ -158,24 +163,35 @@ export async function POST(request: NextRequest) {
                   subject: true,
                 },
               }),
+              prisma.exam.findMany({
+                where: { isActive: true },
+                include: {
+                  class: true,
+                  section: true,
+                  subject: true,
+                },
+              }),
             ]);
 
           const teacherResult = await syncTeachersToFirebase(teachers);
           const studentResult = await syncStudentsToFirebase(students);
           const classResult = await syncClassesToFirebase(classes);
           const subjectResult = await syncSubjectsToFirebase(classSubjects);
+          const examResult = await syncExamsToFirebase(exams);
 
           result = {
             success:
               teacherResult.success +
               studentResult.success +
               classResult.success +
-              subjectResult.success,
+              subjectResult.success +
+              examResult.success,
             failed:
               teacherResult.failed +
               studentResult.failed +
               classResult.failed +
-              subjectResult.failed,
+              subjectResult.failed +
+              examResult.failed,
           };
           break;
 
@@ -227,6 +243,18 @@ export async function POST(request: NextRequest) {
             },
           });
           result = await syncSubjectsToFirebase(subjectsData);
+          break;
+
+        case "EXAMS":
+          const examsData = await prisma.exam.findMany({
+            where: { isActive: true },
+            include: {
+              class: true,
+              section: true,
+              subject: true,
+            },
+          });
+          result = await syncExamsToFirebase(examsData);
           break;
 
         case "PULL_ATTENDANCE":
@@ -367,6 +395,7 @@ export async function POST(request: NextRequest) {
           let deletedStudents = 0;
           let deletedClasses = 0;
           let deletedSubjects = 0;
+          let deletedExams = 0;
 
           if (resetAll) {
             // FULL RESET - Delete everything from Firebase
@@ -375,6 +404,7 @@ export async function POST(request: NextRequest) {
             deletedStudents = await deleteAllStudents();
             deletedClasses = await deleteAllClasses();
             deletedSubjects = await deleteAllSubjects();
+            deletedExams = await deleteAllExams();
             deletedAttendance = await deleteAllAttendanceRecords();
             deletedResults = await deleteAllResultRecords();
             cleanupCount =
@@ -382,6 +412,7 @@ export async function POST(request: NextRequest) {
               deletedStudents +
               deletedClasses +
               deletedSubjects +
+              deletedExams +
               deletedAttendance +
               deletedResults;
           } else if (forceDeleteAll) {
