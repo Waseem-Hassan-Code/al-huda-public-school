@@ -227,69 +227,77 @@ export async function syncTeachersToFirebase(
   let success = 0;
   let failed = 0;
 
+  console.log(`Starting sync for ${teachers.length} teachers to Firebase`);
+
   // First, get all existing teachers in one query to preserve isApproved status
   const existingTeachersMap = new Map<string, any>();
   try {
     const existingDocs = await getDocs(collection(db, COLLECTIONS.TEACHERS));
-    existingDocs.forEach((doc) => {
-      existingTeachersMap.set(doc.id, doc.data());
+    existingDocs.forEach((docSnap) => {
+      existingTeachersMap.set(docSnap.id, docSnap.data());
     });
+    console.log(
+      `Found ${existingTeachersMap.size} existing teachers in Firebase`
+    );
   } catch (error) {
     console.error("Failed to fetch existing teachers:", error);
+    throw error;
   }
 
-  // Process in batches of 500 (Firestore limit)
-  const batchSize = 500;
   const now = Timestamp.now();
 
-  for (let i = 0; i < teachers.length; i += batchSize) {
-    const batch = writeBatch(db);
-    const chunk = teachers.slice(i, i + batchSize);
+  // Process each teacher individually for better error tracking
+  for (const teacher of teachers) {
+    try {
+      const teacherRef = doc(db, COLLECTIONS.TEACHERS, teacher.id);
+      const existingData = existingTeachersMap.get(teacher.id);
+      const isApproved = existingData?.isApproved ?? false;
 
-    for (const teacher of chunk) {
-      try {
-        const teacherRef = doc(db, COLLECTIONS.TEACHERS, teacher.id);
-        const existingData = existingTeachersMap.get(teacher.id);
-        const isApproved = existingData?.isApproved ?? false;
+      // Debug: log what classes/subjects we're syncing
+      console.log(
+        `Syncing teacher ${teacher.id}: ${teacher.firstName} ${teacher.lastName}`
+      );
+      console.log(`  - Classes: ${(teacher.classSections || []).length}`);
+      console.log(`  - Subjects: ${(teacher.subjects || []).length}`);
 
-        const firebaseTeacher: FirebaseTeacher = {
-          id: teacher.id,
-          email: teacher.email || "",
-          name: `${teacher.firstName} ${teacher.lastName}`.trim(),
-          phone: teacher.phone || "",
-          employeeId: teacher.employeeId || "",
-          designation: teacher.designation || "",
-          profileImage: teacher.photo || "",
-          assignedClasses: (teacher.classSections || []).map((cs: any) => ({
-            classId: cs.class?.id || cs.classId,
-            className: cs.class?.name || "",
-            sectionId: cs.id,
-            sectionName: cs.name || "",
-          })),
-          assignedSubjects: (teacher.subjects || []).map((ts: any) => ({
-            subjectId: ts.subject?.id || ts.subjectId,
-            subjectName: ts.subject?.name || "",
-            classId: ts.class?.id || ts.classId,
-            className: ts.class?.name || "",
-          })),
-          isApproved,
-          isActive: teacher.status === "ACTIVE",
-          createdAt: existingData?.createdAt || now,
-          updatedAt: now,
-          lastSyncedAt: now,
-        };
+      const firebaseTeacher: FirebaseTeacher = {
+        id: teacher.id,
+        email: teacher.email || "",
+        name: `${teacher.firstName} ${teacher.lastName}`.trim(),
+        phone: teacher.phone || "",
+        employeeId: teacher.employeeId || "",
+        designation: teacher.designation || "",
+        profileImage: teacher.photo || "",
+        assignedClasses: (teacher.classSections || []).map((cs: any) => ({
+          classId: cs.class?.id || cs.classId || "",
+          className: cs.class?.name || "",
+          sectionId: cs.id || "",
+          sectionName: cs.name || "",
+        })),
+        assignedSubjects: (teacher.subjects || []).map((ts: any) => ({
+          subjectId: ts.subject?.id || ts.subjectId || "",
+          subjectName: ts.subject?.name || "",
+          classId: ts.class?.id || ts.classId || "",
+          className: ts.class?.name || "",
+        })),
+        isApproved,
+        isActive: teacher.status === "ACTIVE",
+        createdAt: existingData?.createdAt || now,
+        updatedAt: now,
+        lastSyncedAt: now,
+      };
 
-        batch.set(teacherRef, firebaseTeacher, { merge: true });
-        success++;
-      } catch (error) {
-        console.error(`Failed to sync teacher ${teacher.id}:`, error);
-        failed++;
-      }
+      // Use setDoc with merge to update or create
+      await setDoc(teacherRef, firebaseTeacher, { merge: true });
+      console.log(`  ✓ Successfully synced teacher ${teacher.id}`);
+      success++;
+    } catch (error) {
+      console.error(`Failed to sync teacher ${teacher.id}:`, error);
+      failed++;
     }
-
-    await batch.commit();
   }
 
+  console.log(`Sync complete: ${success} success, ${failed} failed`);
   return { success, failed };
 }
 
@@ -472,14 +480,16 @@ export async function syncAttendanceFromFirebase(): Promise<
   FirebaseAttendance[]
 > {
   const db = getFirestoreDb();
-  const q = query(
-    collection(db, COLLECTIONS.ATTENDANCE),
-    where("syncedToServer", "==", false)
-  );
-  const snapshot = await getDocs(q);
-  return snapshot.docs.map(
-    (doc) => ({ id: doc.id, ...doc.data() } as FirebaseAttendance)
-  );
+  try {
+    // Get all attendance records and filter in code to avoid composite index
+    const snapshot = await getDocs(collection(db, COLLECTIONS.ATTENDANCE));
+    return snapshot.docs
+      .map((doc) => ({ id: doc.id, ...doc.data() } as FirebaseAttendance))
+      .filter((record) => record.syncedToServer === false);
+  } catch (error) {
+    console.error("Error fetching attendance from Firebase:", error);
+    return [];
+  }
 }
 
 export async function markAttendanceSynced(
@@ -503,38 +513,67 @@ export async function deleteOldAttendanceRecords(
   const cutoffDate = new Date();
   cutoffDate.setDate(cutoffDate.getDate() - daysOld);
 
-  const q = query(
-    collection(db, COLLECTIONS.ATTENDANCE),
-    where("syncedToServer", "==", true),
-    where("createdAt", "<", Timestamp.fromDate(cutoffDate))
-  );
+  try {
+    // Get all attendance and filter in code to avoid composite index requirement
+    const snapshot = await getDocs(collection(db, COLLECTIONS.ATTENDANCE));
+    console.log(
+      `Found ${snapshot.docs.length} total attendance records in Firebase`
+    );
 
-  const snapshot = await getDocs(q);
-  const batch = writeBatch(db);
-  let count = 0;
+    const batch = writeBatch(db);
+    let count = 0;
 
-  snapshot.docs.forEach((docSnap) => {
-    batch.delete(docSnap.ref);
-    count++;
-  });
+    snapshot.docs.forEach((docSnap) => {
+      const data = docSnap.data();
+      console.log(
+        `Attendance ${docSnap.id}: syncedToServer=${
+          data.syncedToServer
+        }, createdAt=${data.createdAt?.toDate?.()}`
+      );
 
-  if (count > 0) {
-    await batch.commit();
+      // Filter: synced to server AND older than cutoff date
+      const isSynced = data.syncedToServer === true;
+      const hasCreatedAt =
+        data.createdAt && typeof data.createdAt.toDate === "function";
+      const isOldEnough = hasCreatedAt && data.createdAt.toDate() < cutoffDate;
+
+      console.log(
+        `  - isSynced: ${isSynced}, hasCreatedAt: ${hasCreatedAt}, isOldEnough: ${isOldEnough}`
+      );
+
+      if (isSynced && isOldEnough) {
+        batch.delete(docSnap.ref);
+        count++;
+      }
+    });
+
+    console.log(
+      `Deleting ${count} old attendance records (older than ${daysOld} days)`
+    );
+
+    if (count > 0) {
+      await batch.commit();
+    }
+
+    return count;
+  } catch (error) {
+    console.error("Error deleting old attendance records:", error);
+    return 0;
   }
-
-  return count;
 }
 
 export async function syncResultsFromFirebase(): Promise<FirebaseResult[]> {
   const db = getFirestoreDb();
-  const q = query(
-    collection(db, COLLECTIONS.RESULTS),
-    where("syncedToServer", "==", false)
-  );
-  const snapshot = await getDocs(q);
-  return snapshot.docs.map(
-    (doc) => ({ id: doc.id, ...doc.data() } as FirebaseResult)
-  );
+  try {
+    // Get all results and filter in code to avoid composite index
+    const snapshot = await getDocs(collection(db, COLLECTIONS.RESULTS));
+    return snapshot.docs
+      .map((doc) => ({ id: doc.id, ...doc.data() } as FirebaseResult))
+      .filter((record) => record.syncedToServer === false);
+  } catch (error) {
+    console.error("Error fetching results from Firebase:", error);
+    return [];
+  }
 }
 
 export async function markResultsSynced(resultIds: string[]): Promise<void> {
@@ -556,26 +595,34 @@ export async function deleteOldResultRecords(
   const cutoffDate = new Date();
   cutoffDate.setDate(cutoffDate.getDate() - daysOld);
 
-  const q = query(
-    collection(db, COLLECTIONS.RESULTS),
-    where("syncedToServer", "==", true),
-    where("createdAt", "<", Timestamp.fromDate(cutoffDate))
-  );
+  try {
+    // Get all results and filter in code to avoid composite index requirement
+    const snapshot = await getDocs(collection(db, COLLECTIONS.RESULTS));
+    const batch = writeBatch(db);
+    let count = 0;
 
-  const snapshot = await getDocs(q);
-  const batch = writeBatch(db);
-  let count = 0;
+    snapshot.docs.forEach((docSnap) => {
+      const data = docSnap.data();
+      // Filter: synced to server AND older than cutoff date
+      if (
+        data.syncedToServer === true &&
+        data.createdAt &&
+        data.createdAt.toDate() < cutoffDate
+      ) {
+        batch.delete(docSnap.ref);
+        count++;
+      }
+    });
 
-  snapshot.docs.forEach((docSnap) => {
-    batch.delete(docSnap.ref);
-    count++;
-  });
+    if (count > 0) {
+      await batch.commit();
+    }
 
-  if (count > 0) {
-    await batch.commit();
+    return count;
+  } catch (error) {
+    console.error("Error deleting old result records:", error);
+    return 0;
   }
-
-  return count;
 }
 
 export async function createSyncLog(log: Omit<SyncLog, "id">): Promise<string> {
@@ -605,4 +652,206 @@ export async function getRecentSyncLogs(
   return logs
     .sort((a, b) => b.startedAt.toMillis() - a.startedAt.toMillis())
     .slice(0, limit);
+}
+
+// Force delete ALL attendance records from Firebase (ignores sync status and age)
+export async function deleteAllAttendanceRecords(): Promise<number> {
+  const db = getFirestoreDb();
+  try {
+    const snapshot = await getDocs(collection(db, COLLECTIONS.ATTENDANCE));
+    console.log(
+      `Found ${snapshot.docs.length} attendance records to delete from Firebase`
+    );
+
+    if (snapshot.docs.length === 0) {
+      console.log("No attendance records to delete");
+      return 0;
+    }
+
+    let count = 0;
+
+    // Delete each document individually for better error tracking
+    for (const docSnap of snapshot.docs) {
+      try {
+        await deleteDoc(docSnap.ref);
+        count++;
+        console.log(`  ✓ Deleted attendance record ${docSnap.id}`);
+      } catch (error) {
+        console.error(`  ✗ Failed to delete attendance ${docSnap.id}:`, error);
+      }
+    }
+
+    console.log(`Deleted ${count} attendance records`);
+    return count;
+  } catch (error) {
+    console.error("Error deleting all attendance records:", error);
+    throw error;
+  }
+}
+
+// Force delete ALL result records from Firebase (ignores sync status and age)
+export async function deleteAllResultRecords(): Promise<number> {
+  const db = getFirestoreDb();
+  try {
+    const snapshot = await getDocs(collection(db, COLLECTIONS.RESULTS));
+    console.log(
+      `Found ${snapshot.docs.length} result records to delete from Firebase`
+    );
+
+    if (snapshot.docs.length === 0) {
+      console.log("No result records to delete");
+      return 0;
+    }
+
+    let count = 0;
+
+    // Delete each document individually for better error tracking
+    for (const docSnap of snapshot.docs) {
+      try {
+        await deleteDoc(docSnap.ref);
+        count++;
+        console.log(`  ✓ Deleted result record ${docSnap.id}`);
+      } catch (error) {
+        console.error(`  ✗ Failed to delete result ${docSnap.id}:`, error);
+      }
+    }
+
+    console.log(`Deleted ${count} result records`);
+    return count;
+  } catch (error) {
+    console.error("Error deleting all result records:", error);
+    throw error;
+  }
+}
+
+// Force delete ALL teachers from Firebase
+export async function deleteAllTeachers(): Promise<number> {
+  const db = getFirestoreDb();
+  try {
+    const snapshot = await getDocs(collection(db, COLLECTIONS.TEACHERS));
+    console.log(
+      `Found ${snapshot.docs.length} teachers to delete from Firebase`
+    );
+
+    if (snapshot.docs.length === 0) {
+      console.log("No teachers to delete");
+      return 0;
+    }
+
+    let count = 0;
+    for (const docSnap of snapshot.docs) {
+      try {
+        await deleteDoc(docSnap.ref);
+        count++;
+        console.log(`  ✓ Deleted teacher ${docSnap.id}`);
+      } catch (error) {
+        console.error(`  ✗ Failed to delete teacher ${docSnap.id}:`, error);
+      }
+    }
+
+    console.log(`Deleted ${count} teachers`);
+    return count;
+  } catch (error) {
+    console.error("Error deleting all teachers:", error);
+    throw error;
+  }
+}
+
+// Force delete ALL students from Firebase
+export async function deleteAllStudents(): Promise<number> {
+  const db = getFirestoreDb();
+  try {
+    const snapshot = await getDocs(collection(db, COLLECTIONS.STUDENTS));
+    console.log(
+      `Found ${snapshot.docs.length} students to delete from Firebase`
+    );
+
+    if (snapshot.docs.length === 0) {
+      console.log("No students to delete");
+      return 0;
+    }
+
+    let count = 0;
+    for (const docSnap of snapshot.docs) {
+      try {
+        await deleteDoc(docSnap.ref);
+        count++;
+        console.log(`  ✓ Deleted student ${docSnap.id}`);
+      } catch (error) {
+        console.error(`  ✗ Failed to delete student ${docSnap.id}:`, error);
+      }
+    }
+
+    console.log(`Deleted ${count} students`);
+    return count;
+  } catch (error) {
+    console.error("Error deleting all students:", error);
+    throw error;
+  }
+}
+
+// Force delete ALL classes from Firebase
+export async function deleteAllClasses(): Promise<number> {
+  const db = getFirestoreDb();
+  try {
+    const snapshot = await getDocs(collection(db, COLLECTIONS.CLASSES));
+    console.log(
+      `Found ${snapshot.docs.length} classes to delete from Firebase`
+    );
+
+    if (snapshot.docs.length === 0) {
+      console.log("No classes to delete");
+      return 0;
+    }
+
+    let count = 0;
+    for (const docSnap of snapshot.docs) {
+      try {
+        await deleteDoc(docSnap.ref);
+        count++;
+        console.log(`  ✓ Deleted class ${docSnap.id}`);
+      } catch (error) {
+        console.error(`  ✗ Failed to delete class ${docSnap.id}:`, error);
+      }
+    }
+
+    console.log(`Deleted ${count} classes`);
+    return count;
+  } catch (error) {
+    console.error("Error deleting all classes:", error);
+    throw error;
+  }
+}
+
+// Force delete ALL subjects from Firebase
+export async function deleteAllSubjects(): Promise<number> {
+  const db = getFirestoreDb();
+  try {
+    const snapshot = await getDocs(collection(db, COLLECTIONS.SUBJECTS));
+    console.log(
+      `Found ${snapshot.docs.length} subjects to delete from Firebase`
+    );
+
+    if (snapshot.docs.length === 0) {
+      console.log("No subjects to delete");
+      return 0;
+    }
+
+    let count = 0;
+    for (const docSnap of snapshot.docs) {
+      try {
+        await deleteDoc(docSnap.ref);
+        count++;
+        console.log(`  ✓ Deleted subject ${docSnap.id}`);
+      } catch (error) {
+        console.error(`  ✗ Failed to delete subject ${docSnap.id}:`, error);
+      }
+    }
+
+    console.log(`Deleted ${count} subjects`);
+    return count;
+  } catch (error) {
+    console.error("Error deleting all subjects:", error);
+    throw error;
+  }
 }

@@ -14,6 +14,12 @@ import {
   markResultsSynced,
   deleteOldAttendanceRecords,
   deleteOldResultRecords,
+  deleteAllAttendanceRecords,
+  deleteAllResultRecords,
+  deleteAllTeachers,
+  deleteAllStudents,
+  deleteAllClasses,
+  deleteAllSubjects,
   createSyncLog,
   updateSyncLog,
   getRecentSyncLogs,
@@ -352,9 +358,47 @@ export async function POST(request: NextRequest) {
         case "CLEANUP":
           // Delete old synced records from Firebase
           const daysOld = options.daysOld || 7;
-          const deletedAttendance = await deleteOldAttendanceRecords(daysOld);
-          const deletedResults = await deleteOldResultRecords(daysOld);
-          cleanupCount = deletedAttendance + deletedResults;
+          const forceDeleteAll = options.forceDeleteAll || false;
+          const resetAll = options.resetAll || false;
+
+          let deletedAttendance = 0;
+          let deletedResults = 0;
+          let deletedTeachers = 0;
+          let deletedStudents = 0;
+          let deletedClasses = 0;
+          let deletedSubjects = 0;
+
+          if (resetAll) {
+            // FULL RESET - Delete everything from Firebase
+            console.log("FULL RESET: Deleting ALL data from Firebase");
+            deletedTeachers = await deleteAllTeachers();
+            deletedStudents = await deleteAllStudents();
+            deletedClasses = await deleteAllClasses();
+            deletedSubjects = await deleteAllSubjects();
+            deletedAttendance = await deleteAllAttendanceRecords();
+            deletedResults = await deleteAllResultRecords();
+            cleanupCount =
+              deletedTeachers +
+              deletedStudents +
+              deletedClasses +
+              deletedSubjects +
+              deletedAttendance +
+              deletedResults;
+          } else if (forceDeleteAll) {
+            // Force delete ALL attendance/results records (ignores sync status and age)
+            console.log(
+              "Force deleting ALL attendance and result records from Firebase"
+            );
+            deletedAttendance = await deleteAllAttendanceRecords();
+            deletedResults = await deleteAllResultRecords();
+            cleanupCount = deletedAttendance + deletedResults;
+          } else {
+            // Delete only old synced records
+            deletedAttendance = await deleteOldAttendanceRecords(daysOld);
+            deletedResults = await deleteOldResultRecords(daysOld);
+            cleanupCount = deletedAttendance + deletedResults;
+          }
+
           result.success = cleanupCount;
           break;
       }

@@ -139,8 +139,15 @@ export default function TeachersPage() {
 
   // Get available subjects for selected class
   const getSubjectsForClass = useCallback((cls: Class | null): Subject[] => {
-    if (!cls || !cls.subjects) return [];
-    return cls.subjects.map((cs) => cs.subject);
+    if (!cls || !cls.subjects || !Array.isArray(cls.subjects)) {
+      console.log("No subjects found for class:", cls?.name, cls?.subjects);
+      return [];
+    }
+    const mappedSubjects = cls.subjects
+      .filter((cs) => cs && cs.subject)
+      .map((cs) => cs.subject);
+    console.log("Mapped subjects for class:", cls.name, mappedSubjects);
+    return mappedSubjects;
   }, []);
 
   // Update available subjects when class changes
@@ -197,6 +204,7 @@ export default function TeachersPage() {
 
       if (classesRes.ok) {
         const classesData = await classesRes.json();
+        console.log("Classes data from API:", classesData.classes);
         setClasses(classesData.classes || []);
       }
     } catch (error) {
@@ -1006,7 +1014,7 @@ export default function TeachersPage() {
               <Grid size={{ xs: 12, sm: 6 }}>
                 <Autocomplete
                   options={classes}
-                  getOptionLabel={(option) => option.name}
+                  getOptionLabel={(option) => option?.name || ""}
                   value={selectedClass}
                   onChange={(_, newValue) => setSelectedClass(newValue)}
                   renderInput={(params) => (
@@ -1027,7 +1035,9 @@ export default function TeachersPage() {
               <Grid size={{ xs: 12, sm: 6 }}>
                 <Autocomplete
                   options={availableSubjectsForClass}
-                  getOptionLabel={(option) => `${option.name} (${option.code})`}
+                  getOptionLabel={(option) =>
+                    option ? `${option.name} (${option.code || ""})` : ""
+                  }
                   disabled={!selectedClass}
                   onChange={(_, newValue) => {
                     if (newValue) {
@@ -1046,11 +1056,13 @@ export default function TeachersPage() {
                       }
                     />
                   )}
-                  renderOption={(props, option) => (
-                    <li {...props} key={option.id}>
-                      {option.name} ({option.code})
-                    </li>
-                  )}
+                  renderOption={(props, option) =>
+                    option ? (
+                      <li {...props} key={option.id}>
+                        {option.name} ({option.code || ""})
+                      </li>
+                    ) : null
+                  }
                 />
               </Grid>
 
