@@ -52,10 +52,20 @@ import {
 } from "@/lib/utils";
 import { toast } from "sonner";
 
+// Interface for section
+interface Section {
+  id: string;
+  name: string;
+  capacity?: number;
+  isActive?: boolean;
+}
+
 // Interface for class-subject assignment
 interface ClassSubjectAssignment {
   classId: string;
   className: string;
+  sectionId?: string;
+  sectionName?: string;
   subjectId: string;
   subjectName: string;
 }
@@ -96,7 +106,8 @@ interface Class {
   id: string;
   name: string;
   displayOrder?: number;
-  subjects?: { id: string; subjectId: string; subject: Subject }[];
+  sections?: Section[];
+  subjects?: Subject[];
 }
 
 export default function TeachersPage() {
@@ -118,6 +129,8 @@ export default function TeachersPage() {
     ClassSubjectAssignment[]
   >([]);
   const [selectedClass, setSelectedClass] = useState<Class | null>(null);
+  const [selectedSection, setSelectedSection] = useState<Section | null>(null);
+  const [availableSections, setAvailableSections] = useState<Section[]>([]);
   const [availableSubjectsForClass, setAvailableSubjectsForClass] = useState<
     Subject[]
   >([]);
@@ -140,21 +153,21 @@ export default function TeachersPage() {
   // Get available subjects for selected class
   const getSubjectsForClass = useCallback((cls: Class | null): Subject[] => {
     if (!cls || !cls.subjects || !Array.isArray(cls.subjects)) {
-      console.log("No subjects found for class:", cls?.name, cls?.subjects);
       return [];
     }
-    const mappedSubjects = cls.subjects
-      .filter((cs) => cs && cs.subject)
-      .map((cs) => cs.subject);
-    console.log("Mapped subjects for class:", cls.name, mappedSubjects);
-    return mappedSubjects;
+    // Return subjects directly since API already transforms them
+    return cls.subjects;
   }, []);
 
-  // Update available subjects when class changes
+  // Update available sections when class changes
   useEffect(() => {
     if (selectedClass) {
+      setAvailableSections(selectedClass.sections || []);
+      setSelectedSection(null); // Reset section when class changes
       setAvailableSubjectsForClass(getSubjectsForClass(selectedClass));
     } else {
+      setAvailableSections([]);
+      setSelectedSection(null);
       setAvailableSubjectsForClass([]);
     }
   }, [selectedClass, getSubjectsForClass]);
@@ -204,7 +217,6 @@ export default function TeachersPage() {
 
       if (classesRes.ok) {
         const classesData = await classesRes.json();
-        console.log("Classes data from API:", classesData.classes);
         setClasses(classesData.classes || []);
       }
     } catch (error) {
@@ -286,19 +298,23 @@ export default function TeachersPage() {
     setSelectedTeacher(null);
     setClassSubjectAssignments([]);
     setSelectedClass(null);
+    setSelectedSection(null);
   };
 
   // Add a class-subject assignment
   const handleAddAssignment = (subject: Subject) => {
     if (!selectedClass) return;
 
-    // Check if this assignment already exists
+    // Check if this assignment already exists (same class, section, subject)
     const exists = classSubjectAssignments.some(
-      (a) => a.classId === selectedClass.id && a.subjectId === subject.id
+      (a) =>
+        a.classId === selectedClass.id &&
+        a.subjectId === subject.id &&
+        a.sectionId === (selectedSection?.id || undefined)
     );
 
     if (exists) {
-      toast.error("This subject is already assigned for this class");
+      toast.error("This subject is already assigned for this class/section");
       return;
     }
 
@@ -307,6 +323,8 @@ export default function TeachersPage() {
       {
         classId: selectedClass.id,
         className: selectedClass.name,
+        sectionId: selectedSection?.id,
+        sectionName: selectedSection?.name,
         subjectId: subject.id,
         subjectName: subject.name,
       },
@@ -314,10 +332,19 @@ export default function TeachersPage() {
   };
 
   // Remove a class-subject assignment
-  const handleRemoveAssignment = (classId: string, subjectId: string) => {
+  const handleRemoveAssignment = (
+    classId: string,
+    subjectId: string,
+    sectionId?: string
+  ) => {
     setClassSubjectAssignments(
       classSubjectAssignments.filter(
-        (a) => !(a.classId === classId && a.subjectId === subjectId)
+        (a) =>
+          !(
+            a.classId === classId &&
+            a.subjectId === subjectId &&
+            a.sectionId === sectionId
+          )
       )
     );
   };
@@ -1006,12 +1033,12 @@ export default function TeachersPage() {
                   color="text.secondary"
                   sx={{ mb: 2 }}
                 >
-                  Select a class first, then add subjects that this teacher will
-                  teach in that class.
+                  Select a class, optionally a section, then add subjects that
+                  this teacher will teach.
                 </Typography>
               </Grid>
 
-              <Grid size={{ xs: 12, sm: 6 }}>
+              <Grid size={{ xs: 12, sm: 4 }}>
                 <Autocomplete
                   options={classes}
                   getOptionLabel={(option) => option?.name || ""}
@@ -1024,15 +1051,45 @@ export default function TeachersPage() {
                       placeholder="Search classes..."
                     />
                   )}
-                  renderOption={(props, option) => (
-                    <li {...props} key={option.id}>
-                      {option.name}
-                    </li>
-                  )}
+                  renderOption={(props, option) =>
+                    option ? (
+                      <li {...props} key={option.id}>
+                        {option.name}
+                      </li>
+                    ) : null
+                  }
                 />
               </Grid>
 
-              <Grid size={{ xs: 12, sm: 6 }}>
+              <Grid size={{ xs: 12, sm: 4 }}>
+                <Autocomplete
+                  options={availableSections}
+                  getOptionLabel={(option) => option?.name || ""}
+                  value={selectedSection}
+                  disabled={!selectedClass}
+                  onChange={(_, newValue) => setSelectedSection(newValue)}
+                  renderInput={(params) => (
+                    <TextField
+                      {...params}
+                      label="Select Section (Optional)"
+                      placeholder={
+                        selectedClass
+                          ? "Search sections..."
+                          : "Select a class first"
+                      }
+                    />
+                  )}
+                  renderOption={(props, option) =>
+                    option ? (
+                      <li {...props} key={option.id}>
+                        {option.name}
+                      </li>
+                    ) : null
+                  }
+                />
+              </Grid>
+
+              <Grid size={{ xs: 12, sm: 4 }}>
                 <Autocomplete
                   options={availableSubjectsForClass}
                   getOptionLabel={(option) =>
@@ -1087,12 +1144,19 @@ export default function TeachersPage() {
                     <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1 }}>
                       {classSubjectAssignments.map((assignment) => (
                         <Chip
-                          key={`${assignment.classId}-${assignment.subjectId}`}
-                          label={`${assignment.className} - ${assignment.subjectName}`}
+                          key={`${assignment.classId}-${
+                            assignment.sectionId || "all"
+                          }-${assignment.subjectId}`}
+                          label={`${assignment.className}${
+                            assignment.sectionName
+                              ? ` (${assignment.sectionName})`
+                              : ""
+                          } - ${assignment.subjectName}`}
                           onDelete={() =>
                             handleRemoveAssignment(
                               assignment.classId,
-                              assignment.subjectId
+                              assignment.subjectId,
+                              assignment.sectionId
                             )
                           }
                           color="primary"
