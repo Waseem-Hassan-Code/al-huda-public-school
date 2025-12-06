@@ -299,8 +299,10 @@ export async function POST(request: NextRequest) {
           details: {
             voucherNo,
             studentId: sid,
-            studentName: `${student.firstName} ${student.lastName}`,
-            registrationNo: student.registrationNo,
+            studentName: student
+              ? `${student.firstName} ${student.lastName}`
+              : "Unknown",
+            registrationNo: student?.registrationNo || "N/A",
             month: targetMonth,
             year: targetYear,
             subtotal,
