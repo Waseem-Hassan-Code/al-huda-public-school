@@ -58,6 +58,12 @@ interface Student {
   guardianRelation: string;
   guardianPhone: string;
   createdAt: string;
+  feeVouchers?: Array<{
+    month: number;
+    year: number;
+    balanceDue: number;
+    status: string;
+  }>;
 }
 
 interface ClassOption {
@@ -178,6 +184,26 @@ export default function StudentsPage() {
     }
   };
 
+  // Check if student is a defaulter (has unpaid fees older than 2 months)
+  const isDefaulter = (student: Student): boolean => {
+    if (!student.feeVouchers || student.feeVouchers.length === 0) {
+      return false;
+    }
+
+    const today = new Date();
+    const twoMonthsAgo = new Date(today.getFullYear(), today.getMonth() - 2, today.getDate());
+
+    return student.feeVouchers.some((voucher) => {
+      if (voucher.balanceDue <= 0) return false;
+      
+      // Create date from voucher month and year
+      const voucherDate = new Date(voucher.year, voucher.month - 1, 1);
+      
+      // Check if voucher is older than 2 months
+      return voucherDate < twoMonthsAgo;
+    });
+  };
+
   const columns: SimpleColumn<Student>[] = [
     {
       id: "name",
@@ -197,9 +223,23 @@ export default function StudentsPage() {
             {getInitials(row.firstName, row.lastName)}
           </Avatar>
           <Box>
-            <Typography variant="body2" fontWeight="600">
-              {row.firstName} {row.lastName}
-            </Typography>
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+              <Typography variant="body2" fontWeight="600">
+                {row.firstName} {row.lastName}
+              </Typography>
+              {isDefaulter(row) && (
+                <Chip
+                  label="Defaulter"
+                  size="small"
+                  color="error"
+                  sx={{
+                    height: "20px",
+                    fontSize: "0.65rem",
+                    fontWeight: "bold",
+                  }}
+                />
+              )}
+            </Box>
             <Typography variant="caption" color="text.secondary">
               {row.registrationNo}
             </Typography>

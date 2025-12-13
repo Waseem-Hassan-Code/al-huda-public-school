@@ -93,6 +93,17 @@ export async function GET(request: NextRequest) {
           class: true,
           section: true,
           academicYear: true,
+          feeVouchers: {
+            where: {
+              status: { in: ["UNPAID", "PARTIAL", "OVERDUE"] },
+            },
+            select: {
+              month: true,
+              year: true,
+              balanceDue: true,
+              status: true,
+            },
+          },
         },
         skip,
         take: limit,

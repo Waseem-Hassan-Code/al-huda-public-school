@@ -33,6 +33,7 @@ export async function GET(
           take: 12,
           include: {
             payments: true,
+            feeItems: true,
           },
         },
         attendance: {

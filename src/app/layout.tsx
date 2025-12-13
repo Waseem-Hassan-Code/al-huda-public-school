@@ -15,8 +15,15 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "Al-Huda Public School - Management System",
-  description: "Complete school management system for Al-Huda Public School",
+  title: "Al-Huda Public School and College Meithakheil",
+  description: "Complete school management system for Al-Huda Public School and College Meithakheil",
+  icons: {
+    icon: [
+      { url: "/SchoolLogo.png", type: "image/png" },
+    ],
+    shortcut: "/SchoolLogo.png",
+    apple: "/SchoolLogo.png",
+  },
 };
 
 export default function RootLayout({

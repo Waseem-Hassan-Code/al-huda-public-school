@@ -74,6 +74,32 @@ body {
     margin: 0;
     padding: 20px;
   }
+
+  /* Thermal printer styles for remaining balance */
+  @page {
+    size: 80mm auto;
+    margin: 0;
+  }
+
+  body * {
+    visibility: hidden;
+  }
+
+  #remaining-balance-print,
+  #remaining-balance-print *,
+  #payment-receipt-print,
+  #payment-receipt-print * {
+    visibility: visible;
+  }
+
+  #remaining-balance-print,
+  #payment-receipt-print {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 80mm;
+    max-width: 80mm;
+  }
 }
 
 /* ================================================

@@ -268,6 +268,19 @@ export default function Topbar() {
               </IconButton>
             </Tooltip>
           )}
+          {!sidebarOpen && (
+            <Typography
+              variant="h6"
+              sx={{
+                fontWeight: 600,
+                color: "#fff",
+                ml: 1,
+                display: { xs: "none", sm: "block" },
+              }}
+            >
+              Al-Huda Public School and College Meithakheil
+            </Typography>
+          )}
         </Box>
 
         {/* Center - Global Search */}

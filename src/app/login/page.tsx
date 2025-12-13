@@ -108,21 +108,20 @@ export default function LoginPage() {
         {/* Logo & Title */}
         <Box sx={{ textAlign: "center", mb: 4, position: "relative" }}>
           <Box
+            component="img"
+            src="/SchoolLogo.png"
+            alt="Al-Huda Public School and College Meithakheil"
             sx={{
-              width: 80,
-              height: 80,
-              borderRadius: "50%",
-              background: "linear-gradient(135deg, #1565c0 0%, #1976d2 100%)",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
+              width: 120,
+              height: 120,
               mx: "auto",
               mb: 2,
-              boxShadow: "0 8px 32px rgba(21, 101, 192, 0.3)",
+              borderRadius: "50%",
+              objectFit: "contain",
+              backgroundColor: "transparent",
+              display: "block",
             }}
-          >
-            <SchoolIcon sx={{ fontSize: 40, color: "#fff" }} />
-          </Box>
+          />
           <Typography
             variant="h5"
             fontWeight={700}
@@ -130,9 +129,10 @@ export default function LoginPage() {
               background: "linear-gradient(90deg, #1565c0 0%, #1976d2 100%)",
               WebkitBackgroundClip: "text",
               WebkitTextFillColor: "transparent",
+              textAlign: "center",
             }}
           >
-            Al-Huda Public School
+            Al-Huda Public School and College Meithakheil
           </Typography>
           <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
             {t("auth.loginSubtitle")}

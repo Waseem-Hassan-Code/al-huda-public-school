@@ -436,7 +436,7 @@ export default function Sidebar() {
       {/* Logo Section */}
       <Box
         sx={{
-          p: sidebarCollapsed ? 1.5 : 3,
+          p: sidebarCollapsed ? 1.5 : 2,
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
@@ -445,34 +445,57 @@ export default function Sidebar() {
         }}
       >
         {sidebarCollapsed ? (
-          <Avatar
+          <Box
+            component="img"
+            src="/SchoolLogo.png"
+            alt="Al-Huda Public School and College Meithakheil"
             sx={{
-              bgcolor: "#fff",
-              color: "#1a237e",
-              fontWeight: 700,
               width: 40,
               height: 40,
+              borderRadius: "50%",
+              objectFit: "contain",
+              backgroundColor: "transparent",
+              display: "block",
             }}
-          >
-            AH
-          </Avatar>
+          />
         ) : (
-          <Box sx={{ textAlign: "center" }}>
-            <Typography
-              variant="h6"
+          <Box sx={{ textAlign: "center", width: "100%" }}>
+            <Box
+              component="img"
+              src="/SchoolLogo.png"
+              alt="Al-Huda Public School and College Meithakheil"
               sx={{
-                fontWeight: 700,
-                background: "linear-gradient(90deg, #fff 0%, #90caf9 100%)",
-                WebkitBackgroundClip: "text",
-                WebkitTextFillColor: "transparent",
-                lineHeight: 1.2,
+                width: "100%",
+                maxWidth: 180,
+                height: 60,
+                mx: "auto",
+                mb: 1,
+                objectFit: "contain",
+                backgroundColor: "transparent",
+                display: "block",
+              }}
+            />
+            <Typography
+              variant="caption"
+              sx={{ 
+                color: "rgba(255,255,255,0.9)", 
+                display: "block",
+                fontWeight: 500,
+                fontSize: "0.7rem",
+                lineHeight: 1.3,
+                mt: 0.5,
               }}
             >
-              Al-Huda Public School
+              Al-Huda Public School and College Meithakheil
             </Typography>
             <Typography
               variant="caption"
-              sx={{ color: "rgba(255,255,255,0.7)" }}
+              sx={{ 
+                color: "rgba(255,255,255,0.6)", 
+                display: "block",
+                fontSize: "0.65rem",
+                mt: 0.5,
+              }}
             >
               Management System
             </Typography>

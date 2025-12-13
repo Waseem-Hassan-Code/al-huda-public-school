@@ -65,6 +65,7 @@ import MainLayout from "@/components/layout/MainLayout";
 import ReceivePaymentDialog from "@/components/dialogs/ReceivePaymentDialog";
 import ResultCardsTab from "@/components/students/ResultCardsTab";
 import AttendanceCalendar from "@/components/common/AttendanceCalendar";
+import RemainingBalancePrint from "@/components/students/RemainingBalancePrint";
 
 interface FeeVoucher {
   id: string;
@@ -249,6 +250,9 @@ export default function StudentProfilePage({
   const [showPaymentDialog, setShowPaymentDialog] = useState(false);
   const [paymentVoucher, setPaymentVoucher] = useState<FeeVoucher | null>(null);
 
+  // Print remaining balance state
+  const [showPrintView, setShowPrintView] = useState(false);
+
   useEffect(() => {
     fetchStudent();
   }, [id]);
@@ -332,6 +336,24 @@ export default function StudentProfilePage({
     }
   };
 
+  const handleOpenVoucherDialog = () => {
+    // Initialize feeItems with student's monthly fee
+    if (student) {
+      setFeeItems([
+        { 
+          feeType: "MONTHLY_FEE", 
+          description: "Monthly Tuition Fee", 
+          amount: student.monthlyFee || 0 
+        },
+      ]);
+    } else {
+      setFeeItems([
+        { feeType: "MONTHLY_FEE", description: "Monthly Tuition Fee", amount: 0 },
+      ]);
+    }
+    setVoucherDialogOpen(true);
+  };
+
   const addFeeItem = () => {
     setFeeItems([
       ...feeItems,
@@ -340,7 +362,10 @@ export default function StudentProfilePage({
   };
 
   const removeFeeItem = (index: number) => {
-    if (index === 0) return;
+    if (feeItems.length === 1) {
+      toast.error("At least one fee item is required");
+      return;
+    }
     setFeeItems(feeItems.filter((_, i) => i !== index));
   };
 
@@ -361,8 +386,22 @@ export default function StudentProfilePage({
   const handleGenerateVoucher = async () => {
     if (!student) return;
 
-    // Validate that there's at least some amount
-    const totalAmount = getTotalVoucherAmount();
+    // Filter out items with zero or negative amounts
+    const validFeeItems = feeItems.filter((item) => (item.amount || 0) > 0);
+
+    // Validate that there's at least one valid item
+    if (validFeeItems.length === 0) {
+      toast.error(
+        "Please add at least one fee item with amount greater than 0"
+      );
+      return;
+    }
+
+    // Validate total amount
+    const totalAmount = validFeeItems.reduce(
+      (sum, item) => sum + (item.amount || 0),
+      0
+    );
     if (totalAmount <= 0) {
       toast.error(
         "Please add at least one fee item with amount greater than 0"
@@ -379,13 +418,21 @@ export default function StudentProfilePage({
           studentId: student.id,
           month: voucherMonth,
           year: voucherYear,
-          feeItems: feeItems.filter((item) => item.amount > 0), // Send custom fee items
+          feeItems: validFeeItems, // Send only valid fee items
         }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to generate voucher");
       toast.success(data.message || "Voucher generated successfully");
       setVoucherDialogOpen(false);
+      // Reset feeItems for next time
+      setFeeItems([
+        {
+          feeType: "MONTHLY_FEE",
+          description: "Monthly Tuition Fee",
+          amount: student.monthlyFee || 0,
+        },
+      ]);
       fetchStudent();
     } catch (error: any) {
       toast.error(error.message || "Failed to generate voucher");
@@ -482,6 +529,16 @@ export default function StudentProfilePage({
     setShowPaymentDialog(false);
     setPaymentVoucher(null);
     fetchStudent();
+  };
+
+  const handlePrintRemainingBalance = () => {
+    setShowPrintView(true);
+    setTimeout(() => {
+      window.print();
+      setTimeout(() => {
+        setShowPrintView(false);
+      }, 100);
+    }, 100);
   };
 
   // Build ledger data (combined vouchers and payments)
@@ -635,6 +692,26 @@ export default function StudentProfilePage({
       currency: "PKR",
       minimumFractionDigits: 0,
     }).format(amount);
+  };
+
+  // Check if student is a defaulter (has unpaid fees older than 2 months)
+  const isDefaulter = (): boolean => {
+    if (!student?.feeVouchers || student.feeVouchers.length === 0) {
+      return false;
+    }
+
+    const today = new Date();
+    const twoMonthsAgo = new Date(today.getFullYear(), today.getMonth() - 2, today.getDate());
+
+    return student.feeVouchers.some((voucher) => {
+      if (voucher.balanceDue <= 0) return false;
+      
+      // Create date from voucher month and year
+      const voucherDate = new Date(voucher.year, voucher.month - 1, 1);
+      
+      // Check if voucher is older than 2 months
+      return voucherDate < twoMonthsAgo;
+    });
   };
 
   if (loading) {
@@ -815,9 +892,24 @@ export default function StudentProfilePage({
               </Box>
             </Grid>
             <Grid size={{ xs: 12, md: 5 }}>
-              <Typography variant="h4" fontWeight="bold" gutterBottom>
-                {student.firstName} {student.lastName}
-              </Typography>
+              <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 1 }}>
+                <Typography variant="h4" fontWeight="bold">
+                  {student.firstName} {student.lastName}
+                </Typography>
+                {isDefaulter() && (
+                  <Chip
+                    label="Defaulter"
+                    size="small"
+                    color="error"
+                    sx={{
+                      height: "28px",
+                      fontSize: "0.75rem",
+                      fontWeight: "bold",
+                      bgcolor: "rgba(255,255,255,0.95)",
+                    }}
+                  />
+                )}
+              </Box>
               <Stack
                 direction="row"
                 spacing={1}
@@ -929,7 +1021,7 @@ export default function StudentProfilePage({
                     variant="contained"
                     size="small"
                     startIcon={<Receipt />}
-                    onClick={() => setVoucherDialogOpen(true)}
+                    onClick={handleOpenVoucherDialog}
                     sx={{
                       mt: 2,
                       bgcolor: "white",
@@ -980,9 +1072,29 @@ export default function StudentProfilePage({
               sx={{ borderRadius: 3, boxShadow: "0 4px 20px rgba(0,0,0,0.08)" }}
             >
               <CardContent>
-                <Typography color="text.secondary" gutterBottom>
-                  Balance Due
-                </Typography>
+                <Box
+                  sx={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "flex-start",
+                    mb: 1,
+                  }}
+                >
+                  <Typography color="text.secondary" gutterBottom>
+                    Balance Due
+                  </Typography>
+                  {totalBalance > 0 && (
+                    <Tooltip title="Print Remaining Balance">
+                      <IconButton
+                        size="small"
+                        onClick={handlePrintRemainingBalance}
+                        sx={{ color: "primary.main" }}
+                      >
+                        <Print fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                  )}
+                </Box>
                 <Typography
                   variant="h5"
                   fontWeight="bold"
@@ -1669,7 +1781,6 @@ export default function StudentProfilePage({
                     updateFeeItem(index, "description", e.target.value)
                   }
                   sx={{ flex: 2 }}
-                  disabled={index === 0}
                 />
                 <TextField
                   size="small"
@@ -1690,7 +1801,7 @@ export default function StudentProfilePage({
                   }}
                   sx={{ flex: 1 }}
                 />
-                {index > 0 && (
+                {feeItems.length > 1 && (
                   <IconButton
                     onClick={() => removeFeeItem(index)}
                     color="error"
@@ -1924,6 +2035,23 @@ export default function StudentProfilePage({
             </Button>
           </DialogActions>
         </Dialog>
+
+        {/* Print View for Remaining Balance - Hidden until printing */}
+        {showPrintView && student && (
+          <Box sx={{ display: "none", "@media print": { display: "block" } }}>
+            <RemainingBalancePrint
+              student={{
+                registrationNo: student.registrationNo,
+                firstName: student.firstName,
+                lastName: student.lastName,
+                class: student.class,
+                section: student.section,
+              }}
+              vouchers={student.feeVouchers || []}
+              totalBalance={totalBalance}
+            />
+          </Box>
+        )}
       </Box>
     </MainLayout>
   );
