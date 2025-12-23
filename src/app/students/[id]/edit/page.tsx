@@ -20,7 +20,7 @@ import {
 import { ArrowBack as BackIcon, Save as SaveIcon } from "@mui/icons-material";
 import MainLayout from "@/components/layout/MainLayout";
 import ImageUpload from "@/components/common/ImageUpload";
-import { maskCNIC, maskPhone } from "@/lib/utils";
+import { maskCNIC, maskPhone, capitalizeFirst } from "@/lib/utils";
 import { toast } from "sonner";
 
 interface ClassOption {
@@ -145,6 +145,10 @@ export default function EditStudentPage({
     setFormData((prev) => ({ ...prev, [field]: value }));
   };
 
+  const handleClassChange = (classId: string) => {
+    setFormData((prev) => ({ ...prev, classId, sectionId: "" }));
+  };
+
   const handleSave = async () => {
     if (!formData.firstName || !formData.lastName) {
       toast.error("First name and last name are required");
@@ -153,10 +157,17 @@ export default function EditStudentPage({
 
     setSaving(true);
     try {
+      // Capitalize names before sending
+      const dataToSend = {
+        ...formData,
+        firstName: capitalizeFirst(formData.firstName),
+        lastName: capitalizeFirst(formData.lastName),
+      };
+
       const res = await fetch(`/api/students/${id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(formData),
+        body: JSON.stringify(dataToSend),
       });
 
       if (res.ok) {
@@ -423,10 +434,7 @@ export default function EditStudentPage({
                     <Select
                       value={formData.classId}
                       label="Class"
-                      onChange={(e) => {
-                        handleInputChange("classId", e.target.value);
-                        handleInputChange("sectionId", "");
-                      }}
+                      onChange={(e) => handleClassChange(e.target.value)}
                     >
                       {classes.map((cls) => (
                         <MenuItem key={cls.id} value={cls.id}>

@@ -35,7 +35,7 @@ import {
 import MainLayout from "@/components/layout/MainLayout";
 import SimpleTable, { SimpleColumn } from "@/components/common/SimpleTable";
 import StatusBadge from "@/components/common/StatusBadge";
-import { formatDate, getInitials, debounce } from "@/lib/utils";
+import { formatDate, getInitials, debounce, formatName } from "@/lib/utils";
 import { toast } from "sonner";
 import { usePermissions } from "@/hooks/usePermissions";
 import { Permission } from "@/lib/permissions";
@@ -191,14 +191,18 @@ export default function StudentsPage() {
     }
 
     const today = new Date();
-    const twoMonthsAgo = new Date(today.getFullYear(), today.getMonth() - 2, today.getDate());
+    const twoMonthsAgo = new Date(
+      today.getFullYear(),
+      today.getMonth() - 2,
+      today.getDate()
+    );
 
     return student.feeVouchers.some((voucher) => {
       if (voucher.balanceDue <= 0) return false;
-      
+
       // Create date from voucher month and year
       const voucherDate = new Date(voucher.year, voucher.month - 1, 1);
-      
+
       // Check if voucher is older than 2 months
       return voucherDate < twoMonthsAgo;
     });
@@ -225,7 +229,7 @@ export default function StudentsPage() {
           <Box>
             <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
               <Typography variant="body2" fontWeight="600">
-                {row.firstName} {row.lastName}
+                {formatName(row.firstName, row.lastName)}
               </Typography>
               {isDefaulter(row) && (
                 <Chip
@@ -501,7 +505,10 @@ export default function StudentsPage() {
           <DialogContent>
             Are you sure you want to delete student{" "}
             <strong>
-              {studentToDelete?.firstName} {studentToDelete?.lastName}
+              {formatName(
+                studentToDelete?.firstName,
+                studentToDelete?.lastName
+              )}
             </strong>
             ? This action cannot be undone.
           </DialogContent>

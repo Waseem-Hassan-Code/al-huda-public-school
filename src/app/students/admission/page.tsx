@@ -41,7 +41,13 @@ import {
 } from "@mui/icons-material";
 import MainLayout from "@/components/layout/MainLayout";
 import ImageUpload from "@/components/common/ImageUpload";
-import { formatCurrency, maskCNIC, maskPhone, isValidCNIC } from "@/lib/utils";
+import {
+  formatCurrency,
+  maskCNIC,
+  maskPhone,
+  isValidCNIC,
+  capitalizeFirst,
+} from "@/lib/utils";
 import { toast } from "sonner";
 
 const steps = [
@@ -212,7 +218,7 @@ export default function AdmissionPage() {
           amount: f.amount,
           discount: 0,
           discountReason: "",
-          selected: true,
+          selected: false,
         }));
       setFormData((prev) => ({ ...prev, fees: applicableFees }));
     }
@@ -319,6 +325,8 @@ export default function AdmissionPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           ...formData,
+          firstName: capitalizeFirst(formData.firstName),
+          lastName: capitalizeFirst(formData.lastName),
           fees: selectedFees,
         }),
       });

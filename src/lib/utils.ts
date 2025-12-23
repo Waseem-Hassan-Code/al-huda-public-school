@@ -5,6 +5,20 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
+// Capitalize first letter and lowercase the rest
+export function capitalizeFirst(str: string | null | undefined): string {
+  if (!str) return "";
+  return str.charAt(0).toUpperCase() + str.slice(1).toLowerCase();
+}
+
+// Capitalize name for display
+export function formatName(
+  firstName: string | null | undefined,
+  lastName: string | null | undefined
+): string {
+  return `${capitalizeFirst(firstName)} ${capitalizeFirst(lastName)}`.trim();
+}
+
 export function formatCurrency(amount: number): string {
   return new Intl.NumberFormat("en-PK", {
     style: "currency",
@@ -164,10 +178,6 @@ export function debounce<T extends (...args: any[]) => any>(
     if (timeout) clearTimeout(timeout);
     timeout = setTimeout(() => func(...args), wait);
   };
-}
-
-export function capitalizeFirst(str: string): string {
-  return str.charAt(0).toUpperCase() + str.slice(1).toLowerCase();
 }
 
 export function slugify(str: string): string {

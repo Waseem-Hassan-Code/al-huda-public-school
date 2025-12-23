@@ -113,71 +113,62 @@ export async function PUT(
       guardianOccupation,
       guardianAddress,
       guardianMonthlyIncome,
-      fees,
     } = body;
 
+    // Build update data object, only including defined fields
+    const updateData: Record<string, any> = {};
+
+    if (firstName !== undefined) updateData.firstName = firstName;
+    if (lastName !== undefined) updateData.lastName = lastName;
+    if (fatherName !== undefined) updateData.fatherName = fatherName;
+    if (motherName !== undefined) updateData.motherName = motherName;
+    if (dateOfBirth !== undefined)
+      updateData.dateOfBirth = dateOfBirth ? new Date(dateOfBirth) : null;
+    if (gender !== undefined) updateData.gender = gender;
+    if (cnic !== undefined) updateData.cnic = cnic;
+    if (religion !== undefined) updateData.religion = religion;
+    if (nationality !== undefined) updateData.nationality = nationality;
+    if (bloodGroup !== undefined) updateData.bloodGroup = bloodGroup || null;
+    if (address !== undefined) updateData.address = address;
+    if (city !== undefined) updateData.city = city;
+    if (phone !== undefined) updateData.phone = phone;
+    if (email !== undefined) updateData.email = email;
+    if (photo !== undefined) updateData.photo = photo;
+    if (classId !== undefined) updateData.classId = classId || null;
+    if (sectionId !== undefined) updateData.sectionId = sectionId || null;
+    if (status !== undefined) updateData.status = status;
+    if (monthlyFee !== undefined)
+      updateData.monthlyFee = parseFloat(monthlyFee) || 0;
+
+    // Guardian fields
+    if (guardianName !== undefined) updateData.guardianName = guardianName;
+    if (guardianRelation !== undefined)
+      updateData.guardianRelation = guardianRelation;
+    if (guardianCnic !== undefined) updateData.guardianCnic = guardianCnic;
+    if (guardianPhone !== undefined) updateData.guardianPhone = guardianPhone;
+    if (guardianWhatsapp !== undefined)
+      updateData.guardianWhatsapp = guardianWhatsapp;
+    if (guardianPhone2 !== undefined)
+      updateData.guardianPhone2 = guardianPhone2;
+    if (guardianEmail !== undefined) updateData.guardianEmail = guardianEmail;
+    if (guardianOccupation !== undefined)
+      updateData.guardianOccupation = guardianOccupation;
+    if (guardianAddress !== undefined)
+      updateData.guardianAddress = guardianAddress;
+    if (guardianMonthlyIncome !== undefined)
+      updateData.guardianMonthlyIncome = guardianMonthlyIncome;
+
     const result = await prisma.$transaction(async (tx: any) => {
-      // Update student with all fields including guardian info
+      // Update student with only provided fields
       const student = await tx.student.update({
         where: { id },
-        data: {
-          firstName,
-          lastName,
-          fatherName,
-          motherName,
-          dateOfBirth: dateOfBirth ? new Date(dateOfBirth) : undefined,
-          gender,
-          cnic,
-          religion,
-          nationality,
-          bloodGroup,
-          address,
-          city,
-          phone,
-          email,
-          photo,
-          classId,
-          sectionId,
-          status,
-          monthlyFee:
-            monthlyFee !== undefined ? parseFloat(monthlyFee) : undefined,
-          // Guardian fields
-          guardianName,
-          guardianRelation,
-          guardianCnic,
-          guardianPhone,
-          guardianWhatsapp,
-          guardianPhone2,
-          guardianEmail,
-          guardianOccupation,
-          guardianAddress,
-          guardianMonthlyIncome,
-        },
+        data: updateData,
         include: {
           class: true,
           section: true,
           academicYear: true,
         },
       });
-
-      // Update student fees if provided
-      if (fees && fees.length > 0) {
-        // Remove existing fees
-        await tx.studentFee.deleteMany({
-          where: { studentId: id },
-        });
-
-        // Create new fees
-        await tx.studentFee.createMany({
-          data: fees.map((fee: any) => ({
-            studentId: id,
-            feeStructureId: fee.feeStructureId,
-            amount: fee.amount,
-            discount: fee.discount || 0,
-            discountReason: fee.discountReason,
-          })),
-        });
-      }
 
       return student;
     });
