@@ -340,15 +340,19 @@ export default function StudentProfilePage({
     // Initialize feeItems with student's monthly fee
     if (student) {
       setFeeItems([
-        { 
-          feeType: "MONTHLY_FEE", 
-          description: "Monthly Tuition Fee", 
-          amount: student.monthlyFee || 0 
+        {
+          feeType: "MONTHLY_FEE",
+          description: "Monthly Tuition Fee",
+          amount: student.monthlyFee || 0,
         },
       ]);
     } else {
       setFeeItems([
-        { feeType: "MONTHLY_FEE", description: "Monthly Tuition Fee", amount: 0 },
+        {
+          feeType: "MONTHLY_FEE",
+          description: "Monthly Tuition Fee",
+          amount: 0,
+        },
       ]);
     }
     setVoucherDialogOpen(true);
@@ -701,14 +705,18 @@ export default function StudentProfilePage({
     }
 
     const today = new Date();
-    const twoMonthsAgo = new Date(today.getFullYear(), today.getMonth() - 2, today.getDate());
+    const twoMonthsAgo = new Date(
+      today.getFullYear(),
+      today.getMonth() - 2,
+      today.getDate()
+    );
 
     return student.feeVouchers.some((voucher) => {
       if (voucher.balanceDue <= 0) return false;
-      
+
       // Create date from voucher month and year
       const voucherDate = new Date(voucher.year, voucher.month - 1, 1);
-      
+
       // Check if voucher is older than 2 months
       return voucherDate < twoMonthsAgo;
     });
@@ -892,7 +900,9 @@ export default function StudentProfilePage({
               </Box>
             </Grid>
             <Grid size={{ xs: 12, md: 5 }}>
-              <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 1 }}>
+              <Box
+                sx={{ display: "flex", alignItems: "center", gap: 1, mb: 1 }}
+              >
                 <Typography variant="h4" fontWeight="bold">
                   {student.firstName} {student.lastName}
                 </Typography>
@@ -2038,7 +2048,20 @@ export default function StudentProfilePage({
 
         {/* Print View for Remaining Balance - Hidden until printing */}
         {showPrintView && student && (
-          <Box sx={{ display: "none", "@media print": { display: "block" } }}>
+          <Box
+            className="print-only"
+            sx={{
+              position: "fixed",
+              left: "-9999px",
+              top: 0,
+              "@media print": {
+                position: "static",
+                left: "auto",
+                width: "100%",
+                background: "white",
+              },
+            }}
+          >
             <RemainingBalancePrint
               student={{
                 registrationNo: student.registrationNo,

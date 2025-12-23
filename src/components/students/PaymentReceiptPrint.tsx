@@ -137,7 +137,7 @@ export default function PaymentReceiptPrint({
             >
               PAID
             </Typography>
-            
+
             {/* Date below PAID */}
             <Typography
               sx={{
@@ -177,7 +177,7 @@ export default function PaymentReceiptPrint({
         >
           Al-Huda Public School and College Meithakheil
         </Typography>
-        
+
         <Typography
           variant="body2"
           sx={{
@@ -196,9 +196,9 @@ export default function PaymentReceiptPrint({
 
       {/* Student Info */}
       <Box sx={{ mb: 2 }}>
-        <Typography 
-          sx={{ 
-            fontWeight: "bold", 
+        <Typography
+          sx={{
+            fontWeight: "bold",
             mb: 1,
             fontSize: "11px",
             textTransform: "uppercase",
@@ -226,7 +226,8 @@ export default function PaymentReceiptPrint({
           {student.firstName} {student.lastName}
           {student.class && (
             <>
-              {" "}({student.class.name}
+              {" "}
+              ({student.class.name}
               {student.section && ` - ${student.section.name}`})
             </>
           )}
@@ -265,39 +266,43 @@ export default function PaymentReceiptPrint({
         >
           Receipt Details
         </Typography>
-        
+
         <Box sx={{ display: "flex", justifyContent: "space-between", mb: 0.5 }}>
           <Typography sx={{ fontSize: "10px" }}>Receipt No:</Typography>
           <Typography sx={{ fontSize: "10px", fontWeight: "bold" }}>
             {payment.receiptNo}
           </Typography>
         </Box>
-        
+
         <Box sx={{ display: "flex", justifyContent: "space-between", mb: 0.5 }}>
           <Typography sx={{ fontSize: "10px" }}>Date:</Typography>
           <Typography sx={{ fontSize: "10px" }}>
             {formatDate(payment.paymentDate)}
           </Typography>
         </Box>
-        
+
         <Box sx={{ display: "flex", justifyContent: "space-between", mb: 0.5 }}>
           <Typography sx={{ fontSize: "10px" }}>Voucher No:</Typography>
           <Typography sx={{ fontSize: "10px", fontWeight: "bold" }}>
             {voucher.voucherNo}
           </Typography>
         </Box>
-        
+
         <Box sx={{ display: "flex", justifyContent: "space-between", mb: 0.5 }}>
           <Typography sx={{ fontSize: "10px" }}>Payment Method:</Typography>
           <Typography sx={{ fontSize: "10px" }}>
             {payment.paymentMethod.replace("_", " ")}
           </Typography>
         </Box>
-        
+
         {payment.reference && (
-          <Box sx={{ display: "flex", justifyContent: "space-between", mb: 0.5 }}>
+          <Box
+            sx={{ display: "flex", justifyContent: "space-between", mb: 0.5 }}
+          >
             <Typography sx={{ fontSize: "10px" }}>Reference:</Typography>
-            <Typography sx={{ fontSize: "10px" }}>{payment.reference}</Typography>
+            <Typography sx={{ fontSize: "10px" }}>
+              {payment.reference}
+            </Typography>
           </Box>
         )}
       </Box>
@@ -319,7 +324,7 @@ export default function PaymentReceiptPrint({
         >
           Payment Summary
         </Typography>
-        
+
         <Box
           sx={{
             display: "flex",
@@ -332,11 +337,13 @@ export default function PaymentReceiptPrint({
           <Typography sx={{ fontSize: "11px", fontWeight: "bold" }}>
             Amount Paid:
           </Typography>
-          <Typography sx={{ fontSize: "11px", fontWeight: "bold", color: "#2e7d32" }}>
+          <Typography
+            sx={{ fontSize: "11px", fontWeight: "bold", color: "#2e7d32" }}
+          >
             {formatCurrency(payment.amount)}
           </Typography>
         </Box>
-        
+
         <Box
           sx={{
             display: "flex",
@@ -378,4 +385,3 @@ export default function PaymentReceiptPrint({
     </Box>
   );
 }
-

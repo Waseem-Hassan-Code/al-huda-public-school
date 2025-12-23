@@ -55,7 +55,8 @@ export default function RemainingBalancePrint({
 }: RemainingBalancePrintProps) {
   // Filter only unpaid and partial vouchers
   const remainingVouchers = vouchers.filter(
-    (v) => v.status === "UNPAID" || v.status === "PARTIAL" || v.status === "OVERDUE"
+    (v) =>
+      v.status === "UNPAID" || v.status === "PARTIAL" || v.status === "OVERDUE"
   );
 
   if (remainingVouchers.length === 0) {
@@ -114,7 +115,7 @@ export default function RemainingBalancePrint({
         >
           Al-Huda Public School and College Meithakheil
         </Typography>
-        
+
         <Typography
           variant="body2"
           sx={{
@@ -133,9 +134,9 @@ export default function RemainingBalancePrint({
 
       {/* Student Info */}
       <Box sx={{ mb: 2 }}>
-        <Typography 
-          sx={{ 
-            fontWeight: "bold", 
+        <Typography
+          sx={{
+            fontWeight: "bold",
             mb: 1,
             fontSize: "11px",
             textTransform: "uppercase",
@@ -163,7 +164,8 @@ export default function RemainingBalancePrint({
           {student.firstName} {student.lastName}
           {student.class && (
             <>
-              {" "}({student.class.name}
+              {" "}
+              ({student.class.name}
               {student.section && ` - ${student.section.name}`})
             </>
           )}
@@ -222,10 +224,15 @@ export default function RemainingBalancePrint({
             sx={{
               mb: 1.5,
               pb: 1,
-              borderBottom: index < remainingVouchers.length - 1 ? "1px dashed #ccc" : "none",
+              borderBottom:
+                index < remainingVouchers.length - 1
+                  ? "1px dashed #ccc"
+                  : "none",
             }}
           >
-            <Box sx={{ display: "flex", justifyContent: "space-between", mb: 0.5 }}>
+            <Box
+              sx={{ display: "flex", justifyContent: "space-between", mb: 0.5 }}
+            >
               <Typography sx={{ fontWeight: "bold", fontSize: "11px" }}>
                 {voucher.voucherNo}
               </Typography>
@@ -244,7 +251,9 @@ export default function RemainingBalancePrint({
               </Box>
             )}
 
-            <Box sx={{ display: "flex", justifyContent: "space-between", mt: 0.5 }}>
+            <Box
+              sx={{ display: "flex", justifyContent: "space-between", mt: 0.5 }}
+            >
               <Typography sx={{ fontSize: "10px" }}>
                 Due: {formatDate(voucher.dueDate)}
               </Typography>
@@ -253,7 +262,9 @@ export default function RemainingBalancePrint({
               </Typography>
             </Box>
 
-            <Box sx={{ display: "flex", justifyContent: "space-between", mt: 0.5 }}>
+            <Box
+              sx={{ display: "flex", justifyContent: "space-between", mt: 0.5 }}
+            >
               <Typography sx={{ fontSize: "10px" }}>
                 Total: {formatCurrency(voucher.totalAmount)}
               </Typography>
@@ -343,7 +354,7 @@ export default function RemainingBalancePrint({
             >
               UNPAID
             </Typography>
-            
+
             {/* Date below UNPAID */}
             <Typography
               sx={{
@@ -421,4 +432,3 @@ export default function RemainingBalancePrint({
     </Box>
   );
 }
-
