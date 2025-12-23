@@ -87,6 +87,37 @@ export default function DashboardPage() {
     }
   }, [status, router]);
 
+  // Auto-check and generate fee vouchers if needed (runs once on dashboard load)
+  useEffect(() => {
+    const checkAndGenerateFeeVouchers = async () => {
+      try {
+        // First check if generation is needed
+        const checkResponse = await fetch("/api/cron/auto-check");
+        if (checkResponse.ok) {
+          const checkData = await checkResponse.json();
+          if (checkData.needsGeneration) {
+            console.log(
+              "[Dashboard] Fee vouchers need generation, triggering..."
+            );
+            // Trigger generation
+            await fetch("/api/cron/auto-check", { method: "POST" });
+            console.log("[Dashboard] Fee voucher generation triggered");
+          }
+        }
+      } catch (error) {
+        // Silently fail - this is a background task
+        console.error("[Dashboard] Auto fee check failed:", error);
+      }
+    };
+
+    if (
+      status === "authenticated" &&
+      (session?.user?.role === "SUPER_ADMIN" || session?.user?.role === "ADMIN")
+    ) {
+      checkAndGenerateFeeVouchers();
+    }
+  }, [status, session?.user?.role]);
+
   useEffect(() => {
     const fetchDashboardData = async () => {
       try {
