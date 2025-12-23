@@ -89,14 +89,14 @@ export default function RemainingBalancePrint({
         padding: "10px",
         fontFamily: "monospace",
         fontSize: "14px",
-        lineHeight: "1.5",
+        lineHeight: "1.6",
         fontWeight: 600,
         "@media print": {
           width: "80mm",
           maxWidth: "80mm",
           margin: 0,
-          padding: "2mm",
-          fontSize: "16px",
+          padding: "1mm",
+          fontSize: "20px",
           fontWeight: 700,
         },
       }}
@@ -111,7 +111,7 @@ export default function RemainingBalancePrint({
             mb: 1,
             textTransform: "uppercase",
             "@media print": {
-              fontSize: "18px",
+              fontSize: "22px",
               fontWeight: 800,
             },
           }}
@@ -122,11 +122,11 @@ export default function RemainingBalancePrint({
         <Typography
           variant="body2"
           sx={{
-            fontSize: "11px",
+            fontSize: "14px",
             mb: 1,
             fontWeight: "bold",
             "@media print": {
-              fontSize: "10px",
+              fontSize: "16px",
             },
           }}
         >
@@ -141,11 +141,11 @@ export default function RemainingBalancePrint({
           sx={{
             fontWeight: "bold",
             mb: 1,
-            fontSize: "11px",
+            fontSize: "14px",
             textTransform: "uppercase",
             letterSpacing: "0.5px",
             "@media print": {
-              fontSize: "10px",
+              fontSize: "16px",
             },
           }}
         >
@@ -153,13 +153,13 @@ export default function RemainingBalancePrint({
         </Typography>
         <Typography
           sx={{
-            fontSize: "13px",
+            fontSize: "15px",
             fontWeight: "bold",
             mb: 0.8,
             fontFamily: "Arial, sans-serif",
             letterSpacing: "0.3px",
             "@media print": {
-              fontSize: "12px",
+              fontSize: "18px",
               fontFamily: "Arial, sans-serif",
             },
           }}
@@ -175,13 +175,13 @@ export default function RemainingBalancePrint({
         </Typography>
         <Typography
           sx={{
-            fontSize: "11px",
+            fontSize: "14px",
             fontWeight: 600,
             fontFamily: "Arial, sans-serif",
             letterSpacing: "0.5px",
             color: "#333",
             "@media print": {
-              fontSize: "10px",
+              fontSize: "16px",
               color: "#000",
             },
           }}
@@ -194,7 +194,9 @@ export default function RemainingBalancePrint({
 
       {/* Date */}
       <Box sx={{ mb: 2, textAlign: "center" }}>
-        <Typography sx={{ fontSize: "10px" }}>
+        <Typography
+          sx={{ fontSize: "14px", "@media print": { fontSize: "16px" } }}
+        >
           {new Date().toLocaleDateString("en-PK", {
             weekday: "short",
             year: "numeric",
@@ -236,10 +238,18 @@ export default function RemainingBalancePrint({
             <Box
               sx={{ display: "flex", justifyContent: "space-between", mb: 0.5 }}
             >
-              <Typography sx={{ fontWeight: "bold", fontSize: "11px" }}>
+              <Typography
+                sx={{
+                  fontWeight: "bold",
+                  fontSize: "14px",
+                  "@media print": { fontSize: "16px" },
+                }}
+              >
                 {voucher.voucherNo}
               </Typography>
-              <Typography sx={{ fontSize: "11px" }}>
+              <Typography
+                sx={{ fontSize: "14px", "@media print": { fontSize: "16px" } }}
+              >
                 {monthNames[voucher.month - 1]} {voucher.year}
               </Typography>
             </Box>
@@ -247,7 +257,13 @@ export default function RemainingBalancePrint({
             {voucher.feeItems && voucher.feeItems.length > 0 && (
               <Box sx={{ ml: 1, mb: 0.5 }}>
                 {voucher.feeItems.map((item, idx) => (
-                  <Typography key={idx} sx={{ fontSize: "10px" }}>
+                  <Typography
+                    key={idx}
+                    sx={{
+                      fontSize: "13px",
+                      "@media print": { fontSize: "15px" },
+                    }}
+                  >
                     • {item.description}: {formatCurrency(item.amount)}
                   </Typography>
                 ))}
@@ -342,14 +358,14 @@ export default function RemainingBalancePrint({
             {/* UNPAID Text */}
             <Typography
               sx={{
-                fontSize: "10px",
+                fontSize: "14px",
                 fontWeight: "bold",
                 color: "#d32f2f",
                 textTransform: "uppercase",
                 letterSpacing: "1.5px",
                 lineHeight: 1.2,
                 "@media print": {
-                  fontSize: "9px",
+                  fontSize: "16px",
                   color: "#000",
                   letterSpacing: "1px",
                 },
@@ -361,12 +377,12 @@ export default function RemainingBalancePrint({
             {/* Date below UNPAID */}
             <Typography
               sx={{
-                fontSize: "6px",
+                fontSize: "10px",
                 color: "#666",
                 mt: 0.3,
                 fontWeight: 500,
                 "@media print": {
-                  fontSize: "5px",
+                  fontSize: "12px",
                   color: "#000",
                 },
               }}
@@ -397,11 +413,11 @@ export default function RemainingBalancePrint({
         <Typography
           sx={{
             fontWeight: "bold",
-            fontSize: "13px",
+            fontSize: "16px",
             mb: 0.5,
             textTransform: "uppercase",
             "@media print": {
-              fontSize: "12px",
+              fontSize: "18px",
             },
           }}
         >
@@ -410,10 +426,10 @@ export default function RemainingBalancePrint({
         <Typography
           sx={{
             fontWeight: "bold",
-            fontSize: "18px",
+            fontSize: "22px",
             color: "error.main",
             "@media print": {
-              fontSize: "16px",
+              fontSize: "24px",
               color: "#000",
             },
           }}
@@ -425,10 +441,23 @@ export default function RemainingBalancePrint({
       {/* Footer */}
       <Box sx={{ mt: 3, textAlign: "center" }}>
         <Divider sx={{ my: 1 }} />
-        <Typography sx={{ fontSize: "9px", color: "#666" }}>
+        <Typography
+          sx={{
+            fontSize: "12px",
+            color: "#666",
+            "@media print": { fontSize: "14px" },
+          }}
+        >
           Thank you for your attention
         </Typography>
-        <Typography sx={{ fontSize: "9px", color: "#666", mt: 0.5 }}>
+        <Typography
+          sx={{
+            fontSize: "12px",
+            color: "#666",
+            mt: 0.5,
+            "@media print": { fontSize: "14px" },
+          }}
+        >
           Please clear dues at your earliest convenience
         </Typography>
       </Box>

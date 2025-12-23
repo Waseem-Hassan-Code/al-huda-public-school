@@ -100,10 +100,10 @@ body {
     width: 80mm !important;
     height: auto !important;
     margin: 0 !important;
-    padding: 2mm !important;
+    padding: 1mm !important;
     background: white !important;
     z-index: 999999 !important;
-    font-size: 16px !important;
+    font-size: 20px !important;
     font-weight: 700 !important;
   }
 

@@ -17,6 +17,7 @@ interface CreateNotificationOptions {
  * If roles is provided, notify all users with those roles
  * If neither is provided, notify all admins
  */
+
 export async function createNotification(
   options: CreateNotificationOptions
 ): Promise<number> {

@@ -69,14 +69,14 @@ export default function PaymentReceiptPrint({
         padding: "10px",
         fontFamily: "monospace",
         fontSize: "14px",
-        lineHeight: "1.5",
+        lineHeight: "1.6",
         fontWeight: 600,
         "@media print": {
           width: "80mm",
           maxWidth: "80mm",
           margin: 0,
-          padding: "2mm",
-          fontSize: "16px",
+          padding: "1mm",
+          fontSize: "20px",
           fontWeight: 700,
         },
       }}
@@ -143,12 +143,12 @@ export default function PaymentReceiptPrint({
             {/* Date below PAID */}
             <Typography
               sx={{
-                fontSize: "8px",
+                fontSize: "10px",
                 color: "#666",
                 mt: 0.5,
                 fontWeight: 500,
                 "@media print": {
-                  fontSize: "7px",
+                  fontSize: "12px",
                   color: "#000",
                 },
               }}
@@ -168,12 +168,12 @@ export default function PaymentReceiptPrint({
         {/* School Name */}
         <Typography
           sx={{
-            fontSize: "13px",
+            fontSize: "16px",
             fontWeight: "bold",
             mb: 1,
             textTransform: "uppercase",
             "@media print": {
-              fontSize: "12px",
+              fontSize: "20px",
             },
           }}
         >
@@ -183,11 +183,11 @@ export default function PaymentReceiptPrint({
         <Typography
           variant="body2"
           sx={{
-            fontSize: "11px",
+            fontSize: "14px",
             mb: 1,
             fontWeight: "bold",
             "@media print": {
-              fontSize: "10px",
+              fontSize: "16px",
             },
           }}
         >
@@ -202,11 +202,11 @@ export default function PaymentReceiptPrint({
           sx={{
             fontWeight: "bold",
             mb: 1,
-            fontSize: "11px",
+            fontSize: "14px",
             textTransform: "uppercase",
             letterSpacing: "0.5px",
             "@media print": {
-              fontSize: "10px",
+              fontSize: "16px",
             },
           }}
         >
@@ -214,13 +214,13 @@ export default function PaymentReceiptPrint({
         </Typography>
         <Typography
           sx={{
-            fontSize: "13px",
+            fontSize: "15px",
             fontWeight: "bold",
             mb: 0.8,
             fontFamily: "Arial, sans-serif",
             letterSpacing: "0.3px",
             "@media print": {
-              fontSize: "12px",
+              fontSize: "18px",
               fontFamily: "Arial, sans-serif",
             },
           }}
@@ -236,13 +236,13 @@ export default function PaymentReceiptPrint({
         </Typography>
         <Typography
           sx={{
-            fontSize: "11px",
+            fontSize: "14px",
             fontWeight: 600,
             fontFamily: "Arial, sans-serif",
             letterSpacing: "0.5px",
             color: "#333",
             "@media print": {
-              fontSize: "10px",
+              fontSize: "16px",
               color: "#000",
             },
           }}
@@ -259,10 +259,10 @@ export default function PaymentReceiptPrint({
           sx={{
             fontWeight: "bold",
             mb: 1,
-            fontSize: "11px",
+            fontSize: "14px",
             textTransform: "uppercase",
             "@media print": {
-              fontSize: "10px",
+              fontSize: "16px",
             },
           }}
         >
@@ -270,29 +270,61 @@ export default function PaymentReceiptPrint({
         </Typography>
 
         <Box sx={{ display: "flex", justifyContent: "space-between", mb: 0.5 }}>
-          <Typography sx={{ fontSize: "10px" }}>Receipt No:</Typography>
-          <Typography sx={{ fontSize: "10px", fontWeight: "bold" }}>
+          <Typography
+            sx={{ fontSize: "13px", "@media print": { fontSize: "15px" } }}
+          >
+            Receipt No:
+          </Typography>
+          <Typography
+            sx={{
+              fontSize: "13px",
+              fontWeight: "bold",
+              "@media print": { fontSize: "15px" },
+            }}
+          >
             {payment.receiptNo}
           </Typography>
         </Box>
 
         <Box sx={{ display: "flex", justifyContent: "space-between", mb: 0.5 }}>
-          <Typography sx={{ fontSize: "10px" }}>Date:</Typography>
-          <Typography sx={{ fontSize: "10px" }}>
+          <Typography
+            sx={{ fontSize: "13px", "@media print": { fontSize: "15px" } }}
+          >
+            Date:
+          </Typography>
+          <Typography
+            sx={{ fontSize: "13px", "@media print": { fontSize: "15px" } }}
+          >
             {formatDate(payment.paymentDate)}
           </Typography>
         </Box>
 
         <Box sx={{ display: "flex", justifyContent: "space-between", mb: 0.5 }}>
-          <Typography sx={{ fontSize: "10px" }}>Voucher No:</Typography>
-          <Typography sx={{ fontSize: "10px", fontWeight: "bold" }}>
+          <Typography
+            sx={{ fontSize: "13px", "@media print": { fontSize: "15px" } }}
+          >
+            Voucher No:
+          </Typography>
+          <Typography
+            sx={{
+              fontSize: "13px",
+              fontWeight: "bold",
+              "@media print": { fontSize: "15px" },
+            }}
+          >
             {voucher.voucherNo}
           </Typography>
         </Box>
 
         <Box sx={{ display: "flex", justifyContent: "space-between", mb: 0.5 }}>
-          <Typography sx={{ fontSize: "10px" }}>Payment Method:</Typography>
-          <Typography sx={{ fontSize: "10px" }}>
+          <Typography
+            sx={{ fontSize: "13px", "@media print": { fontSize: "15px" } }}
+          >
+            Payment Method:
+          </Typography>
+          <Typography
+            sx={{ fontSize: "13px", "@media print": { fontSize: "15px" } }}
+          >
             {payment.paymentMethod.replace("_", " ")}
           </Typography>
         </Box>
@@ -301,8 +333,14 @@ export default function PaymentReceiptPrint({
           <Box
             sx={{ display: "flex", justifyContent: "space-between", mb: 0.5 }}
           >
-            <Typography sx={{ fontSize: "10px" }}>Reference:</Typography>
-            <Typography sx={{ fontSize: "10px" }}>
+            <Typography
+              sx={{ fontSize: "13px", "@media print": { fontSize: "15px" } }}
+            >
+              Reference:
+            </Typography>
+            <Typography
+              sx={{ fontSize: "13px", "@media print": { fontSize: "15px" } }}
+            >
               {payment.reference}
             </Typography>
           </Box>
@@ -317,10 +355,10 @@ export default function PaymentReceiptPrint({
           sx={{
             fontWeight: "bold",
             mb: 1,
-            fontSize: "11px",
+            fontSize: "14px",
             textTransform: "uppercase",
             "@media print": {
-              fontSize: "10px",
+              fontSize: "16px",
             },
           }}
         >
@@ -336,11 +374,22 @@ export default function PaymentReceiptPrint({
             borderTop: "1px solid #ddd",
           }}
         >
-          <Typography sx={{ fontSize: "11px", fontWeight: "bold" }}>
+          <Typography
+            sx={{
+              fontSize: "14px",
+              fontWeight: "bold",
+              "@media print": { fontSize: "16px" },
+            }}
+          >
             Amount Paid:
           </Typography>
           <Typography
-            sx={{ fontSize: "11px", fontWeight: "bold", color: "#2e7d32" }}
+            sx={{
+              fontSize: "14px",
+              fontWeight: "bold",
+              color: "#2e7d32",
+              "@media print": { fontSize: "16px" },
+            }}
           >
             {formatCurrency(payment.amount)}
           </Typography>
@@ -355,15 +404,22 @@ export default function PaymentReceiptPrint({
             borderTop: "1px solid #ddd",
           }}
         >
-          <Typography sx={{ fontSize: "11px", fontWeight: "bold" }}>
+          <Typography
+            sx={{
+              fontSize: "14px",
+              fontWeight: "bold",
+              "@media print": { fontSize: "16px" },
+            }}
+          >
             Balance Remaining:
           </Typography>
           <Typography
             sx={{
-              fontSize: "11px",
+              fontSize: "14px",
               fontWeight: "bold",
               color: balanceRemaining > 0 ? "#d32f2f" : "#2e7d32",
               "@media print": {
+                fontSize: "16px",
                 color: balanceRemaining > 0 ? "#000" : "#000",
               },
             }}
@@ -377,10 +433,23 @@ export default function PaymentReceiptPrint({
 
       {/* Footer */}
       <Box sx={{ mt: 3, textAlign: "center" }}>
-        <Typography sx={{ fontSize: "9px", color: "#666" }}>
+        <Typography
+          sx={{
+            fontSize: "12px",
+            color: "#666",
+            "@media print": { fontSize: "14px" },
+          }}
+        >
           Thank you for your payment
         </Typography>
-        <Typography sx={{ fontSize: "9px", color: "#666", mt: 0.5 }}>
+        <Typography
+          sx={{
+            fontSize: "12px",
+            color: "#666",
+            mt: 0.5,
+            "@media print": { fontSize: "14px" },
+          }}
+        >
           Please keep this receipt for your records
         </Typography>
       </Box>
