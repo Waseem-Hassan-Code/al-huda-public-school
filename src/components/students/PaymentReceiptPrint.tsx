@@ -68,14 +68,16 @@ export default function PaymentReceiptPrint({
         margin: "0 auto",
         padding: "10px",
         fontFamily: "monospace",
-        fontSize: "12px",
-        lineHeight: "1.4",
+        fontSize: "14px",
+        lineHeight: "1.5",
+        fontWeight: 600,
         "@media print": {
           width: "80mm",
           maxWidth: "80mm",
           margin: 0,
-          padding: "5mm",
-          fontSize: "11px",
+          padding: "2mm",
+          fontSize: "16px",
+          fontWeight: 700,
         },
       }}
     >
