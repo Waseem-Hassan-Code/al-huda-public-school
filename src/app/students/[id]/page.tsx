@@ -59,6 +59,7 @@ import {
   AccountBalanceWallet,
   FamilyRestroom,
   OpenInNew,
+  Email as EmailIcon,
 } from "@mui/icons-material";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
@@ -252,10 +253,13 @@ export default function StudentProfilePage({
 
   const [editingPhoto, setEditingPhoto] = useState(false);
   const [editingFee, setEditingFee] = useState(false);
+  const [editingEmail, setEditingEmail] = useState(false);
   const [tempPhoto, setTempPhoto] = useState<string | null>(null);
   const [tempFee, setTempFee] = useState<string>("");
+  const [tempEmail, setTempEmail] = useState<string>("");
   const [savingPhoto, setSavingPhoto] = useState(false);
   const [savingFee, setSavingFee] = useState(false);
+  const [savingEmail, setSavingEmail] = useState(false);
 
   const [voucherDialogOpen, setVoucherDialogOpen] = useState(false);
   const [voucherMonth, setVoucherMonth] = useState(new Date().getMonth() + 1);
@@ -295,6 +299,7 @@ export default function StudentProfilePage({
     if (student) {
       setTempPhoto(student.photo || null);
       setTempFee(student.monthlyFee?.toString() || "0");
+      setTempEmail(student.email || "");
       setFeeItems([
         {
           feeType: "MONTHLY_FEE",
@@ -341,6 +346,26 @@ export default function StudentProfilePage({
       toast.error("Failed to update photo");
     } finally {
       setSavingPhoto(false);
+    }
+  };
+
+  const saveEmail = async () => {
+    if (!student) return;
+    setSavingEmail(true);
+    try {
+      const res = await fetch(`/api/students/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: tempEmail }),
+      });
+      if (!res.ok) throw new Error("Failed to update email");
+      setStudent({ ...student, email: tempEmail });
+      setEditingEmail(false);
+      toast.success("Email updated successfully");
+    } catch (error) {
+      toast.error("Failed to update email");
+    } finally {
+      setSavingEmail(false);
     }
   };
 
@@ -829,7 +854,7 @@ export default function StudentProfilePage({
 
   return (
     <MainLayout>
-      <Box>
+      <Box sx={{ p: 3 }}>
         {/* Header */}
         <Box
           sx={{
@@ -979,14 +1004,16 @@ export default function StudentProfilePage({
                 </Typography>
                 {isDefaulter() && (
                   <Chip
-                    label="Defaulter"
+                    label="DEFAULTER"
                     size="small"
-                    color="error"
                     sx={{
-                      height: "28px",
-                      fontSize: "0.75rem",
-                      fontWeight: "bold",
-                      bgcolor: "rgba(255,255,255,0.95)",
+                      bgcolor: "#c62828",
+                      color: "white",
+                      fontWeight: 700,
+                      fontSize: "0.68rem",
+                      letterSpacing: "0.6px",
+                      height: "22px",
+                      borderRadius: "4px",
                     }}
                   />
                 )}
@@ -998,14 +1025,22 @@ export default function StudentProfilePage({
                 sx={{ mb: 1 }}
               >
                 <Chip
-                  icon={<Badge />}
+                  icon={<Badge sx={{ color: "rgba(255,255,255,0.85) !important" }} />}
                   label={student.registrationNo}
-                  sx={{ bgcolor: "rgba(255,255,255,0.2)", color: "white" }}
+                  sx={{
+                    bgcolor: "rgba(255,255,255,0.15)",
+                    color: "white",
+                    border: "1px solid rgba(255,255,255,0.3)",
+                    fontWeight: 600,
+                    fontSize: "0.78rem",
+                    letterSpacing: "0.3px",
+                  }}
                 />
                 <Chip
                   label={student.status}
                   color={getStatusColor(student.status) as any}
                   size="small"
+                  sx={{ fontWeight: 600, fontSize: "0.72rem", letterSpacing: "0.4px" }}
                 />
               </Stack>
               <Typography variant="body1" sx={{ opacity: 0.9 }}>
@@ -1016,6 +1051,62 @@ export default function StudentProfilePage({
               <Typography variant="body2" sx={{ opacity: 0.8, mt: 0.5 }}>
                 Academic Year: {student.academicYear?.name || "N/A"}
               </Typography>
+              <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, mt: 0.75 }}>
+                <EmailIcon sx={{ fontSize: 16, opacity: 0.8 }} />
+                {editingEmail ? (
+                  <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+                    <TextField
+                      value={tempEmail}
+                      onChange={(e) => setTempEmail(e.target.value)}
+                      size="small"
+                      type="email"
+                      sx={{
+                        "& .MuiOutlinedInput-root": {
+                          color: "white",
+                          fontSize: "0.8rem",
+                          "& fieldset": { borderColor: "rgba(255,255,255,0.5)" },
+                          "&:hover fieldset": { borderColor: "rgba(255,255,255,0.8)" },
+                        },
+                        "& .MuiOutlinedInput-input": { py: 0.4, px: 1 },
+                      }}
+                    />
+                    <IconButton
+                      onClick={saveEmail}
+                      disabled={savingEmail}
+                      size="small"
+                      sx={{ bgcolor: "success.main", color: "white", p: 0.4, "&:hover": { bgcolor: "success.dark" } }}
+                    >
+                      {savingEmail ? (
+                        <CircularProgress size={13} color="inherit" />
+                      ) : (
+                        <Check sx={{ fontSize: 14 }} />
+                      )}
+                    </IconButton>
+                    <IconButton
+                      onClick={() => { setEditingEmail(false); setTempEmail(student.email || ""); }}
+                      size="small"
+                      sx={{ bgcolor: "error.main", color: "white", p: 0.4, "&:hover": { bgcolor: "error.dark" } }}
+                    >
+                      <Close sx={{ fontSize: 14 }} />
+                    </IconButton>
+                  </Box>
+                ) : (
+                  <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+                    <Typography variant="body2" sx={{ opacity: 0.85 }}>
+                      {student.email || "No email assigned"}
+                    </Typography>
+                    <Tooltip title="Edit Email">
+                      <IconButton
+                        onClick={() => setEditingEmail(true)}
+                        size="small"
+                        sx={{ color: "rgba(255,255,255,0.7)", p: 0.25, "&:hover": { color: "white" } }}
+                      >
+                        <Edit sx={{ fontSize: 13 }} />
+                      </IconButton>
+                    </Tooltip>
+                  </Box>
+                )}
+              </Box>
             </Grid>
             <Grid size={{ xs: 12, md: 4 }}>
               <Card
@@ -1141,14 +1232,28 @@ export default function StudentProfilePage({
           </Grid>
         </Paper>
 
-        {/* Summary Cards - Like Panaflex */}
-        <Grid container spacing={3} sx={{ mb: 3 }}>
-          <Grid size={{ xs: 12, md: 3 }}>
+        {/* Summary Cards */}
+        <Grid container spacing={2} sx={{ mb: 3 }}>
+          <Grid size={{ xs: 12, sm: 6, md: 3 }}>
             <Card
-              sx={{ borderRadius: 3, boxShadow: "0 4px 20px rgba(0,0,0,0.08)" }}
+              sx={{
+                borderRadius: 2,
+                boxShadow: "0 1px 8px rgba(0,0,0,0.07)",
+                borderLeft: "4px solid #1a237e",
+              }}
             >
-              <CardContent>
-                <Typography color="text.secondary" gutterBottom>
+              <CardContent sx={{ p: 2.5, "&:last-child": { pb: 2.5 } }}>
+                <Typography
+                  variant="caption"
+                  sx={{
+                    color: "text.secondary",
+                    fontWeight: 600,
+                    letterSpacing: "0.5px",
+                    textTransform: "uppercase",
+                    display: "block",
+                    mb: 0.75,
+                  }}
+                >
                   Total Invoiced
                 </Typography>
                 <Typography variant="h5" fontWeight="bold" color="#1a237e">
@@ -1157,34 +1262,60 @@ export default function StudentProfilePage({
               </CardContent>
             </Card>
           </Grid>
-          <Grid size={{ xs: 12, md: 3 }}>
+          <Grid size={{ xs: 12, sm: 6, md: 3 }}>
             <Card
-              sx={{ borderRadius: 3, boxShadow: "0 4px 20px rgba(0,0,0,0.08)" }}
+              sx={{
+                borderRadius: 2,
+                boxShadow: "0 1px 8px rgba(0,0,0,0.07)",
+                borderLeft: "4px solid #2e7d32",
+              }}
             >
-              <CardContent>
-                <Typography color="text.secondary" gutterBottom>
+              <CardContent sx={{ p: 2.5, "&:last-child": { pb: 2.5 } }}>
+                <Typography
+                  variant="caption"
+                  sx={{
+                    color: "text.secondary",
+                    fontWeight: 600,
+                    letterSpacing: "0.5px",
+                    textTransform: "uppercase",
+                    display: "block",
+                    mb: 0.75,
+                  }}
+                >
                   Total Paid
                 </Typography>
-                <Typography variant="h5" fontWeight="bold" color="success.main">
+                <Typography variant="h5" fontWeight="bold" color="success.dark">
                   {formatCurrency(totalPaid)}
                 </Typography>
               </CardContent>
             </Card>
           </Grid>
-          <Grid size={{ xs: 12, md: 3 }}>
+          <Grid size={{ xs: 12, sm: 6, md: 3 }}>
             <Card
-              sx={{ borderRadius: 3, boxShadow: "0 4px 20px rgba(0,0,0,0.08)" }}
+              sx={{
+                borderRadius: 2,
+                boxShadow: "0 1px 8px rgba(0,0,0,0.07)",
+                borderLeft: `4px solid ${totalBalance > 0 ? "#c62828" : "#2e7d32"}`,
+              }}
             >
-              <CardContent>
+              <CardContent sx={{ p: 2.5, "&:last-child": { pb: 2.5 } }}>
                 <Box
                   sx={{
                     display: "flex",
                     justifyContent: "space-between",
                     alignItems: "flex-start",
-                    mb: 1,
+                    mb: 0.75,
                   }}
                 >
-                  <Typography color="text.secondary" gutterBottom>
+                  <Typography
+                    variant="caption"
+                    sx={{
+                      color: "text.secondary",
+                      fontWeight: 600,
+                      letterSpacing: "0.5px",
+                      textTransform: "uppercase",
+                    }}
+                  >
                     Balance Due
                   </Typography>
                   {totalBalance > 0 && (
@@ -1192,9 +1323,9 @@ export default function StudentProfilePage({
                       <IconButton
                         size="small"
                         onClick={handlePrintRemainingBalance}
-                        sx={{ color: "primary.main" }}
+                        sx={{ color: "primary.main", p: 0.25 }}
                       >
-                        <Print fontSize="small" />
+                        <Print sx={{ fontSize: 16 }} />
                       </IconButton>
                     </Tooltip>
                   )}
@@ -1202,35 +1333,55 @@ export default function StudentProfilePage({
                 <Typography
                   variant="h5"
                   fontWeight="bold"
-                  color={totalBalance > 0 ? "error.main" : "success.main"}
+                  color={totalBalance > 0 ? "error.dark" : "success.dark"}
                 >
                   {formatCurrency(totalBalance)}
                 </Typography>
               </CardContent>
             </Card>
           </Grid>
-          <Grid size={{ xs: 12, md: 3 }}>
+          <Grid size={{ xs: 12, sm: 6, md: 3 }}>
             <Card
-              sx={{ borderRadius: 3, boxShadow: "0 4px 20px rgba(0,0,0,0.08)" }}
+              sx={{
+                borderRadius: 2,
+                boxShadow: "0 1px 8px rgba(0,0,0,0.07)",
+                borderLeft: "4px solid #5c6bc0",
+              }}
             >
-              <CardContent>
-                <Typography color="text.secondary" gutterBottom>
-                  Status
+              <CardContent sx={{ p: 2.5, "&:last-child": { pb: 2.5 } }}>
+                <Typography
+                  variant="caption"
+                  sx={{
+                    color: "text.secondary",
+                    fontWeight: 600,
+                    letterSpacing: "0.5px",
+                    textTransform: "uppercase",
+                    display: "block",
+                    mb: 0.75,
+                  }}
+                >
+                  Enrollment Status
                 </Typography>
                 <Chip
                   label={student.status}
                   color={getStatusColor(student.status) as any}
-                  sx={{ fontWeight: 600 }}
+                  sx={{
+                    fontWeight: 700,
+                    fontSize: "0.75rem",
+                    letterSpacing: "0.3px",
+                    height: 28,
+                  }}
                 />
               </CardContent>
             </Card>
           </Grid>
         </Grid>
 
-        {/* Receive Payment Button */}
-        <Box sx={{ display: "flex", gap: 2, mb: 3 }}>
+        {/* Action Buttons */}
+        <Box sx={{ display: "flex", gap: 1.5, mb: 3, flexWrap: "wrap" }}>
           <Button
-            variant="outlined"
+            variant="contained"
+            color="success"
             startIcon={<PaymentIcon />}
             onClick={() => {
               const unpaidVoucher = student.feeVouchers?.find(
@@ -1245,11 +1396,7 @@ export default function StudentProfilePage({
                 (v) => v.status !== "PAID" && v.status !== "CANCELLED"
               )
             }
-            sx={{
-              borderColor: "#4caf50",
-              color: "#4caf50",
-              "&:hover": { borderColor: "#388e3c", bgcolor: "#4caf5010" },
-            }}
+            size="medium"
           >
             Receive Payment
           </Button>
@@ -1257,18 +1404,20 @@ export default function StudentProfilePage({
             variant="contained"
             startIcon={<Add />}
             onClick={() => setVoucherDialogOpen(true)}
-            sx={{ bgcolor: "#1a237e" }}
+            sx={{ bgcolor: "#1a237e", "&:hover": { bgcolor: "#283593" } }}
+            size="medium"
           >
             Generate Voucher
           </Button>
           <Button
             variant="outlined"
+            color="warning"
             startIcon={<AccountBalanceWallet />}
             onClick={() => {
               setNewOpeningBalance("0");
               setOpeningBalanceDialogOpen(true);
             }}
-            sx={{ borderColor: "warning.main", color: "warning.dark" }}
+            size="medium"
           >
             Set Opening Balance
           </Button>
@@ -1572,6 +1721,7 @@ export default function StudentProfilePage({
                           <Chip
                             label={v.voucherNo}
                             size="small"
+                            color="primary"
                             variant="outlined"
                           />
                         </TableCell>
@@ -1671,11 +1821,11 @@ export default function StudentProfilePage({
 
             {/* Contact Details */}
             <Grid size={{ xs: 12, md: 6 }}>
-              <Paper sx={{ p: 3, height: "100%" }}>
+              <Paper sx={{ p: 3, height: "100%", borderRadius: 3 }}>
                 <Typography
                   variant="h6"
                   gutterBottom
-                  sx={{ display: "flex", alignItems: "center", gap: 1 }}
+                  sx={{ display: "flex", alignItems: "center", gap: 1, color: "#1a237e" }}
                 >
                   <Phone color="primary" /> Contact Details
                 </Typography>
@@ -1729,11 +1879,11 @@ export default function StudentProfilePage({
 
             {/* Guardian Details */}
             <Grid size={{ xs: 12, md: 6 }}>
-              <Paper sx={{ p: 3 }}>
+              <Paper sx={{ p: 3, borderRadius: 3 }}>
                 <Typography
                   variant="h6"
                   gutterBottom
-                  sx={{ display: "flex", alignItems: "center", gap: 1 }}
+                  sx={{ display: "flex", alignItems: "center", gap: 1, color: "#1a237e" }}
                 >
                   <Person color="primary" /> Guardian Details
                 </Typography>
@@ -1777,11 +1927,11 @@ export default function StudentProfilePage({
 
             {/* Admission Details */}
             <Grid size={{ xs: 12, md: 6 }}>
-              <Paper sx={{ p: 3 }}>
+              <Paper sx={{ p: 3, borderRadius: 3 }}>
                 <Typography
                   variant="h6"
                   gutterBottom
-                  sx={{ display: "flex", alignItems: "center", gap: 1 }}
+                  sx={{ display: "flex", alignItems: "center", gap: 1, color: "#1a237e" }}
                 >
                   <CalendarMonth color="primary" /> Admission Details
                 </Typography>

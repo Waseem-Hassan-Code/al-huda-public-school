@@ -72,6 +72,8 @@ export const COLLECTIONS = {
   PENDING_REGISTRATIONS: "pending_registrations",
   SYNC_LOG: "sync_log",
   APP_SETTINGS: "app_settings",
+  // Lightweight identity layer — only email, role, approvalStatus. NO academic data.
+  USER_IDENTITIES: "user_identities",
 };
 
 // Types for Firebase documents
@@ -948,4 +950,109 @@ export async function deleteAllExams(): Promise<number> {
     console.error("Error deleting all exams:", error);
     throw error;
   }
+}// ─────────────────────────────────────────────────────────────
+// USER IDENTITY LAYER
+// This is the ONLY Firebase document the mobile app reads on login.
+// It contains NO academic data — only enough to validate the user.
+// ─────────────────────────────────────────────────────────────
+
+export interface FirebaseUserIdentity {
+  userId: string;          // Internal UUID from Next.js
+  email: string;           // Generated email (stdatalhuda.com for students)
+  role: "student" | "teacher";
+  approvalStatus: "pending" | "approved" | "rejected";
+  displayName: string;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+}
+
+/**
+ * Called by Next.js immediately after a student is created.
+ * Pushes a lightweight identity document to Firebase so the mobile
+ * app can validate the email and role at login time.
+ */
+export async function syncStudentIdentityToFirebase(student: {
+  id: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+}): Promise<void> {
+  const db = getFirestoreDb();
+  const now = Timestamp.now();
+
+  const identity: FirebaseUserIdentity = {
+    userId: student.id,
+    email: student.email,
+    role: "student",
+    approvalStatus: "approved", // Students are approved on creation by admin
+    displayName: `${student.firstName} ${student.lastName}`.trim(),
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  // Use email as document ID for fast lookup by email
+  const emailKey = student.email.replace(/\./g, "_").replace(/@/g, "_at_");
+  const identityRef = doc(db, COLLECTIONS.USER_IDENTITIES, emailKey);
+  await setDoc(identityRef, identity, { merge: true });
+}
+
+/**
+ * Mobile app calls this on login to validate email exists and get role.
+ * Returns null if email is not in the identity directory.
+ */
+export async function getFirebaseUserIdentity(
+  email: string
+): Promise<FirebaseUserIdentity | null> {
+  const db = getFirestoreDb();
+  const emailKey = email.replace(/\./g, "_").replace(/@/g, "_at_");
+  const identityRef = doc(db, COLLECTIONS.USER_IDENTITIES, emailKey);
+  const snap = await getDoc(identityRef);
+  if (!snap.exists()) return null;
+  return snap.data() as FirebaseUserIdentity;
+}
+
+/**
+ * Admin calls this when approving a teacher.
+ * Updates the teacher identity doc's approvalStatus.
+ */
+export async function updateTeacherIdentityApproval(
+  email: string,
+  approved: boolean
+): Promise<void> {
+  const db = getFirestoreDb();
+  const emailKey = email.replace(/\./g, "_").replace(/@/g, "_at_");
+  const identityRef = doc(db, COLLECTIONS.USER_IDENTITIES, emailKey);
+  await setDoc(
+    identityRef,
+    { approvalStatus: approved ? "approved" : "rejected", updatedAt: Timestamp.now() },
+    { merge: true }
+  );
+}
+
+/**
+ * Called when a teacher is synced to Firebase. Upserts their identity doc.
+ */
+export async function syncTeacherIdentityToFirebase(teacher: {
+  id: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+  isApproved: boolean;
+}): Promise<void> {
+  const db = getFirestoreDb();
+  const now = Timestamp.now();
+  const emailKey = teacher.email.replace(/\./g, "_").replace(/@/g, "_at_");
+  const identityRef = doc(db, COLLECTIONS.USER_IDENTITIES, emailKey);
+
+  const existing = await getDoc(identityRef);
+  const identity: FirebaseUserIdentity = {
+    userId: teacher.id,
+    email: teacher.email,
+    role: "teacher",
+    approvalStatus: teacher.isApproved ? "approved" : "pending",
+    displayName: `${teacher.firstName} ${teacher.lastName}`.trim(),
+    createdAt: existing.exists() ? (existing.data() as FirebaseUserIdentity).createdAt : now,
+    updatedAt: now,
+  };
+  await setDoc(identityRef, identity, { merge: true });
 }
