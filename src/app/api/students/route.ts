@@ -175,10 +175,15 @@ export async function POST(request: NextRequest) {
       previousClass,
       // Guardian info
       guardian,
+      // Family linking (optional — if provided, skip auto-create)
+      parentId: suppliedParentId,
       // Fee info
       monthlyFee,
       fees,
+      previousBalance: rawPreviousBalance,
     } = body;
+
+    const previousBalance = parseFloat(rawPreviousBalance || "0") || 0;
 
     // Get current academic year
     const currentAcademicYear = await prisma.academicYear.findFirst({
@@ -215,11 +220,80 @@ export async function POST(request: NextRequest) {
     // Generate roll number based on class
     let rollNo: string | null = null;
     if (classId) {
-      // Count existing students in this class to generate roll number
       const existingCount = await prisma.student.count({
         where: { classId, academicYearId: currentAcademicYear.id },
       });
       rollNo = String(existingCount + 1).padStart(3, "0");
+    }
+
+    // ── Resolve / create Parent record for family linking ──────────────────
+    // Priority: 1) suppliedParentId from form  2) CNIC lookup  3) create new
+    let resolvedParentId: string | null = suppliedParentId ?? null;
+
+    if (!resolvedParentId && guardian) {
+      const guardianName = `${(guardian.firstName || "").trim()} ${(guardian.lastName || "").trim()}`.trim();
+      const guardianCnicVal = guardian.cnic?.trim() || null;
+
+      if (guardianCnicVal) {
+        // Try to find an existing parent with the same CNIC
+        const existingParent = await prisma.parent.findFirst({
+          where: { cnic: { equals: guardianCnicVal, mode: "insensitive" } },
+          select: { id: true },
+        });
+        if (existingParent) {
+          resolvedParentId = existingParent.id;
+        }
+      }
+
+      if (!resolvedParentId) {
+        // Also check legacy: a student with this guardian CNIC might exist
+        // whose parent was already auto-created
+        if (guardianCnicVal) {
+          const legacyStudent = await prisma.student.findFirst({
+            where: {
+              guardianCnic: { equals: guardianCnicVal, mode: "insensitive" },
+              parentId: { not: null },
+            },
+            select: { parentId: true },
+          });
+          if (legacyStudent?.parentId) {
+            resolvedParentId = legacyStudent.parentId;
+          }
+        }
+      }
+
+      if (!resolvedParentId && guardianName) {
+        // Create a new parent record
+        const newParent = await prisma.parent.create({
+          data: {
+            name: guardianName,
+            cnic: guardianCnicVal,
+            phone: guardian.phone?.trim() || "",
+            whatsapp: guardian.whatsapp?.trim() || null,
+            email: guardian.email?.trim().toLowerCase() || null,
+            occupation: guardian.occupation?.trim() || null,
+            address: guardian.address?.trim() || null,
+            city: guardian.city?.trim() || null,
+          },
+        });
+        resolvedParentId = newParent.id;
+      }
+    }
+
+    // ── Generate Unique Student Email ─────────────────────────────────────────
+    const safeFirstName = (firstName || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+    const safeLastName = (lastName || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+    let generatedEmail = `${safeFirstName}.${safeLastName}@stdatalhuda.com`;
+    let emailCounter = 1;
+
+    while (true) {
+      const existingEmail = await prisma.student.findFirst({
+        where: { email: generatedEmail },
+        select: { id: true },
+      });
+      if (!existingEmail) break;
+      generatedEmail = `${safeFirstName}.${safeLastName}${emailCounter}@stdatalhuda.com`;
+      emailCounter++;
     }
 
     // Create student in transaction
@@ -243,7 +317,7 @@ export async function POST(request: NextRequest) {
           address,
           city: city || "Karachi",
           phone: phone || null,
-          email: email || null,
+          email: generatedEmail,
           photo: photo || null,
           classId: classId || null,
           sectionId: sectionId || null,
@@ -264,6 +338,8 @@ export async function POST(request: NextRequest) {
           guardianOccupation: guardian?.occupation || null,
           guardianAddress: guardian?.address || null,
           monthlyFee: monthlyFee || 0,
+          openingBalance: previousBalance,
+          parentId: resolvedParentId,
           status: "ACTIVE",
           createdById: session.user.id,
         },
@@ -356,7 +432,41 @@ export async function POST(request: NextRequest) {
         });
       }
 
-      return { student, admissionVoucher };
+      // Create opening balance voucher if the student has prior debt.
+      // Uses month=0, year=0 as a sentinel so it always sorts OLDEST in FIFO
+      // and isOpeningBalance=true to flag it as a migration entry.
+      let openingBalanceVoucher = null;
+      if (previousBalance > 0) {
+        const openingVoucherNo = await getNextSequenceValue("VOUCHER");
+        openingBalanceVoucher = await tx.feeVoucher.create({
+          data: {
+            voucherNo: openingVoucherNo,
+            studentId: student.id,
+            month: 0,
+            year: 0,
+            dueDate: new Date(admissionDate || new Date()),
+            subtotal: previousBalance,
+            totalAmount: previousBalance,
+            balanceDue: previousBalance,
+            paidAmount: 0,
+            status: FeeStatus.UNPAID,
+            isOpeningBalance: true,
+            remarks: "Opening balance — pre-migration outstanding dues",
+            createdById: session.user.id,
+            feeItems: {
+              create: [
+                {
+                  feeType: FeeType.OTHER,
+                  description: "Opening Balance (Previous Dues)",
+                  amount: previousBalance,
+                },
+              ],
+            },
+          },
+        });
+      }
+
+      return { student, admissionVoucher, openingBalanceVoucher };
     });
 
     // Log the student creation
@@ -367,7 +477,7 @@ export async function POST(request: NextRequest) {
       session.user.id
     );
 
-    // Log the voucher creation if generated
+    // Log the admission voucher creation
     if (result.admissionVoucher) {
       await logTransaction({
         action: "FEE_GENERATED",
@@ -381,6 +491,24 @@ export async function POST(request: NextRequest) {
           registrationNo,
           type: "ADMISSION",
           totalAmount: result.admissionVoucher.totalAmount,
+        },
+      });
+    }
+
+    // Log the opening balance voucher if created
+    if (result.openingBalanceVoucher) {
+      await logTransaction({
+        action: "FEE_GENERATED",
+        entityType: "FEE",
+        entityId: result.openingBalanceVoucher.id,
+        userId: session.user.id,
+        details: {
+          voucherNo: result.openingBalanceVoucher.voucherNo,
+          studentId: result.student.id,
+          studentName: `${firstName} ${lastName}`,
+          registrationNo,
+          type: "OPENING_BALANCE",
+          totalAmount: result.openingBalanceVoucher.totalAmount,
         },
       });
     }

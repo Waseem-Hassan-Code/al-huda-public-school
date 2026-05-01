@@ -97,6 +97,24 @@ async function main() {
   });
   console.log("✅ Academic year created");
 
+  // Create system user first — used by cron jobs as the createdById FK.
+  // Must use this exact UUID so getSystemUserId() resolves to an existing row.
+  await prisma.user.upsert({
+    where: { id: "00000000-0000-0000-0000-000000000000" },
+    update: {},
+    create: {
+      id: "00000000-0000-0000-0000-000000000000",
+      email: "system@al-huda.internal",
+      username: "system",
+      name: "System (Automated)",
+      password: "SYSTEM_NO_LOGIN",
+      role: Role.ADMIN,
+      isActive: false,
+      isSeeded: true,
+    },
+  });
+  console.log("✅ System user created");
+
   // Create Super Admin user
   const hashedPassword = await bcrypt.hash("admin123", 12);
   const superAdmin = await prisma.user.create({

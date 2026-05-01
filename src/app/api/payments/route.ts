@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { hasPermission, Permission } from "@/lib/permissions";
+import { processPaymentFIFO } from "@/lib/fee-payment";
 
 // GET - List payments with pagination
 export async function GET(request: NextRequest) {
@@ -97,33 +98,13 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// Generate unique receipt number
-async function generateReceiptNo(): Promise<string> {
-  const year = new Date().getFullYear();
-  const prefix = `REC-${year}-`;
-
-  // Get the last receipt number for this year
-  const lastPayment = await prisma.payment.findFirst({
-    where: {
-      receiptNo: {
-        startsWith: prefix,
-      },
-    },
-    orderBy: {
-      receiptNo: "desc",
-    },
-  });
-
-  let nextNumber = 1;
-  if (lastPayment) {
-    const lastNumber = parseInt(lastPayment.receiptNo.split("-").pop() || "0");
-    nextNumber = lastNumber + 1;
-  }
-
-  return `${prefix}${nextNumber.toString().padStart(5, "0")}`;
-}
-
-// POST - Receive payment
+// POST - Receive payment with automatic FIFO allocation
+//
+// Body: { studentId, amount, paymentMethod?, reference?, remarks?, voucherId? }
+//
+// voucherId is accepted for UI compatibility but is used ONLY to look up the
+// studentId. Payment is always routed oldest-dues-first (FIFO) regardless of
+// which voucher the UI was displaying.
 export async function POST(request: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
@@ -131,156 +112,72 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const body = await request.json();
-    const { studentId, voucherId, amount, paymentMethod, reference, remarks } =
-      body;
+    if (!hasPermission(session.user.role, Permission.RECEIVE_PAYMENT)) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
 
-    if (!studentId || !voucherId || !amount || amount <= 0) {
+    const body = await request.json();
+    const { voucherId, amount, paymentMethod, reference, remarks } = body;
+    let { studentId } = body;
+
+    if (!amount || amount <= 0) {
       return NextResponse.json(
         { error: "Student ID, Voucher ID and valid amount are required" },
         { status: 400 }
       );
     }
 
-    // Get the voucher
-    const voucher = await prisma.feeVoucher.findUnique({
-      where: { id: voucherId },
-      include: { student: true },
-    });
-
-    if (!voucher) {
-      return NextResponse.json({ error: "Voucher not found" }, { status: 404 });
-    }
-
-    if (voucher.studentId !== studentId) {
-      return NextResponse.json(
-        { error: "Voucher does not belong to this student" },
-        { status: 400 }
-      );
-    }
-
-    if (voucher.status === "PAID") {
-      return NextResponse.json(
-        { error: "Voucher is already fully paid" },
-        { status: 400 }
-      );
-    }
-
-    if (voucher.status === "CANCELLED") {
-      return NextResponse.json(
-        { error: "Cannot receive payment for cancelled voucher" },
-        { status: 400 }
-      );
-    }
-
-    if (amount > voucher.balanceDue) {
-      return NextResponse.json(
-        { error: `Amount exceeds balance due (Rs. ${voucher.balanceDue})` },
-        { status: 400 }
-      );
-    }
-
-    // Generate receipt number
-    const year = new Date().getFullYear();
-    const prefix = `REC-${year}-`;
-
-    const lastPayment = await prisma.payment.findFirst({
-      where: {
-        receiptNo: {
-          startsWith: prefix,
-        },
-      },
-      orderBy: {
-        receiptNo: "desc",
-      },
-    });
-
-    let nextNumber = 1;
-    if (lastPayment) {
-      const lastNumber = parseInt(
-        lastPayment.receiptNo.split("-").pop() || "0"
-      );
-      nextNumber = lastNumber + 1;
-    }
-
-    const receiptNo = `${prefix}${nextNumber.toString().padStart(5, "0")}`;
-
-    // Create payment within transaction
-    const result = await prisma.$transaction(async (tx) => {
-      // Create payment record
-      const payment = await tx.payment.create({
-        data: {
-          receiptNo,
-          studentId,
-          voucherId,
-          amount,
-          paymentMethod: paymentMethod || "CASH",
-          reference,
-          remarks,
-          createdById: session.user.id,
-        },
-        include: {
-          student: {
-            select: {
-              id: true,
-              registrationNo: true,
-              firstName: true,
-              lastName: true,
-            },
-          },
-          voucher: {
-            select: {
-              id: true,
-              voucherNo: true,
-              month: true,
-              year: true,
-            },
-          },
-          createdBy: { select: { id: true, name: true } },
-        },
-      });
-
-      // Update voucher
-      const newPaidAmount = voucher.paidAmount + amount;
-      const newBalanceDue = voucher.totalAmount - newPaidAmount;
-      const newStatus = newBalanceDue <= 0 ? "PAID" : "PARTIAL";
-
-      await tx.feeVoucher.update({
+    // Resolve studentId from voucherId when not supplied
+    if (!studentId && voucherId) {
+      const voucher = await prisma.feeVoucher.findUnique({
         where: { id: voucherId },
-        data: {
-          paidAmount: newPaidAmount,
-          balanceDue: Math.max(0, newBalanceDue),
-          status: newStatus,
-        },
+        select: { studentId: true },
       });
+      if (!voucher) {
+        return NextResponse.json({ error: "Voucher not found" }, { status: 404 });
+      }
+      studentId = voucher.studentId;
+    }
 
-      // Create transaction log
-      await tx.transactionLog.create({
-        data: {
-          entityType: "PAYMENT",
-          entityId: payment.id,
-          action: "PAYMENT_RECEIVED",
-          userId: session.user.id,
-          details: {
-            receiptNo: payment.receiptNo,
-            voucherNo: voucher.voucherNo,
-            studentName: `${voucher.student.firstName} ${voucher.student.lastName}`,
-            amount: payment.amount,
-            paymentMethod: payment.paymentMethod,
-            newVoucherStatus: newStatus,
-            remainingBalance: Math.max(0, newBalanceDue),
-          },
-        },
-      });
+    if (!studentId) {
+      return NextResponse.json(
+        { error: "studentId or voucherId is required" },
+        { status: 400 }
+      );
+    }
 
-      return payment;
+    const result = await processPaymentFIFO({
+      studentId,
+      amount: parseFloat(amount),
+      paymentMethod: paymentMethod || "CASH",
+      paymentDate: new Date(),
+      reference: reference ?? null,
+      remarks: remarks ?? null,
+      createdById: session.user.id,
     });
 
-    return NextResponse.json(result, { status: 201 });
-  } catch (error) {
+    // Return a response shape compatible with the existing UI
+    // (the UI reads data.receiptNo and data.receiptNumber)
+    const primaryAllocation = result.allocations[0];
+    return NextResponse.json(
+      {
+        id: primaryAllocation?.voucherId,
+        receiptNo: result.primaryReceiptNo,
+        receiptNumber: result.primaryReceiptNo,
+        studentId,
+        amount: result.totalApplied,
+        paymentMethod: paymentMethod || "CASH",
+        reference,
+        totalApplied: result.totalApplied,
+        allocations: result.allocations,
+        message: `Payment of ${result.totalApplied} recorded. Receipt: ${result.primaryReceiptNo}`,
+      },
+      { status: 201 }
+    );
+  } catch (error: any) {
     console.error("Error receiving payment:", error);
     return NextResponse.json(
-      { error: "Failed to receive payment" },
+      { error: error.message || "Failed to receive payment" },
       { status: 500 }
     );
   }

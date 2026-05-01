@@ -4,7 +4,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { hasPermission, Permission } from "@/lib/permissions";
 import { logTransaction } from "@/lib/transaction-log";
-import { getNextSequenceValue } from "@/lib/sequences";
+import { processPaymentFIFO } from "@/lib/fee-payment";
 
 // GET - List fee payments
 export async function GET(request: NextRequest) {
@@ -36,7 +36,7 @@ export async function GET(request: NextRequest) {
     }
 
     if (studentId) {
-      where.voucher = { studentId };
+      where.studentId = studentId;
     }
 
     if (startDate && endDate) {
@@ -94,7 +94,13 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// POST - Record a fee payment (supports partial payments and auto-pays previous vouchers)
+// POST - Record a fee payment using FIFO allocation
+//
+// Accepts either:
+//   { studentId, amount, paymentMethod, paymentDate?, notes?, bankName?, transactionId?, chequeNumber? }
+//   { voucherId, amount, ... }  ← voucherId used only to resolve studentId
+//
+// Payment is ALWAYS allocated oldest-dues-first (opening balance → oldest month → newest).
 export async function POST(request: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
@@ -119,151 +125,86 @@ export async function POST(request: NextRequest) {
       chequeNumber,
     } = body;
 
-    // Get the voucher with student details
-    const voucher = await prisma.feeVoucher.findUnique({
-      where: { id: voucherId },
-      include: {
-        student: {
-          select: {
-            id: true,
-            registrationNo: true,
-            firstName: true,
-            lastName: true,
-          },
-        },
-      },
-    });
+    let { studentId } = body;
 
-    if (!voucher) {
-      return NextResponse.json({ error: "Voucher not found" }, { status: 404 });
-    }
-
-    // Check if payment amount is valid
-    const remainingAmount = voucher.totalAmount - voucher.paidAmount;
-    if (amount > remainingAmount) {
+    if (!amount || amount <= 0) {
       return NextResponse.json(
-        {
-          error: `Payment amount (${amount}) exceeds remaining balance (${remainingAmount})`,
-        },
+        { error: "A valid payment amount is required" },
         { status: 400 }
       );
     }
 
-    // Generate receipt number
-    const receiptNumber = await getNextSequenceValue("RECEIPT");
-
-    // Create payment and update voucher in transaction
-    const result = await prisma.$transaction(async (tx: any) => {
-      // Create payment record
-      const payment = await tx.payment.create({
-        data: {
-          receiptNo: receiptNumber,
-          studentId: voucher.studentId,
-          voucherId,
-          amount,
-          paymentMethod: paymentMethod || "CASH",
-          paymentDate: paymentDate ? new Date(paymentDate) : new Date(),
-          reference: transactionId || chequeNumber || null,
-          remarks: notes,
-          createdById: session.user.id,
-        },
-      });
-
-      // Calculate new amounts
-      const newPaidAmount = voucher.paidAmount + amount;
-      const newBalanceDue = Math.max(0, voucher.totalAmount - newPaidAmount);
-      const newStatus =
-        newBalanceDue <= 0 ? "PAID" : newPaidAmount > 0 ? "PARTIAL" : "UNPAID";
-
-      // Update current voucher
-      await tx.feeVoucher.update({
+    // Resolve studentId from voucherId when not supplied directly
+    if (!studentId && voucherId) {
+      const voucher = await prisma.feeVoucher.findUnique({
         where: { id: voucherId },
-        data: {
-          paidAmount: newPaidAmount,
-          balanceDue: newBalanceDue,
-          status: newStatus,
-        },
+        select: { studentId: true },
       });
-
-      // If voucher is fully paid and has previous balance, mark previous vouchers as paid
-      if (newStatus === "PAID" && voucher.previousBalance > 0) {
-        // Get all unpaid/partial vouchers for this student that are older than current
-        const previousUnpaidVouchers = await tx.feeVoucher.findMany({
-          where: {
-            studentId: voucher.studentId,
-            status: { in: ["UNPAID", "PARTIAL"] },
-            id: { not: voucherId },
-            createdAt: { lt: voucher.createdAt },
-          },
-          orderBy: { createdAt: "asc" },
-        });
-
-        // Mark all previous vouchers as paid (since current voucher included their balance)
-        for (const prevVoucher of previousUnpaidVouchers) {
-          await tx.feeVoucher.update({
-            where: { id: prevVoucher.id },
-            data: {
-              paidAmount: prevVoucher.totalAmount,
-              balanceDue: 0,
-              status: "PAID",
-            },
-          });
-
-          // Log the auto-payment of previous voucher
-          await logTransaction({
-            action: "PAYMENT_RECEIVED",
-            entityType: "FEE",
-            entityId: prevVoucher.id,
-            userId: session.user.id,
-            details: {
-              voucherNo: prevVoucher.voucherNo,
-              autoPayment: true,
-              paidViaVoucher: voucher.voucherNo,
-              paidViaReceiptNo: receiptNumber,
-              message: `Auto-marked as paid via payment on ${voucher.voucherNo}`,
-            },
-          });
-        }
+      if (!voucher) {
+        return NextResponse.json({ error: "Voucher not found" }, { status: 404 });
       }
+      studentId = voucher.studentId;
+    }
 
-      return { payment, newStatus, newBalanceDue };
+    if (!studentId) {
+      return NextResponse.json(
+        { error: "studentId or voucherId is required" },
+        { status: 400 }
+      );
+    }
+
+    const reference = transactionId || chequeNumber || (bankName ? `Bank: ${bankName}` : null);
+
+    const result = await processPaymentFIFO({
+      studentId,
+      amount: parseFloat(amount),
+      paymentMethod: paymentMethod || "CASH",
+      paymentDate: paymentDate ? new Date(paymentDate) : new Date(),
+      reference,
+      remarks: notes ?? null,
+      createdById: session.user.id,
     });
 
-    // Log the main payment transaction
+    // Audit log for the entire payment event
     await logTransaction({
       action: "PAYMENT_RECEIVED",
       entityType: "PAYMENT",
-      entityId: result.payment.id,
+      entityId: result.primaryReceiptNo,
       userId: session.user.id,
       details: {
-        receiptNo: receiptNumber,
-        voucherNo: voucher.voucherNo,
-        studentId: voucher.studentId,
-        studentName: `${voucher.student.firstName} ${voucher.student.lastName}`,
-        registrationNo: voucher.student.registrationNo,
-        amount,
+        primaryReceiptNo: result.primaryReceiptNo,
+        studentId,
+        totalAmount: amount,
+        totalApplied: result.totalApplied,
         paymentMethod: paymentMethod || "CASH",
-        previousBalance: voucher.previousBalance,
-        newVoucherStatus: result.newStatus,
-        remainingBalance: result.newBalanceDue,
-        reference: transactionId || chequeNumber || null,
+        allocations: result.allocations.map((a) => ({
+          voucherNo: a.voucherNo,
+          month: a.month,
+          year: a.year,
+          applied: a.appliedAmount,
+          remainingBalance: a.newBalanceDue,
+          status: a.newStatus,
+          receipt: a.receiptNo,
+        })),
+        reference,
       },
     });
 
     return NextResponse.json(
       {
-        ...result.payment,
-        message: `Payment of ${amount} recorded successfully. Receipt: ${receiptNumber}`,
-        newStatus: result.newStatus,
-        remainingBalance: result.newBalanceDue,
+        receiptNumber: result.primaryReceiptNo,
+        primaryReceiptNo: result.primaryReceiptNo,
+        totalApplied: result.totalApplied,
+        allocations: result.allocations,
+        message: `Payment of ${result.totalApplied} recorded. Receipt: ${result.primaryReceiptNo}`,
       },
       { status: 201 }
     );
-  } catch (error) {
+  } catch (error: any) {
     console.error("Fee Payments POST Error:", error);
     return NextResponse.json(
-      { error: "Failed to record payment" },
-      { status: 500 }
+      { error: error.message || "Failed to record payment" },
+      { status: 400 }
     );
   }
 }

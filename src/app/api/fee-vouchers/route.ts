@@ -138,7 +138,51 @@ export async function POST(request: NextRequest) {
       classId,
       sectionId,
       feeItems: customFeeItems,
+      isOpeningBalance,
     } = body;
+
+    // ── Special path: create an opening balance voucher ──────────────────────
+    if (isOpeningBalance && studentId && customFeeItems?.length > 0) {
+      const amount = customFeeItems.reduce(
+        (s: number, f: any) => s + (f.amount || 0),
+        0
+      );
+      if (amount <= 0) {
+        return NextResponse.json(
+          { error: "Opening balance amount must be greater than 0" },
+          { status: 400 }
+        );
+      }
+      const voucherNo = await getNextSequenceValue("VOUCHER");
+      const voucher = await prisma.feeVoucher.create({
+        data: {
+          voucherNo,
+          studentId,
+          month: 0,
+          year: 0,
+          dueDate: new Date(),
+          subtotal: amount,
+          totalAmount: amount,
+          balanceDue: amount,
+          paidAmount: 0,
+          status: FeeStatus.UNPAID,
+          isOpeningBalance: true,
+          remarks: "Opening balance — added manually from student profile",
+          createdById: session.user.id,
+          feeItems: {
+            create: customFeeItems.map((f: any) => ({
+              feeType: FeeType.OTHER,
+              description: f.description || "Opening Balance (Previous Dues)",
+              amount: f.amount,
+            })),
+          },
+        },
+      });
+      return NextResponse.json(
+        { message: "Opening balance created", voucherId: voucher.id, voucherNo },
+        { status: 201 }
+      );
+    }
 
     const targetMonth = month || new Date().getMonth() + 1;
     const targetYear = year || new Date().getFullYear();

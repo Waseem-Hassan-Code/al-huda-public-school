@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useState, useEffect, use } from "react";
 import { useSession } from "next-auth/react";
@@ -57,6 +57,8 @@ import {
   Payment as PaymentIcon,
   Visibility,
   AccountBalanceWallet,
+  FamilyRestroom,
+  OpenInNew,
 } from "@mui/icons-material";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
@@ -72,6 +74,7 @@ interface FeeVoucher {
   voucherNo: string;
   month: number;
   year: number;
+  isOpeningBalance: boolean;
   subtotal: number;
   previousBalance: number;
   lateFee: number;
@@ -120,6 +123,30 @@ interface ExamResult {
   remarks?: string;
 }
 
+interface Sibling {
+  id: string;
+  registrationNo: string;
+  firstName: string;
+  lastName: string;
+  photo?: string | null;
+  status: string;
+  class?: { id: string; name: string } | null;
+  section?: { id: string; name: string } | null;
+}
+
+interface ParentRecord {
+  id: string;
+  name: string;
+  cnic?: string | null;
+  phone: string;
+  whatsapp?: string | null;
+  email?: string | null;
+  occupation?: string | null;
+  address?: string | null;
+  city?: string | null;
+  students: Sibling[];
+}
+
 interface StudentDetail {
   id: string;
   registrationNo: string;
@@ -159,10 +186,12 @@ interface StudentDetail {
   previousSchool?: string;
   previousClass?: string;
   monthlyFee: number;
+  openingBalance: number;
   status: string;
   statusReason?: string;
   statusDate?: string;
   remarks?: string;
+  parent?: ParentRecord | null;
   feeVouchers: FeeVoucher[];
   attendance: Attendance[];
   studentMarks: ExamResult[];
@@ -252,6 +281,11 @@ export default function StudentProfilePage({
 
   // Print remaining balance state
   const [showPrintView, setShowPrintView] = useState(false);
+
+  // Opening balance dialog state
+  const [openingBalanceDialogOpen, setOpeningBalanceDialogOpen] = useState(false);
+  const [newOpeningBalance, setNewOpeningBalance] = useState<string>("0");
+  const [savingOpeningBalance, setSavingOpeningBalance] = useState(false);
 
   useEffect(() => {
     fetchStudent();
@@ -545,6 +579,41 @@ export default function StudentProfilePage({
     }, 100);
   };
 
+  const getVoucherPeriod = (v: FeeVoucher): string => {
+    if (v.isOpeningBalance || (v.month === 0 && v.year === 0)) return "Opening Balance";
+    if (v.month < 1 || v.month > 12) return `Period ${v.month}/${v.year}`;
+    return `${monthNames[v.month - 1]} ${v.year}`;
+  };
+
+  const handleSaveOpeningBalance = async () => {
+    if (!student) return;
+    const amount = parseFloat(newOpeningBalance) || 0;
+    if (amount < 0) { toast.error("Opening balance cannot be negative"); return; }
+    setSavingOpeningBalance(true);
+    try {
+      const res = await fetch("/api/fee-vouchers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          studentId: student.id,
+          isOpeningBalance: true,
+          month: 0,
+          year: 0,
+          feeItems: [{ feeType: "OTHER", description: "Opening Balance (Previous Dues)", amount }],
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to set opening balance");
+      toast.success("Opening balance added");
+      setOpeningBalanceDialogOpen(false);
+      fetchStudent();
+    } catch (e: any) {
+      toast.error(e.message || "Failed to set opening balance");
+    } finally {
+      setSavingOpeningBalance(false);
+    }
+  };
+
   // Build ledger data (combined vouchers and payments)
   const buildLedgerData = () => {
     if (!student) return [];
@@ -568,8 +637,10 @@ export default function StudentProfilePage({
         date: new Date(v.dueDate),
         type: "VOUCHER" as const,
         reference: v.voucherNo,
-        description: `Fee Voucher - ${monthNames[v.month - 1]} ${v.year}`,
-        amount: v.subtotal, // Use subtotal to avoid double-counting previousBalance
+        description: v.isOpeningBalance
+          ? "Opening Balance (Previous Dues)"
+          : `Fee Voucher - ${getVoucherPeriod(v)}`,
+        amount: v.subtotal,
         id: v.id,
       })),
       ...(student.feeVouchers || []).flatMap((v) =>
@@ -1041,6 +1112,29 @@ export default function StudentProfilePage({
                   >
                     Generate Voucher
                   </Button>
+
+                  {/* Opening balance */}
+                  {(student.openingBalance > 0 ||
+                    student.feeVouchers?.some((v) => v.isOpeningBalance)) && (
+                    <Box sx={{ mt: 2, pt: 2, borderTop: "1px solid rgba(255,255,255,0.3)" }}>
+                      <Typography
+                        variant="caption"
+                        sx={{ color: "rgba(255,255,255,0.75)", display: "block", mb: 0.5 }}
+                      >
+                        Opening Balance
+                      </Typography>
+                      <Typography variant="body1" fontWeight={600}>
+                        {formatCurrency(
+                          student.feeVouchers
+                            ?.filter((v) => v.isOpeningBalance)
+                            .reduce((s, v) => s + v.balanceDue, 0) || 0
+                        )}{" "}
+                        <Typography component="span" variant="caption" sx={{ opacity: 0.75 }}>
+                          remaining
+                        </Typography>
+                      </Typography>
+                    </Box>
+                  )}
                 </CardContent>
               </Card>
             </Grid>
@@ -1167,6 +1261,17 @@ export default function StudentProfilePage({
           >
             Generate Voucher
           </Button>
+          <Button
+            variant="outlined"
+            startIcon={<AccountBalanceWallet />}
+            onClick={() => {
+              setNewOpeningBalance("0");
+              setOpeningBalanceDialogOpen(true);
+            }}
+            sx={{ borderColor: "warning.main", color: "warning.dark" }}
+          >
+            Set Opening Balance
+          </Button>
         </Box>
 
         {/* Tabs */}
@@ -1204,6 +1309,11 @@ export default function StudentProfilePage({
             />
             <Tab label="Attendance" />
             <Tab label="Results" />
+            <Tab
+              label="Family"
+              icon={<FamilyRestroom sx={{ fontSize: 18 }} />}
+              iconPosition="start"
+            />
           </Tabs>
         </Paper>
 
@@ -1342,7 +1452,7 @@ export default function StudentProfilePage({
                           </Typography>
                         </TableCell>
                         <TableCell>
-                          {monthNames[voucher.month - 1]} {voucher.year}
+                          {getVoucherPeriod(voucher)}
                         </TableCell>
                         <TableCell>{formatDate(voucher.dueDate)}</TableCell>
                         <TableCell align="right">
@@ -1581,11 +1691,25 @@ export default function StudentProfilePage({
                   </Grid>
                   <Grid size={6}>
                     <Typography variant="caption" color="text.secondary">
-                      Email
+                      Official Email
                     </Typography>
-                    <Typography variant="body1">
-                      {student.email || "N/A"}
-                    </Typography>
+                    <Box sx={{ mt: 0.5 }}>
+                      {student.email ? (
+                        <Chip 
+                          label={student.email} 
+                          size="small" 
+                          color="primary" 
+                          variant="outlined"
+                          onClick={() => {
+                            navigator.clipboard.writeText(student.email || "");
+                            toast.success("Email copied to clipboard");
+                          }}
+                          sx={{ cursor: "pointer" }}
+                        />
+                      ) : (
+                        <Typography variant="body1">N/A</Typography>
+                      )}
+                    </Box>
                   </Grid>
                   <Grid size={12}>
                     <Typography variant="caption" color="text.secondary">
@@ -1702,6 +1826,228 @@ export default function StudentProfilePage({
             studentMarks={student.studentMarks || []}
             onRefresh={fetchStudent}
           />
+        </TabPanel>
+
+        {/* Family Tab */}
+        <TabPanel value={tabValue} index={6}>
+          <Grid container spacing={3}>
+            {/* Parent / Guardian Info */}
+            <Grid size={{ xs: 12, md: 5 }}>
+              <Paper sx={{ p: 3, borderRadius: 3 }}>
+                <Typography
+                  variant="h6"
+                  gutterBottom
+                  sx={{ display: "flex", alignItems: "center", gap: 1, color: "#1a237e" }}
+                >
+                  <Person color="primary" /> Parent / Guardian
+                </Typography>
+                <Divider sx={{ mb: 2 }} />
+
+                {student.parent ? (
+                  <Grid container spacing={2}>
+                    <Grid size={12}>
+                      <Typography variant="caption" color="text.secondary">
+                        Full Name
+                      </Typography>
+                      <Typography variant="body1" fontWeight={500}>
+                        {student.parent.name}
+                      </Typography>
+                    </Grid>
+                    {student.parent.cnic && (
+                      <Grid size={12}>
+                        <Typography variant="caption" color="text.secondary">
+                          CNIC
+                        </Typography>
+                        <Typography variant="body1">{student.parent.cnic}</Typography>
+                      </Grid>
+                    )}
+                    <Grid size={6}>
+                      <Typography variant="caption" color="text.secondary">
+                        Phone
+                      </Typography>
+                      <Typography variant="body1">{student.parent.phone}</Typography>
+                    </Grid>
+                    {student.parent.whatsapp && (
+                      <Grid size={6}>
+                        <Typography variant="caption" color="text.secondary">
+                          WhatsApp
+                        </Typography>
+                        <Typography variant="body1">{student.parent.whatsapp}</Typography>
+                      </Grid>
+                    )}
+                    {student.parent.email && (
+                      <Grid size={12}>
+                        <Typography variant="caption" color="text.secondary">
+                          Email
+                        </Typography>
+                        <Typography variant="body1">{student.parent.email}</Typography>
+                      </Grid>
+                    )}
+                    {student.parent.occupation && (
+                      <Grid size={6}>
+                        <Typography variant="caption" color="text.secondary">
+                          Occupation
+                        </Typography>
+                        <Typography variant="body1">{student.parent.occupation}</Typography>
+                      </Grid>
+                    )}
+                    {student.parent.address && (
+                      <Grid size={12}>
+                        <Typography variant="caption" color="text.secondary">
+                          Address
+                        </Typography>
+                        <Typography variant="body1">
+                          {student.parent.address}
+                          {student.parent.city ? `, ${student.parent.city}` : ""}
+                        </Typography>
+                      </Grid>
+                    )}
+                  </Grid>
+                ) : (
+                  // Legacy fallback — no Parent record yet, show guardian fields from Student
+                  <Grid container spacing={2}>
+                    <Grid size={12}>
+                      <Typography variant="caption" color="text.secondary">
+                        Guardian Name
+                      </Typography>
+                      <Typography variant="body1" fontWeight={500}>
+                        {student.guardianName || "N/A"}
+                      </Typography>
+                    </Grid>
+                    <Grid size={6}>
+                      <Typography variant="caption" color="text.secondary">
+                        Relationship
+                      </Typography>
+                      <Typography variant="body1">{student.guardianRelation || "N/A"}</Typography>
+                    </Grid>
+                    {student.guardianCnic && (
+                      <Grid size={6}>
+                        <Typography variant="caption" color="text.secondary">
+                          CNIC
+                        </Typography>
+                        <Typography variant="body1">{student.guardianCnic}</Typography>
+                      </Grid>
+                    )}
+                    <Grid size={6}>
+                      <Typography variant="caption" color="text.secondary">
+                        Phone
+                      </Typography>
+                      <Typography variant="body1">{student.guardianPhone || "N/A"}</Typography>
+                    </Grid>
+                    {student.guardianEmail && (
+                      <Grid size={6}>
+                        <Typography variant="caption" color="text.secondary">
+                          Email
+                        </Typography>
+                        <Typography variant="body1">{student.guardianEmail}</Typography>
+                      </Grid>
+                    )}
+                    <Grid size={12}>
+                      <Box
+                        sx={{
+                          mt: 1,
+                          p: 1.5,
+                          bgcolor: "warning.50",
+                          border: "1px solid",
+                          borderColor: "warning.200",
+                          borderRadius: 1,
+                        }}
+                      >
+                        <Typography variant="caption" color="warning.dark">
+                          Family link not established. Sibling detection requires guardian CNIC
+                          to be matched via the parents table.
+                        </Typography>
+                      </Box>
+                    </Grid>
+                  </Grid>
+                )}
+              </Paper>
+            </Grid>
+
+            {/* Siblings */}
+            <Grid size={{ xs: 12, md: 7 }}>
+              <Paper sx={{ p: 3, borderRadius: 3 }}>
+                <Typography
+                  variant="h6"
+                  gutterBottom
+                  sx={{ display: "flex", alignItems: "center", gap: 1, color: "#1a237e" }}
+                >
+                  <FamilyRestroom color="primary" /> Siblings
+                  {student.parent && student.parent.students.length > 0 && (
+                    <Chip
+                      label={student.parent.students.length}
+                      size="small"
+                      color="primary"
+                      sx={{ ml: 1 }}
+                    />
+                  )}
+                </Typography>
+                <Divider sx={{ mb: 2 }} />
+
+                {student.parent && student.parent.students.length > 0 ? (
+                  <Stack spacing={2}>
+                    {student.parent.students.map((sibling) => (
+                      <Box
+                        key={sibling.id}
+                        sx={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 2,
+                          p: 2,
+                          border: "1px solid",
+                          borderColor: "divider",
+                          borderRadius: 2,
+                          "&:hover": { bgcolor: "action.hover" },
+                        }}
+                      >
+                        <Avatar
+                          src={sibling.photo ?? undefined}
+                          sx={{ width: 48, height: 48, bgcolor: "primary.light" }}
+                        >
+                          {sibling.firstName[0]}
+                          {sibling.lastName[0]}
+                        </Avatar>
+                        <Box sx={{ flex: 1, minWidth: 0 }}>
+                          <Typography variant="body1" fontWeight={500} noWrap>
+                            {sibling.firstName} {sibling.lastName}
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            {sibling.registrationNo}
+                            {sibling.class
+                              ? ` · ${sibling.class.name}${sibling.section ? " – " + sibling.section.name : ""}`
+                              : ""}
+                          </Typography>
+                        </Box>
+                        <Chip
+                          label={sibling.status}
+                          size="small"
+                          color={sibling.status === "ACTIVE" ? "success" : "default"}
+                          sx={{ mr: 1 }}
+                        />
+                        <Tooltip title="View Profile">
+                          <IconButton
+                            size="small"
+                            onClick={() => router.push(`/students/${sibling.id}`)}
+                          >
+                            <OpenInNew fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                      </Box>
+                    ))}
+                  </Stack>
+                ) : (
+                  <Box sx={{ textAlign: "center", py: 5 }}>
+                    <FamilyRestroom sx={{ fontSize: 56, color: "text.disabled", mb: 1 }} />
+                    <Typography color="text.secondary">
+                      {student.parent
+                        ? "No siblings enrolled at this school"
+                        : "Sibling data unavailable — family record not linked"}
+                    </Typography>
+                  </Box>
+                )}
+              </Paper>
+            </Grid>
+          </Grid>
         </TabPanel>
 
         {/* Receive Payment Dialog */}
@@ -2042,6 +2388,59 @@ export default function StudentProfilePage({
               }
             >
               {savingVoucher ? "Saving..." : "Save Changes"}
+            </Button>
+          </DialogActions>
+        </Dialog>
+
+        {/* Opening Balance Dialog */}
+        <Dialog
+          open={openingBalanceDialogOpen}
+          onClose={() => setOpeningBalanceDialogOpen(false)}
+          maxWidth="xs"
+          fullWidth
+        >
+          <DialogTitle>
+            Set Opening Balance
+            <Typography variant="body2" color="text.secondary">
+              for {student.firstName} {student.lastName}
+            </Typography>
+          </DialogTitle>
+          <DialogContent dividers>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+              Enter the student&apos;s outstanding balance from before they were added to this system.
+              This creates a financial ledger entry that is cleared <strong>first</strong> when
+              payments are received (FIFO).
+            </Typography>
+            <TextField
+              label="Opening Balance (Rs.)"
+              type="number"
+              fullWidth
+              value={newOpeningBalance}
+              onChange={(e) => setNewOpeningBalance(e.target.value)}
+              inputProps={{ min: 0 }}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">Rs.</InputAdornment>
+                ),
+              }}
+              helperText="Must be greater than 0 to create a ledger entry"
+              autoFocus
+            />
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setOpeningBalanceDialogOpen(false)}>Cancel</Button>
+            <Button
+              variant="contained"
+              color="warning"
+              onClick={handleSaveOpeningBalance}
+              disabled={
+                savingOpeningBalance || (parseFloat(newOpeningBalance) || 0) <= 0
+              }
+              startIcon={
+                savingOpeningBalance ? <CircularProgress size={16} /> : <AccountBalanceWallet />
+              }
+            >
+              {savingOpeningBalance ? "Saving..." : "Add Opening Balance"}
             </Button>
           </DialogActions>
         </Dialog>

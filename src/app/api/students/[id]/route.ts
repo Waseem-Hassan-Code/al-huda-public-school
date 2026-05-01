@@ -28,6 +28,23 @@ export async function GET(
         class: true,
         section: true,
         academicYear: true,
+        parent: {
+          include: {
+            students: {
+              where: { id: { not: id } }, // siblings only, exclude self
+              select: {
+                id: true,
+                registrationNo: true,
+                firstName: true,
+                lastName: true,
+                photo: true,
+                status: true,
+                class: { select: { id: true, name: true } },
+                section: { select: { id: true, name: true } },
+              },
+            },
+          },
+        },
         feeVouchers: {
           orderBy: { dueDate: "desc" },
           take: 12,

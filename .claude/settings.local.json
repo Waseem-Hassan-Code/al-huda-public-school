@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(xargs grep *)",
+      "Bash(xargs -I {} find {} -name \"*.ts\")",
+      "Bash(npx prisma *)",
+      "Bash(npx tsc *)"
+    ]
+  }
+}

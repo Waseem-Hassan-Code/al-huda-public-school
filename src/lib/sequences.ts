@@ -19,8 +19,10 @@ export async function getNextSequenceValue(
       return `AHPS-S-${year}-${String(sequence.value).padStart(3, "0")}`;
     case "teacher":
       return `AHPS-T-${year}-${String(sequence.value).padStart(3, "0")}`;
+    case "VOUCHER":
     case "fee_voucher":
       return `FV-${year}-${String(sequence.value).padStart(5, "0")}`;
+    case "RECEIPT":
     case "payment":
       return `REC-${year}-${String(sequence.value).padStart(5, "0")}`;
     case "complaint":
