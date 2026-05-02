@@ -212,8 +212,11 @@ export interface PendingRegistration {
   email: string;
   displayName: string;
   firebaseUid: string;
+  role?: string;
+  entityId?: string;
+  phone?: string | null;
   deviceInfo?: string;
-  requestedAt: Timestamp;
+  createdAt: Timestamp;
   status: "PENDING" | "APPROVED" | "REJECTED";
   reviewedBy?: string;
   reviewedAt?: Timestamp;
@@ -490,14 +493,26 @@ export async function getPendingRegistrations(): Promise<
   PendingRegistration[]
 > {
   const db = getFirestoreDb();
-  const q = query(
-    collection(db, COLLECTIONS.PENDING_REGISTRATIONS),
-    where("status", "==", "PENDING")
-  );
-  const snapshot = await getDocs(q);
-  return snapshot.docs.map(
-    (doc) => ({ id: doc.id, ...doc.data() } as PendingRegistration)
-  );
+  try {
+    console.log('Fetching pending registrations from Firestore...');
+    const q = query(
+      collection(db, COLLECTIONS.PENDING_REGISTRATIONS),
+      where("status", "==", "PENDING")
+    );
+    const snapshot = await getDocs(q);
+    console.log(`Found ${snapshot.docs.length} pending registrations`);
+    
+    const registrations = snapshot.docs.map((doc) => {
+      const data = doc.data();
+      console.log('Registration document:', doc.id, data);
+      return { id: doc.id, ...data } as PendingRegistration;
+    });
+    
+    return registrations;
+  } catch (error) {
+    console.error('Error fetching pending registrations:', error);
+    throw error;
+  }
 }
 
 export async function approveTeacherRegistration(
@@ -519,6 +534,12 @@ export async function approveTeacherRegistration(
   // Update teacher's approval status
   const teacherRef = doc(db, COLLECTIONS.TEACHERS, teacherId);
   await updateDoc(teacherRef, {
+    isApproved: true,
+    updatedAt: now,
+  });
+
+  const identityRef = doc(db, COLLECTIONS.USER_IDENTITIES, registrationId);
+  await updateDoc(identityRef, {
     isApproved: true,
     updatedAt: now,
   });

@@ -51,7 +51,7 @@ export async function GET(request: NextRequest) {
           };
 
     const where = {
-      status: { in: ["ACTIVE", "INACTIVE"] as const },
+      status: { in: ["ACTIVE", "INACTIVE"] as ("ACTIVE" | "INACTIVE")[] },
       AND: [nameCondition],
     };
 

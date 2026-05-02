@@ -63,7 +63,7 @@ export async function GET(request: NextRequest) {
                 })),
               }
             : null,
-          requestedAt: reg.requestedAt.toDate().toISOString(),
+          createdAt: reg.createdAt.toDate().toISOString(),
         };
       })
     );

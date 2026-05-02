@@ -535,6 +535,8 @@ export default function Topbar() {
                       </Avatar>
                     </ListItemAvatar>
                     <ListItemText
+                      primaryTypographyProps={{ component: "div" }}
+                      secondaryTypographyProps={{ component: "div" }}
                       primary={
                         <Typography
                           variant="body2"
