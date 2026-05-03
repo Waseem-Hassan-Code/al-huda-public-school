@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { hasPermission, Permission } from "@/lib/permissions";
 import { logUpdate, logDelete } from "@/lib/transaction-log";
+import { upsertStudentInFirebase, updateStudentIdentityEmail } from "@/lib/firebase";
 
 // GET - Get single student by ID
 export async function GET(
@@ -199,6 +200,18 @@ export async function PUT(
       session.user.id
     );
 
+    // Sync updated student to Firebase (fire-and-forget)
+    upsertStudentInFirebase(result).catch((err) =>
+      console.error("Firebase student sync failed (non-critical):", err)
+    );
+
+    // If email changed, keep the identity doc in sync (fire-and-forget)
+    if (email !== undefined) {
+      updateStudentIdentityEmail(id, email).catch((err) =>
+        console.error("Firebase identity email sync failed (non-critical):", err)
+      );
+    }
+
     return NextResponse.json(result);
   } catch (error) {
     console.error("Student PUT Error:", error);
@@ -238,6 +251,11 @@ export async function DELETE(
       id,
       { registrationNo: student.registrationNo },
       session.user.id
+    );
+
+    // Reflect deactivation in Firebase (fire-and-forget)
+    upsertStudentInFirebase(student).catch((err) =>
+      console.error("Firebase student deactivate failed (non-critical):", err)
     );
 
     return NextResponse.json({ message: "Student deleted successfully" });

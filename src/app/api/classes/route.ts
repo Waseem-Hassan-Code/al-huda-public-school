@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { hasPermission, Permission } from "@/lib/permissions";
 import { logTransaction } from "@/lib/transaction-log";
+import { syncClassesToFirebase } from "@/lib/firebase";
 
 // GET - List classes with sections
 export async function GET(request: NextRequest) {
@@ -147,6 +148,13 @@ export async function POST(request: NextRequest) {
       details: { name },
     });
 
+    // Sync new class to Firebase (fire-and-forget)
+    if (result) {
+      syncClassesToFirebase([result]).catch((err) =>
+        console.error("Firebase class sync failed (non-critical):", err)
+      );
+    }
+
     return NextResponse.json(result, { status: 201 });
   } catch (error) {
     console.error("Classes POST Error:", error);
@@ -209,6 +217,11 @@ export async function PUT(request: NextRequest) {
       userId: session.user.id,
       details: { name: updatedClass.name },
     });
+
+    // Sync updated class to Firebase (fire-and-forget)
+    syncClassesToFirebase([updatedClass]).catch((err) =>
+      console.error("Firebase class sync failed (non-critical):", err)
+    );
 
     return NextResponse.json(updatedClass);
   } catch (error) {

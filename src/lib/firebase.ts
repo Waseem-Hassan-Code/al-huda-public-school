@@ -69,10 +69,9 @@ export const COLLECTIONS = {
   TIMETABLE: "timetable",
   ATTENDANCE: "attendance",
   RESULTS: "results",
-  PENDING_REGISTRATIONS: "pending_registrations",
   SYNC_LOG: "sync_log",
   APP_SETTINGS: "app_settings",
-  // Lightweight identity layer — only email, role, approvalStatus. NO academic data.
+  // Single identity collection. Document ID = Firebase UID. No academic data.
   USER_IDENTITIES: "user_identities",
 };
 
@@ -109,6 +108,7 @@ export interface FirebaseStudent {
   registrationNo: string;
   firstName: string;
   lastName: string;
+  email?: string;
   classId: string;
   className: string;
   sectionId?: string;
@@ -165,9 +165,25 @@ export interface FirebaseTimetable {
   sectionName?: string;
   subjectId: string;
   subjectName: string;
-  dayOfWeek: number;
+  dayOfWeek: string; // "MONDAY" | "TUESDAY" | ... as stored in DB
   startTime: string;
   endTime: string;
+  lastSyncedAt: Timestamp;
+}
+
+export interface FirebaseStudentResult {
+  id: string;
+  studentId: string;
+  examId: string;
+  examName: string;
+  subjectId: string;
+  subjectName: string;
+  classId: string;
+  marksObtained: number;
+  totalMarks: number;
+  grade: string;
+  isAbsent: boolean;
+  examDate?: string;
   lastSyncedAt: Timestamp;
 }
 
@@ -207,21 +223,9 @@ export interface FirebaseResult {
   syncedToServer: boolean;
 }
 
-export interface PendingRegistration {
-  id: string;
-  email: string;
-  displayName: string;
-  firebaseUid: string;
-  role?: string;
-  entityId?: string;
-  phone?: string | null;
-  deviceInfo?: string;
-  createdAt: Timestamp;
-  status: "PENDING" | "APPROVED" | "REJECTED";
-  reviewedBy?: string;
-  reviewedAt?: Timestamp;
-  rejectionReason?: string;
-}
+// PendingRegistration is now an alias for FirebaseUserIdentity pending teachers.
+// Kept for backward compatibility with teacher-approval route.
+export type PendingRegistration = FirebaseUserIdentity;
 
 export interface SyncLog {
   id: string;
@@ -347,6 +351,7 @@ export async function syncStudentsToFirebase(
           registrationNo: student.registrationNo || "",
           firstName: student.firstName || "",
           lastName: student.lastName || "",
+          email: student.email || "",
           classId: student.classId || student.class?.id || "",
           className: student.class?.name || "",
           sectionId: student.sectionId || student.section?.id || "",
@@ -489,28 +494,21 @@ export async function syncExamsToFirebase(
   return { success, failed };
 }
 
-export async function getPendingRegistrations(): Promise<
-  PendingRegistration[]
-> {
+export async function getPendingRegistrations(): Promise<PendingRegistration[]> {
   const db = getFirestoreDb();
   try {
-    console.log('Fetching pending registrations from Firestore...');
     const q = query(
-      collection(db, COLLECTIONS.PENDING_REGISTRATIONS),
-      where("status", "==", "PENDING")
+      collection(db, COLLECTIONS.USER_IDENTITIES),
+      where("isApproved", "==", false),
+      where("role", "==", "TEACHER")
     );
     const snapshot = await getDocs(q);
-    console.log(`Found ${snapshot.docs.length} pending registrations`);
-    
-    const registrations = snapshot.docs.map((doc) => {
-      const data = doc.data();
-      console.log('Registration document:', doc.id, data);
-      return { id: doc.id, ...data } as PendingRegistration;
-    });
-    
-    return registrations;
+    // Exclude registrations that have already been reviewed (rejected)
+    return snapshot.docs
+      .filter((d) => !d.data().reviewedAt)
+      .map((d) => ({ id: d.id, ...d.data() } as PendingRegistration));
   } catch (error) {
-    console.error('Error fetching pending registrations:', error);
+    console.error("Error fetching pending registrations:", error);
     throw error;
   }
 }
@@ -523,23 +521,18 @@ export async function approveTeacherRegistration(
   const db = getFirestoreDb();
   const now = Timestamp.now();
 
-  // Update pending registration status
-  const regRef = doc(db, COLLECTIONS.PENDING_REGISTRATIONS, registrationId);
-  await updateDoc(regRef, {
-    status: "APPROVED",
+  // Approve in user_identities (registrationId = Firebase UID = document ID)
+  const identityRef = doc(db, COLLECTIONS.USER_IDENTITIES, registrationId);
+  await updateDoc(identityRef, {
+    isApproved: true,
     reviewedBy: approvedBy,
     reviewedAt: now,
-  });
-
-  // Update teacher's approval status
-  const teacherRef = doc(db, COLLECTIONS.TEACHERS, teacherId);
-  await updateDoc(teacherRef, {
-    isApproved: true,
     updatedAt: now,
   });
 
-  const identityRef = doc(db, COLLECTIONS.USER_IDENTITIES, registrationId);
-  await updateDoc(identityRef, {
+  // Mirror approval on the teachers collection so mobile timetable queries work
+  const teacherRef = doc(db, COLLECTIONS.TEACHERS, teacherId);
+  await updateDoc(teacherRef, {
     isApproved: true,
     updatedAt: now,
   });
@@ -553,12 +546,14 @@ export async function rejectTeacherRegistration(
   const db = getFirestoreDb();
   const now = Timestamp.now();
 
-  const regRef = doc(db, COLLECTIONS.PENDING_REGISTRATIONS, registrationId);
-  await updateDoc(regRef, {
-    status: "REJECTED",
+  // Mark as reviewed (but not approved) so it leaves the pending queue
+  const identityRef = doc(db, COLLECTIONS.USER_IDENTITIES, registrationId);
+  await updateDoc(identityRef, {
+    isApproved: false,
     reviewedBy: rejectedBy,
     reviewedAt: now,
     rejectionReason: reason,
+    updatedAt: now,
   });
 }
 
@@ -973,107 +968,275 @@ export async function deleteAllExams(): Promise<number> {
   }
 }// ─────────────────────────────────────────────────────────────
 // USER IDENTITY LAYER
-// This is the ONLY Firebase document the mobile app reads on login.
-// It contains NO academic data — only enough to validate the user.
+// Single collection. Document ID = Firebase UID.
+// Contains NO academic data — only the minimum needed for mobile auth.
 // ─────────────────────────────────────────────────────────────
 
 export interface FirebaseUserIdentity {
-  userId: string;          // Internal UUID from Next.js
-  email: string;           // Generated email (stdatalhuda.com for students)
-  role: "student" | "teacher";
-  approvalStatus: "pending" | "approved" | "rejected";
-  displayName: string;
+  id?: string;             // doc.id (Firebase UID) injected at read time
+  firebaseUid: string;     // Also stored as a field for convenience
+  email: string;
+  name: string;
+  role: "TEACHER" | "STUDENT";
+  entityId: string;        // teacherId or studentId from Web DB
+  isApproved: boolean;
+  phone?: string | null;
+  reviewedBy?: string;
+  reviewedAt?: Timestamp;
+  rejectionReason?: string;
   createdAt: Timestamp;
   updatedAt: Timestamp;
 }
 
-/**
- * Called by Next.js immediately after a student is created.
- * Pushes a lightweight identity document to Firebase so the mobile
- * app can validate the email and role at login time.
- */
-export async function syncStudentIdentityToFirebase(student: {
-  id: string;
-  firstName: string;
-  lastName: string;
-  email: string;
-}): Promise<void> {
+// ─────────────────────────────────────────────────────────────
+// PER-MUTATION SYNC HELPERS
+// Called by individual API route handlers after each mutation.
+// All fire-and-forget — callers use .catch() to suppress errors.
+// ─────────────────────────────────────────────────────────────
+
+export async function upsertStudentInFirebase(student: any): Promise<void> {
   const db = getFirestoreDb();
   const now = Timestamp.now();
-
-  const identity: FirebaseUserIdentity = {
-    userId: student.id,
-    email: student.email,
-    role: "student",
-    approvalStatus: "approved", // Students are approved on creation by admin
-    displayName: `${student.firstName} ${student.lastName}`.trim(),
-    createdAt: now,
-    updatedAt: now,
+  const ref = doc(db, COLLECTIONS.STUDENTS, student.id);
+  const firebaseStudent: FirebaseStudent = {
+    id: student.id,
+    registrationNo: student.registrationNo || "",
+    firstName: student.firstName || "",
+    lastName: student.lastName || "",
+    email: student.email || "",
+    classId: student.classId || student.class?.id || "",
+    className: student.class?.name || "",
+    sectionId: student.sectionId || student.section?.id || "",
+    sectionName: student.section?.name || "",
+    rollNo: student.rollNo,
+    profileImage: student.photo || student.profileImage || "",
+    isActive: student.status === "ACTIVE",
+    lastSyncedAt: now,
   };
-
-  // Use email as document ID for fast lookup by email
-  const emailKey = student.email.replace(/\./g, "_").replace(/@/g, "_at_");
-  const identityRef = doc(db, COLLECTIONS.USER_IDENTITIES, emailKey);
-  await setDoc(identityRef, identity, { merge: true });
+  await setDoc(ref, firebaseStudent, { merge: true });
 }
 
-/**
- * Mobile app calls this on login to validate email exists and get role.
- * Returns null if email is not in the identity directory.
- */
-export async function getFirebaseUserIdentity(
-  email: string
-): Promise<FirebaseUserIdentity | null> {
+export async function upsertTeacherInFirebase(teacher: any): Promise<void> {
   const db = getFirestoreDb();
-  const emailKey = email.replace(/\./g, "_").replace(/@/g, "_at_");
-  const identityRef = doc(db, COLLECTIONS.USER_IDENTITIES, emailKey);
-  const snap = await getDoc(identityRef);
-  if (!snap.exists()) return null;
-  return snap.data() as FirebaseUserIdentity;
+  const now = Timestamp.now();
+  const ref = doc(db, COLLECTIONS.TEACHERS, teacher.id);
+
+  // Preserve existing isApproved status — don't reset on update
+  const existing = await getDoc(ref);
+  const isApproved = existing.exists() ? (existing.data()?.isApproved ?? false) : false;
+
+  const firebaseTeacher: FirebaseTeacher = {
+    id: teacher.id,
+    email: teacher.email || "",
+    name: `${teacher.firstName} ${teacher.lastName}`.trim(),
+    phone: teacher.phone || "",
+    employeeId: teacher.employeeId || "",
+    designation: teacher.designation || "",
+    profileImage: teacher.photo || "",
+    assignedClasses: (teacher.classSections || []).map((cs: any) => ({
+      classId: cs.class?.id || cs.classId || "",
+      className: cs.class?.name || "",
+      sectionId: cs.id || "",
+      sectionName: cs.name || "",
+    })),
+    assignedSubjects: (teacher.subjects || []).map((ts: any) => ({
+      subjectId: ts.subject?.id || ts.subjectId || "",
+      subjectName: ts.subject?.name || "",
+      classId: ts.class?.id || ts.classId || "",
+      className: ts.class?.name || "",
+    })),
+    isApproved,
+    isActive: teacher.isActive ?? true,
+    createdAt: existing.exists() ? (existing.data()?.createdAt || now) : now,
+    updatedAt: now,
+    lastSyncedAt: now,
+  };
+  await setDoc(ref, firebaseTeacher, { merge: true });
 }
 
-/**
- * Admin calls this when approving a teacher.
- * Updates the teacher identity doc's approvalStatus.
- */
-export async function updateTeacherIdentityApproval(
-  email: string,
-  approved: boolean
+export async function upsertExamInFirebase(exam: any): Promise<void> {
+  const db = getFirestoreDb();
+  const now = Timestamp.now();
+  const ref = doc(db, COLLECTIONS.EXAMS, exam.id);
+  const firebaseExam: FirebaseExam = {
+    id: exam.id,
+    name: exam.name || "",
+    examType: exam.examType || "MONTHLY",
+    classId: exam.classId || "",
+    className: exam.class?.name || "",
+    sectionId: exam.sectionId || undefined,
+    sectionName: exam.section?.name || undefined,
+    subjectId: exam.subjectId || undefined,
+    subjectName: exam.subject?.name || undefined,
+    totalMarks: exam.totalMarks || 100,
+    passingMarks: exam.passingMarks || 33,
+    examDate: exam.examDate
+      ? new Date(exam.examDate).toISOString().split("T")[0]
+      : undefined,
+    isActive: exam.isActive ?? true,
+    isPublished: exam.isPublished ?? false,
+    lastSyncedAt: now,
+  };
+  await setDoc(ref, firebaseExam, { merge: true });
+}
+
+export async function deleteExamFromFirebase(id: string): Promise<void> {
+  const db = getFirestoreDb();
+  await deleteDoc(doc(db, COLLECTIONS.EXAMS, id));
+}
+
+export async function syncTimetableEntriesToFirebase(
+  entries: any[]
 ): Promise<void> {
   const db = getFirestoreDb();
-  const emailKey = email.replace(/\./g, "_").replace(/@/g, "_at_");
-  const identityRef = doc(db, COLLECTIONS.USER_IDENTITIES, emailKey);
-  await setDoc(
-    identityRef,
-    { approvalStatus: approved ? "approved" : "rejected", updatedAt: Timestamp.now() },
-    { merge: true }
-  );
+  const now = Timestamp.now();
+
+  for (const entry of entries) {
+    const ref = doc(db, COLLECTIONS.TIMETABLE, entry.id);
+    const firebaseTimetable: FirebaseTimetable = {
+      id: entry.id,
+      teacherId: entry.teacherId || "",
+      classId: entry.classId || "",
+      className: entry.class?.name || "",
+      sectionId: entry.sectionId || undefined,
+      sectionName: entry.section?.name || undefined,
+      subjectId: entry.subjectId || "",
+      subjectName: entry.subject?.name || "",
+      dayOfWeek: entry.dayOfWeek,
+      startTime: entry.startTime || "",
+      endTime: entry.endTime || "",
+      lastSyncedAt: now,
+    };
+    await setDoc(ref, firebaseTimetable, { merge: true });
+  }
+}
+
+export async function deleteTimetableEntryFromFirebase(id: string): Promise<void> {
+  const db = getFirestoreDb();
+  await deleteDoc(doc(db, COLLECTIONS.TIMETABLE, id));
 }
 
 /**
- * Called when a teacher is synced to Firebase. Upserts their identity doc.
+ * Called when exam results are published (isPublished → true).
+ * Creates one Firestore document per student-per-subject result, queryable by studentId.
  */
-export async function syncTeacherIdentityToFirebase(teacher: {
+export async function syncStudentMarksToFirebase(
+  marks: {
+    studentId: string;
+    examId: string;
+    examName: string;
+    subjectId: string;
+    subjectName: string;
+    classId: string;
+    marksObtained: number;
+    totalMarks: number;
+    grade: string;
+    isAbsent: boolean;
+    examDate?: string | null;
+  }[]
+): Promise<void> {
+  const db = getFirestoreDb();
+  const now = Timestamp.now();
+
+  const batchSize = 500;
+  for (let i = 0; i < marks.length; i += batchSize) {
+    const batch = writeBatch(db);
+    const chunk = marks.slice(i, i + batchSize);
+    for (const m of chunk) {
+      const docId = `${m.examId}_${m.studentId}_${m.subjectId}`;
+      const ref = doc(db, COLLECTIONS.RESULTS, docId);
+      const result: FirebaseStudentResult = {
+        id: docId,
+        studentId: m.studentId,
+        examId: m.examId,
+        examName: m.examName,
+        subjectId: m.subjectId,
+        subjectName: m.subjectName,
+        classId: m.classId,
+        marksObtained: m.marksObtained,
+        totalMarks: m.totalMarks,
+        grade: m.grade,
+        isAbsent: m.isAbsent,
+        examDate: m.examDate ?? undefined,
+        lastSyncedAt: now,
+      };
+      batch.set(ref, result, { merge: true });
+    }
+    await batch.commit();
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// STUDENT MOBILE ACCESS (controlled identity provisioning)
+// One identity per student, keyed by entityId == student.id.
+// ─────────────────────────────────────────────────────────────
+
+export async function getStudentMobileIdentity(
+  studentId: string
+): Promise<{ exists: boolean }> {
+  const db = getFirestoreDb();
+  const q = query(
+    collection(db, COLLECTIONS.USER_IDENTITIES),
+    where("entityId", "==", studentId)
+  );
+  const snapshot = await getDocs(q);
+  return { exists: !snapshot.empty };
+}
+
+export async function provisionStudentMobileAccess(student: {
   id: string;
   firstName: string;
   lastName: string;
   email: string;
-  isApproved: boolean;
-}): Promise<void> {
+}): Promise<{ created: boolean }> {
   const db = getFirestoreDb();
   const now = Timestamp.now();
-  const emailKey = teacher.email.replace(/\./g, "_").replace(/@/g, "_at_");
-  const identityRef = doc(db, COLLECTIONS.USER_IDENTITIES, emailKey);
+  const name = `${student.firstName} ${student.lastName}`.trim();
 
-  const existing = await getDoc(identityRef);
-  const identity: FirebaseUserIdentity = {
-    userId: teacher.id,
-    email: teacher.email,
-    role: "teacher",
-    approvalStatus: teacher.isApproved ? "approved" : "pending",
-    displayName: `${teacher.firstName} ${teacher.lastName}`.trim(),
-    createdAt: existing.exists() ? (existing.data() as FirebaseUserIdentity).createdAt : now,
-    updatedAt: now,
-  };
-  await setDoc(identityRef, identity, { merge: true });
+  const q = query(
+    collection(db, COLLECTIONS.USER_IDENTITIES),
+    where("entityId", "==", student.id)
+  );
+  const snapshot = await getDocs(q);
+
+  if (snapshot.empty) {
+    const newRef = doc(collection(db, COLLECTIONS.USER_IDENTITIES));
+    await setDoc(newRef, {
+      email: student.email,
+      name,
+      role: "STUDENT",
+      entityId: student.id,
+      isApproved: true,
+      createdAt: now,
+      updatedAt: now,
+    });
+    return { created: true };
+  } else {
+    await updateDoc(snapshot.docs[0].ref, {
+      email: student.email,
+      name,
+      entityId: student.id,
+      isApproved: true,
+      updatedAt: now,
+    });
+    return { created: false };
+  }
+}
+
+export async function updateStudentIdentityEmail(
+  studentId: string,
+  newEmail: string
+): Promise<void> {
+  const db = getFirestoreDb();
+  const q = query(
+    collection(db, COLLECTIONS.USER_IDENTITIES),
+    where("entityId", "==", studentId)
+  );
+  const snapshot = await getDocs(q);
+  if (snapshot.empty) return;
+
+  await updateDoc(snapshot.docs[0].ref, {
+    email: newEmail,
+    updatedAt: Timestamp.now(),
+  });
 }

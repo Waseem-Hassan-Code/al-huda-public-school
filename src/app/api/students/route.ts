@@ -7,7 +7,7 @@ import { getNextSequenceValue } from "@/lib/sequences";
 import { logCreate, logTransaction } from "@/lib/transaction-log";
 import { notifyStudentRegistered } from "@/lib/notifications";
 import { FeeStatus, FeeType } from "@prisma/client";
-import { syncStudentIdentityToFirebase } from "@/lib/firebase";
+import { upsertStudentInFirebase } from "@/lib/firebase";
 
 // Blood group mapping from display format to enum format
 const bloodGroupMap: Record<string, string> = {
@@ -514,15 +514,9 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // Push lightweight identity to Firebase (fire-and-forget)
-    // This is the ONLY student data that goes to Firebase — email + role + approval.
-    syncStudentIdentityToFirebase({
-      id: result.student.id,
-      firstName,
-      lastName,
-      email: generatedEmail,
-    }).catch((err) =>
-      console.error("Firebase identity sync failed (non-critical):", err)
+    // Sync student to Firebase students collection (fire-and-forget)
+    upsertStudentInFirebase(result.student).catch((err) =>
+      console.error("Firebase student upsert failed (non-critical):", err)
     );
 
     // Send notification for new student registration

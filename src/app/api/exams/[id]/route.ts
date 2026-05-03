@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { hasPermission, Permission } from "@/lib/permissions";
+import { upsertExamInFirebase, deleteExamFromFirebase, syncStudentMarksToFirebase } from "@/lib/firebase";
 
 // GET - Get single exam
 export async function GET(
@@ -153,6 +154,40 @@ export async function PUT(
       },
     });
 
+    // Sync updated exam to Firebase (fire-and-forget)
+    upsertExamInFirebase(exam).catch((err) =>
+      console.error("Firebase exam sync failed (non-critical):", err)
+    );
+
+    // When exam is published, push individual student results to Firebase
+    const wasNotPublished = !existing.isPublished;
+    if (isPublished && wasNotPublished) {
+      (async () => {
+        try {
+          const marks = await prisma.studentMark.findMany({
+            where: { examId: id },
+            include: { subject: true, student: true, exam: { include: { class: true } } },
+          });
+          const resultDocs = marks.map((m: any) => ({
+            studentId: m.studentId,
+            examId: m.examId,
+            examName: exam.name,
+            subjectId: m.subjectId,
+            subjectName: m.subject?.name || "",
+            classId: exam.classId,
+            marksObtained: m.marksObtained ?? 0,
+            totalMarks: m.totalMarks ?? exam.totalMarks,
+            grade: m.grade || "",
+            isAbsent: m.isAbsent ?? false,
+            examDate: exam.examDate ? new Date(exam.examDate).toISOString().split("T")[0] : null,
+          }));
+          await syncStudentMarksToFirebase(resultDocs);
+        } catch (err) {
+          console.error("Firebase results publish failed (non-critical):", err);
+        }
+      })();
+    }
+
     return NextResponse.json({ data: exam });
   } catch (error) {
     console.error("Exam PUT Error:", error);
@@ -194,6 +229,11 @@ export async function DELETE(
     await prisma.exam.delete({
       where: { id },
     });
+
+    // Remove from Firebase (fire-and-forget)
+    deleteExamFromFirebase(id).catch((err) =>
+      console.error("Firebase exam delete failed (non-critical):", err)
+    );
 
     return NextResponse.json({ message: "Exam deleted successfully" });
   } catch (error) {

@@ -6,6 +6,7 @@ import { hasPermission, Permission } from "@/lib/permissions";
 import { getNextSequenceValue } from "@/lib/sequences";
 import { logTransaction } from "@/lib/transaction-log";
 import bcrypt from "bcryptjs";
+import { upsertTeacherInFirebase } from "@/lib/firebase";
 
 // GET - List teachers with pagination and filtering
 export async function GET(request: NextRequest) {
@@ -226,6 +227,13 @@ export async function POST(request: NextRequest) {
       details: { employeeId, firstName, lastName },
     });
 
+    // Sync new teacher to Firebase teachers collection (fire-and-forget)
+    if (result) {
+      upsertTeacherInFirebase(result).catch((err) =>
+        console.error("Firebase teacher sync failed (non-critical):", err)
+      );
+    }
+
     return NextResponse.json(result, { status: 201 });
   } catch (error) {
     console.error("Teachers POST Error:", error);
@@ -374,6 +382,13 @@ export async function PUT(request: NextRequest) {
       userId: session.user.id,
       details: { firstName, lastName },
     });
+
+    // Sync updated teacher to Firebase (fire-and-forget)
+    if (result) {
+      upsertTeacherInFirebase(result).catch((err) =>
+        console.error("Firebase teacher sync failed (non-critical):", err)
+      );
+    }
 
     return NextResponse.json(result);
   } catch (error) {

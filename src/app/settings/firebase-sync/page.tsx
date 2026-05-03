@@ -78,11 +78,11 @@ interface SyncLog {
 interface PendingRegistration {
   id: string;
   email: string;
-  displayName: string;
+  name: string;
   firebaseUid: string;
-  deviceInfo?: string;
-  requestedAt: string;
-  status: string;
+  phone?: string | null;
+  entityId?: string;
+  createdAt: string;
   teacher?: {
     id: string;
     name: string;
@@ -91,7 +91,7 @@ interface PendingRegistration {
     phone?: string;
     assignedClasses: { className: string; sectionName?: string }[];
     assignedSubjects: { subjectName: string; className: string }[];
-  };
+  } | null;
 }
 
 interface TabPanelProps {
@@ -717,10 +717,10 @@ export default function FirebaseSyncPage() {
                   <TableHead>
                     <TableRow>
                       <TableCell>Email</TableCell>
-                      <TableCell>Display Name</TableCell>
+                      <TableCell>Name</TableCell>
                       <TableCell>Matched Teacher</TableCell>
                       <TableCell>Assigned Classes</TableCell>
-                      <TableCell>Requested At</TableCell>
+                      <TableCell>Registered At</TableCell>
                       <TableCell>Actions</TableCell>
                     </TableRow>
                   </TableHead>
@@ -728,7 +728,7 @@ export default function FirebaseSyncPage() {
                     {pendingRegistrations.map((reg) => (
                       <TableRow key={reg.id}>
                         <TableCell>{reg.email}</TableCell>
-                        <TableCell>{reg.displayName}</TableCell>
+                        <TableCell>{reg.name}</TableCell>
                         <TableCell>
                           {reg.teacher ? (
                             <Box>
@@ -759,7 +759,7 @@ export default function FirebaseSyncPage() {
                             />
                           ))}
                         </TableCell>
-                        <TableCell>{formatDate(reg.requestedAt)}</TableCell>
+                        <TableCell>{formatDate(reg.createdAt)}</TableCell>
                         <TableCell>
                           <Tooltip title="Approve">
                             <IconButton

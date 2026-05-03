@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { hasPermission, Permission } from "@/lib/permissions";
 import { logTransaction } from "@/lib/transaction-log";
+import { upsertTeacherInFirebase } from "@/lib/firebase";
 
 // GET - Get single teacher by ID
 export async function GET(
@@ -124,6 +125,11 @@ export async function PUT(
       },
     });
 
+    // Sync updated teacher to Firebase (fire-and-forget)
+    upsertTeacherInFirebase(teacher).catch((err) =>
+      console.error("Firebase teacher sync failed (non-critical):", err)
+    );
+
     return NextResponse.json(teacher);
   } catch (error) {
     console.error("Teacher PUT Error:", error);
@@ -198,6 +204,11 @@ export async function DELETE(
         name: `${teacher.firstName} ${teacher.lastName}`,
       },
     });
+
+    // Reflect deactivation in Firebase (fire-and-forget)
+    upsertTeacherInFirebase({ ...teacher, isActive: false }).catch((err) =>
+      console.error("Firebase teacher deactivate failed (non-critical):", err)
+    );
 
     return NextResponse.json({ message: "Teacher deleted successfully" });
   } catch (error) {

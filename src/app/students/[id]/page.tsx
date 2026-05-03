@@ -60,6 +60,7 @@ import {
   FamilyRestroom,
   OpenInNew,
   Email as EmailIcon,
+  PhoneAndroid,
 } from "@mui/icons-material";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
@@ -291,8 +292,13 @@ export default function StudentProfilePage({
   const [newOpeningBalance, setNewOpeningBalance] = useState<string>("0");
   const [savingOpeningBalance, setSavingOpeningBalance] = useState(false);
 
+  // Mobile access state
+  const [mobileIdentityExists, setMobileIdentityExists] = useState<boolean | null>(null);
+  const [provisioningAccess, setProvisioningAccess] = useState(false);
+
   useEffect(() => {
     fetchStudent();
+    fetchMobileIdentity();
   }, [id]);
 
   useEffect(() => {
@@ -322,6 +328,38 @@ export default function StudentProfilePage({
       console.error(error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchMobileIdentity = async () => {
+    try {
+      const res = await fetch(`/api/students/${id}/mobile-access`);
+      if (res.ok) {
+        const data = await res.json();
+        setMobileIdentityExists(data.exists);
+      }
+    } catch {
+      setMobileIdentityExists(false);
+    }
+  };
+
+  const handleProvisionMobileAccess = async () => {
+    setProvisioningAccess(true);
+    try {
+      const res = await fetch(`/api/students/${id}/mobile-access`, {
+        method: "POST",
+      });
+      const data = await res.json();
+      if (res.ok) {
+        toast.success(data.message);
+        setMobileIdentityExists(true);
+      } else {
+        toast.error(data.error || "Failed to provision mobile access");
+      }
+    } catch {
+      toast.error("Failed to provision mobile access");
+    } finally {
+      setProvisioningAccess(false);
     }
   };
 
@@ -876,7 +914,26 @@ export default function StudentProfilePage({
               Student Profile
             </Typography>
           </Box>
-          <Box sx={{ display: "flex", gap: 1 }}>
+          <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
+            {student.email && (
+              <Button
+                variant="outlined"
+                color={mobileIdentityExists ? "success" : "primary"}
+                startIcon={
+                  provisioningAccess ? (
+                    <CircularProgress size={18} color="inherit" />
+                  ) : (
+                    <PhoneAndroid />
+                  )
+                }
+                onClick={handleProvisionMobileAccess}
+                disabled={provisioningAccess || mobileIdentityExists === null}
+              >
+                {mobileIdentityExists
+                  ? "Update Mobile Access"
+                  : "Enable Mobile Access"}
+              </Button>
+            )}
             <Button
               variant="outlined"
               startIcon={<Print />}

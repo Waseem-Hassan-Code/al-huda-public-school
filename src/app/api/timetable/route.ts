@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { hasPermission, Permission } from "@/lib/permissions";
 import { logTransaction } from "@/lib/transaction-log";
+import { syncTimetableEntriesToFirebase, deleteTimetableEntryFromFirebase } from "@/lib/firebase";
 
 // GET - Get timetable
 export async function GET(request: NextRequest) {
@@ -220,6 +221,11 @@ export async function POST(request: NextRequest) {
       details: { classId, sectionId, dayOfWeek, periodNo },
     });
 
+    // Sync new timetable entry to Firebase (fire-and-forget)
+    syncTimetableEntriesToFirebase([timetableEntry]).catch((err) =>
+      console.error("Firebase timetable sync failed (non-critical):", err)
+    );
+
     return NextResponse.json(timetableEntry, { status: 201 });
   } catch (error) {
     console.error("Timetable POST Error:", error);
@@ -297,6 +303,11 @@ export async function PUT(request: NextRequest) {
       details: { updatedFields: Object.keys(updateData) },
     });
 
+    // Sync updated timetable entry to Firebase (fire-and-forget)
+    syncTimetableEntriesToFirebase([timetableEntry]).catch((err) =>
+      console.error("Firebase timetable sync failed (non-critical):", err)
+    );
+
     return NextResponse.json(timetableEntry);
   } catch (error) {
     console.error("Timetable PUT Error:", error);
@@ -338,6 +349,11 @@ export async function DELETE(request: NextRequest) {
       userId: session.user.id,
       details: {},
     });
+
+    // Remove from Firebase (fire-and-forget)
+    deleteTimetableEntryFromFirebase(id).catch((err) =>
+      console.error("Firebase timetable delete failed (non-critical):", err)
+    );
 
     return NextResponse.json({ message: "Timetable entry deleted" });
   } catch (error) {

@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { hasPermission, Permission } from "@/lib/permissions";
 import { logTransaction } from "@/lib/transaction-log";
+import { upsertExamInFirebase } from "@/lib/firebase";
 
 // GET - List exams
 export async function GET(request: NextRequest) {
@@ -192,6 +193,11 @@ export async function POST(request: NextRequest) {
       userId: session.user.id,
       details: { name, examType, classId },
     });
+
+    // Sync new exam to Firebase (fire-and-forget)
+    upsertExamInFirebase(exam).catch((err) =>
+      console.error("Firebase exam sync failed (non-critical):", err)
+    );
 
     return NextResponse.json(exam, { status: 201 });
   } catch (error) {

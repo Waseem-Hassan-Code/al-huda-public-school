@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
+import { syncSubjectsToFirebase } from "@/lib/firebase";
 
 // GET - List all subjects
 export async function GET(request: NextRequest) {
@@ -141,6 +142,16 @@ export async function POST(request: NextRequest) {
       },
     });
 
+    // Sync new subject to Firebase (fire-and-forget)
+    const firstClassAssoc = updatedSubject?.classSubjects?.[0];
+    syncSubjectsToFirebase([{
+      ...updatedSubject,
+      classId: firstClassAssoc?.classId || "",
+      class: firstClassAssoc?.class || null,
+    }]).catch((err) =>
+      console.error("Firebase subject sync failed (non-critical):", err)
+    );
+
     return NextResponse.json({
       subject: {
         ...updatedSubject,
@@ -242,6 +253,16 @@ export async function PUT(request: NextRequest) {
         },
       },
     });
+
+    // Sync updated subject to Firebase (fire-and-forget)
+    const firstClassAssocPut = updatedSubject?.classSubjects?.[0];
+    syncSubjectsToFirebase([{
+      ...updatedSubject,
+      classId: firstClassAssocPut?.classId || "",
+      class: firstClassAssocPut?.class || null,
+    }]).catch((err) =>
+      console.error("Firebase subject sync failed (non-critical):", err)
+    );
 
     return NextResponse.json({
       subject: {
