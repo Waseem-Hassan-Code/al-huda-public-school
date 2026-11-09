@@ -51,6 +51,7 @@ import { AdapterDateFns } from "@mui/x-date-pickers/AdapterDateFns";
 import MainLayout from "@/components/layout/MainLayout";
 import { formatDate } from "@/lib/utils";
 import { toast } from "sonner";
+import { useAcademicSession } from "@/components/providers/AcademicSessionProvider";
 
 // Interfaces
 interface ClassData {
@@ -162,6 +163,8 @@ const EXAM_TYPE_COLORS: Record<string, string> = {
 };
 
 export default function ExamsPage() {
+  const { selectedSession } = useAcademicSession();
+  const sessionId = selectedSession?.id ?? "";
   // State
   const [exams, setExams] = useState<Exam[]>([]);
   const [classes, setClasses] = useState<ClassData[]>([]);
@@ -227,6 +230,7 @@ export default function ExamsPage() {
       if (filterClassId) params.append("classId", filterClassId);
       if (filterType) params.append("type", filterType);
       params.append("includeSchedules", "true");
+      if (sessionId) params.append("academicYearId", sessionId);
 
       const response = await fetch(`/api/exams?${params}`);
       if (response.ok) {
@@ -239,7 +243,7 @@ export default function ExamsPage() {
     } finally {
       setLoading(false);
     }
-  }, [filterClassId, filterType]);
+  }, [filterClassId, filterType, sessionId]);
 
   // Fetch classes with sections
   const fetchClasses = useCallback(async () => {

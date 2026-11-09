@@ -54,6 +54,9 @@ import MainLayout from "@/components/layout/MainLayout";
 import SimpleTable, { SimpleColumn } from "@/components/common/SimpleTable";
 import { debounce, formatCurrency, formatDate } from "@/lib/utils";
 import { toast } from "sonner";
+import ReceivePaymentDialog from "@/components/dialogs/ReceivePaymentDialog";
+import QuickReceiveButton from "@/components/fees/QuickReceiveButton";
+import { periodLabel } from "@/lib/fee-utils";
 
 interface FeeVoucher {
   id: string;
@@ -67,6 +70,7 @@ interface FeeVoucher {
   dueDate: string;
   month: number;
   year: number;
+  isOpeningBalance?: boolean;
   createdAt: string;
   student: {
     id: string;
@@ -114,6 +118,26 @@ const MONTHS = [
   "December",
 ];
 
+// Month filter special values
+const ALL_MONTHS = -1;
+const OPENING_BALANCES = 0;
+
+interface VoucherSummary {
+  totalAmount: number;
+  paidAmount: number;
+  balanceDue: number;
+  byStatus: Record<string, { count: number; balanceDue: number }>;
+}
+
+const STATUS_FILTERS: { value: string; label: string; color: "default" | "error" | "warning" | "success" }[] = [
+  { value: "", label: "All", color: "default" },
+  { value: "OUTSTANDING", label: "Outstanding", color: "error" },
+  { value: "UNPAID", label: "Unpaid", color: "error" },
+  { value: "PARTIAL", label: "Partial", color: "warning" },
+  { value: "OVERDUE", label: "Overdue", color: "error" },
+  { value: "PAID", label: "Paid", color: "success" },
+];
+
 const STATUS_COLORS: Record<
   string,
   "success" | "warning" | "error" | "default"
@@ -128,6 +152,9 @@ export default function FeeVouchersPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
   const [vouchers, setVouchers] = useState<FeeVoucher[]>([]);
+  const [summary, setSummary] = useState<VoucherSummary | null>(null);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [receiveFor, setReceiveFor] = useState<{ studentId: string; voucherId?: string } | null>(null);
   const [classes, setClasses] = useState<Class[]>([]);
   const [students, setStudents] = useState<Student[]>([]);
   const [loading, setLoading] = useState(true);
@@ -161,13 +188,20 @@ export default function FeeVouchersPage() {
         if (classId) params.append("classId", classId);
         if (sectionId) params.append("sectionId", sectionId);
         if (statusFilter) params.append("status", statusFilter);
-        params.append("month", month.toString());
-        params.append("year", year.toString());
+        if (month === OPENING_BALANCES) {
+          params.append("month", "0");
+        } else {
+          if (month !== ALL_MONTHS) params.append("month", month.toString());
+          params.append("year", year.toString());
+        }
+        params.append("limit", "1000");
 
         const response = await fetch(`/api/fee-vouchers?${params}`);
         const data = await response.json();
         if (response.ok) {
           setVouchers(data.vouchers || []);
+          setSummary(data.summary || null);
+          setSelectedIds([]);
         } else {
           toast.error(data.error || "Failed to fetch vouchers");
         }
@@ -268,6 +302,10 @@ export default function FeeVouchersPage() {
   };
 
   const handleOpenGenerateDialog = () => {
+    if (filterMonth < 1) {
+      toast.error("Choose a month in the filters first, then generate vouchers for it");
+      return;
+    }
     fetchStudents();
     setSelectedStudents([]);
     setGenerateDialogOpen(true);
@@ -331,7 +369,34 @@ export default function FeeVouchersPage() {
 
   const selectedClass = classes.find((c) => c.id === filterClass);
 
+  const toggleSelected = (id: string, checked: boolean) =>
+    setSelectedIds((prev) => (checked ? [...prev, id] : prev.filter((x) => x !== id)));
+  const printVouchers = (ids: string[]) => {
+    if (ids.length === 0) return;
+    window.open(`/fees/vouchers/print?ids=${ids.join(",")}`, "_blank");
+  };
+  const refresh = () => fetchVouchers(search, filterClass, filterSection, filterStatus);
+  const periodText =
+    filterMonth === ALL_MONTHS
+      ? `All of ${filterYear}`
+      : filterMonth === OPENING_BALANCES
+        ? "Opening balances"
+        : `${MONTHS[filterMonth - 1]} ${filterYear}`;
+
   const columns: SimpleColumn[] = [
+    {
+      id: "select",
+      label: "",
+      width: 48,
+      render: (row: FeeVoucher) => (
+        <Checkbox
+          size="small"
+          checked={selectedIds.includes(row.id)}
+          onChange={(e) => toggleSelected(row.id, e.target.checked)}
+          onClick={(e) => e.stopPropagation()}
+        />
+      ),
+    },
     {
       id: "voucherNo",
       label: "Voucher No",
@@ -388,9 +453,7 @@ export default function FeeVouchersPage() {
       render: (row: FeeVoucher) => (
         <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
           <CalendarIcon fontSize="small" color="action" />
-          <Typography variant="body2">
-            {MONTHS[row.month - 1]} {row.year}
-          </Typography>
+          <Typography variant="body2">{periodLabel(row)}</Typography>
         </Box>
       ),
     },
@@ -440,9 +503,20 @@ export default function FeeVouchersPage() {
     {
       id: "actions",
       label: "Actions",
-      width: 130,
+      width: 170,
       render: (row: FeeVoucher) => (
         <Box sx={{ display: "flex", gap: 0.5 }}>
+          {row.balanceDue > 0 && (
+            <Tooltip title="Receive payment">
+              <IconButton
+                size="small"
+                onClick={() => setReceiveFor({ studentId: row.student.id, voucherId: row.id })}
+                sx={{ color: "success.main" }}
+              >
+                <PaymentIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          )}
           <Tooltip title="View Details">
             <IconButton
               size="small"
@@ -464,7 +538,7 @@ export default function FeeVouchersPage() {
           <Tooltip title="Print Voucher">
             <IconButton
               size="small"
-              onClick={() => toast.info("Print functionality coming soon")}
+              onClick={() => printVouchers([row.id])}
               sx={{ color: "text.secondary" }}
             >
               <PrintIcon fontSize="small" />
@@ -476,13 +550,23 @@ export default function FeeVouchersPage() {
   ];
 
   // Calculate summary statistics
-  const totalVouchers = vouchers.length;
-  const paidVouchers = vouchers.filter((v) => v.status === "PAID").length;
-  const unpaidVouchers = vouchers.filter((v) => v.status === "UNPAID").length;
-  const partialVouchers = vouchers.filter((v) => v.status === "PARTIAL").length;
-  const totalInvoiced = vouchers.reduce((sum, v) => sum + v.totalAmount, 0);
-  const totalCollected = vouchers.reduce((sum, v) => sum + v.paidAmount, 0);
-  const totalPending = vouchers.reduce((sum, v) => sum + v.balanceDue, 0);
+  // Totals come from the server for the whole filter (not just the rows loaded)
+  const countOf = (st: string) => summary?.byStatus?.[st]?.count ?? 0;
+  const totalVouchers = Object.entries(summary?.byStatus ?? ({} as VoucherSummary["byStatus"]))
+    .filter(([st]) => st !== "CANCELLED")
+    .reduce((n, [, b]) => n + b.count, 0);
+  const paidVouchers = countOf("PAID");
+  const unpaidVouchers = countOf("UNPAID") + countOf("OVERDUE");
+  const partialVouchers = countOf("PARTIAL");
+  const totalInvoiced = summary?.totalAmount ?? 0;
+  const totalCollected = summary?.paidAmount ?? 0;
+  const totalPending = summary?.balanceDue ?? 0;
+  const statusCount = (value: string) =>
+    value === ""
+      ? totalVouchers
+      : value === "OUTSTANDING"
+        ? unpaidVouchers + partialVouchers
+        : countOf(value);
   const collectionRate =
     totalInvoiced > 0 ? (totalCollected / totalInvoiced) * 100 : 0;
 
@@ -522,7 +606,7 @@ export default function FeeVouchersPage() {
                 Fee Vouchers
               </Typography>
               <Typography variant="body2" color="text.secondary">
-                {MONTHS[filterMonth - 1]} {filterYear}
+                {periodText}
               </Typography>
             </Box>
           </Box>
@@ -541,6 +625,7 @@ export default function FeeVouchersPage() {
                 <RefreshIcon />
               </IconButton>
             </Tooltip>
+            <QuickReceiveButton onSuccess={refresh} />
             <Button
               variant="contained"
               startIcon={<AddIcon />}
@@ -738,7 +823,7 @@ export default function FeeVouchersPage() {
                   color="text.secondary"
                   sx={{ mt: 1 }}
                 >
-                  For {MONTHS[filterMonth - 1]} {filterYear}
+                  For {periodText}
                 </Typography>
               </CardContent>
             </Card>
@@ -813,6 +898,8 @@ export default function FeeVouchersPage() {
                   label="Month"
                   onChange={(e) => handleFilterChange("month", e.target.value)}
                 >
+                  <MenuItem value={ALL_MONTHS}>All months</MenuItem>
+                  <MenuItem value={OPENING_BALANCES}>Opening balances</MenuItem>
                   {MONTHS.map((month, idx) => (
                     <MenuItem key={idx} value={idx + 1}>
                       {month}
@@ -828,6 +915,7 @@ export default function FeeVouchersPage() {
                 type="number"
                 label="Year"
                 value={filterYear}
+                disabled={filterMonth === OPENING_BALANCES}
                 onChange={(e) =>
                   handleFilterChange("year", parseInt(e.target.value))
                 }
@@ -842,6 +930,7 @@ export default function FeeVouchersPage() {
                   onChange={(e) => handleFilterChange("status", e.target.value)}
                 >
                   <MenuItem value="">All Status</MenuItem>
+                  <MenuItem value="OUTSTANDING">Outstanding (anything owed)</MenuItem>
                   <MenuItem value="PAID">Paid</MenuItem>
                   <MenuItem value="PARTIAL">Partial</MenuItem>
                   <MenuItem value="UNPAID">Unpaid</MenuItem>
@@ -862,12 +951,38 @@ export default function FeeVouchersPage() {
               mb: 2,
             }}
           >
-            <Typography variant="subtitle1" fontWeight="medium">
-              Vouchers List
-            </Typography>
-            <Typography variant="body2" color="text.secondary">
-              Showing {vouchers.length} vouchers
-            </Typography>
+            <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap", alignItems: "center" }}>
+              {STATUS_FILTERS.map((f) => (
+                <Chip
+                  key={f.value || "all"}
+                  label={`${f.label} (${statusCount(f.value)})`}
+                  color={filterStatus === f.value ? (f.color === "default" ? "primary" : f.color) : "default"}
+                  variant={filterStatus === f.value ? "filled" : "outlined"}
+                  onClick={() => handleFilterChange("status", f.value)}
+                  size="small"
+                />
+              ))}
+            </Box>
+            <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}>
+              <Checkbox
+                size="small"
+                checked={vouchers.length > 0 && selectedIds.length === vouchers.length}
+                indeterminate={selectedIds.length > 0 && selectedIds.length < vouchers.length}
+                onChange={(e) => setSelectedIds(e.target.checked ? vouchers.map((v) => v.id) : [])}
+              />
+              <Typography variant="body2" color="text.secondary" sx={{ mr: 1 }}>
+                {selectedIds.length > 0 ? `${selectedIds.length} selected` : `${vouchers.length} shown`}
+              </Typography>
+              <Button
+                size="small"
+                variant="outlined"
+                startIcon={<PrintIcon />}
+                disabled={vouchers.length === 0}
+                onClick={() => printVouchers(selectedIds.length > 0 ? selectedIds : vouchers.map((v) => v.id))}
+              >
+                {selectedIds.length > 0 ? `Print selected (${selectedIds.length})` : "Print all shown"}
+              </Button>
+            </Box>
           </Box>
           <SimpleTable
             columns={columns}
@@ -1042,7 +1157,7 @@ export default function FeeVouchersPage() {
                       Period
                     </Typography>
                     <Typography>
-                      {MONTHS[selectedVoucher.month - 1]} {selectedVoucher.year}
+                      {periodLabel(selectedVoucher)}
                     </Typography>
                   </Grid>
                   <Grid size={{ xs: 12 }}>
@@ -1096,7 +1211,7 @@ export default function FeeVouchersPage() {
           <DialogActions>
             <Button
               startIcon={<PrintIcon />}
-              onClick={() => toast.info("Print functionality coming soon")}
+              onClick={() => selectedVoucher && printVouchers([selectedVoucher.id])}
             >
               Print
             </Button>
@@ -1104,6 +1219,13 @@ export default function FeeVouchersPage() {
           </DialogActions>
         </Dialog>
       </Box>
+      <ReceivePaymentDialog
+        open={!!receiveFor}
+        studentId={receiveFor?.studentId ?? null}
+        focusVoucherId={receiveFor?.voucherId}
+        onClose={() => setReceiveFor(null)}
+        onSuccess={refresh}
+      />
     </MainLayout>
   );
 }

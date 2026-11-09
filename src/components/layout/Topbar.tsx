@@ -50,6 +50,7 @@ import {
   setLanguage,
 } from "@/store/uiSlice";
 import GlobalSearch from "@/components/common/GlobalSearch";
+import SessionSwitcher from "./SessionSwitcher";
 
 const drawerWidth = 280;
 const collapsedDrawerWidth = 72;
@@ -298,6 +299,9 @@ export default function Topbar() {
 
         {/* Right Side */}
         <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+          {/* Academic session switcher */}
+          <SessionSwitcher />
+
           {/* Language Switcher */}
           <Box
             sx={{

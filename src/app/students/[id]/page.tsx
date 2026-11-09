@@ -35,6 +35,7 @@ import {
   Divider,
   Stack,
   CircularProgress,
+  Alert,
 } from "@mui/material";
 import {
   Edit,
@@ -61,6 +62,9 @@ import {
   OpenInNew,
   Email as EmailIcon,
   PhoneAndroid,
+  Archive as ArchiveIcon,
+  Unarchive as UnarchiveIcon,
+  DeleteForever as DeleteForeverIcon,
 } from "@mui/icons-material";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
@@ -70,6 +74,10 @@ import ReceivePaymentDialog from "@/components/dialogs/ReceivePaymentDialog";
 import ResultCardsTab from "@/components/students/ResultCardsTab";
 import AttendanceCalendar from "@/components/common/AttendanceCalendar";
 import RemainingBalancePrint from "@/components/students/RemainingBalancePrint";
+import { isOutstanding, round2, voucherCharge } from "@/lib/fee-utils";
+import StudentLifecycleDialog, { LifecycleMode } from "@/components/students/StudentLifecycleDialog";
+import { usePermissions } from "@/hooks/usePermissions";
+import { Permission } from "@/lib/permissions";
 
 interface FeeVoucher {
   id: string;
@@ -92,6 +100,7 @@ interface FeeVoucher {
 interface Payment {
   id: string;
   receiptNo: string;
+  receiptGroup?: string | null;
   amount: number;
   paymentDate: string;
   paymentMethod: string;
@@ -282,6 +291,9 @@ export default function StudentProfilePage({
 
   // Receive payment state
   const [showPaymentDialog, setShowPaymentDialog] = useState(false);
+  // Archive / restore / permanent delete
+  const [lifecycleMode, setLifecycleMode] = useState<LifecycleMode | null>(null);
+  const { can } = usePermissions();
   const [paymentVoucher, setPaymentVoucher] = useState<FeeVoucher | null>(null);
 
   // Print remaining balance state
@@ -667,7 +679,7 @@ export default function StudentProfilePage({
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to set opening balance");
-      toast.success("Opening balance added");
+      toast.success(data.message || "Opening balance saved");
       setOpeningBalanceDialogOpen(false);
       fetchStudent();
     } catch (e: any) {
@@ -677,91 +689,93 @@ export default function StudentProfilePage({
     }
   };
 
-  // Build ledger data (combined vouchers and payments)
-  const buildLedgerData = () => {
+  // Build ledger: charges (vouchers) and payments in date order with a running
+  // balance. One row per receipt, so a payment that cleared several months
+  // shows once with the months it covered. Cancelled/waived vouchers are left out.
+  type LedgerEntry = {
+    date: Date;
+    type: "VOUCHER" | "PAYMENT";
+    reference: string;
+    link: string;
+    description: string;
+    debit: number;
+    credit: number;
+    balance: number;
+  };
+  const buildLedgerData = (): LedgerEntry[] => {
     if (!student) return [];
+    const counted = (student.feeVouchers || []).filter(
+      (v) => v.status !== "CANCELLED" && v.status !== "WAIVED"
+    );
 
-    const ledgerData: Array<{
-      date: Date;
-      type: "VOUCHER" | "PAYMENT";
-      reference: string;
-      description: string;
-      debit: number;
-      credit: number;
-      balance: number;
-    }> = [];
+    const charges = counted.map((v) => ({
+      date: new Date(v.isOpeningBalance ? 0 : v.dueDate),
+      sortKey: v.isOpeningBalance ? 0 : 1,
+      type: "VOUCHER" as const,
+      reference: v.voucherNo,
+      link: `/fees/vouchers/${v.id}`,
+      description: v.isOpeningBalance
+        ? "Opening Balance (Previous Dues)"
+        : `Fee Voucher - ${getVoucherPeriod(v)}${v.discount > 0 ? " (after discount)" : ""}${v.lateFee > 0 ? " + late fee" : ""}`,
+      amount: voucherCharge(v),
+    }));
 
-    let runningBalance = 0;
-
-    // Combine and sort by date
-    // Use subtotal for vouchers to show actual amount charged (not including previousBalance)
-    const allTransactions = [
-      ...(student.feeVouchers || []).map((v) => ({
-        date: new Date(v.dueDate),
-        type: "VOUCHER" as const,
-        reference: v.voucherNo,
-        description: v.isOpeningBalance
-          ? "Opening Balance (Previous Dues)"
-          : `Fee Voucher - ${getVoucherPeriod(v)}`,
-        amount: v.subtotal,
-        id: v.id,
-      })),
-      ...(student.feeVouchers || []).flatMap((v) =>
-        (v.payments || []).map((pay) => ({
-          date: new Date(pay.paymentDate),
-          type: "PAYMENT" as const,
-          reference: pay.receiptNo,
-          description: `Payment - ${pay.paymentMethod}`,
-          amount: pay.amount,
-          id: pay.id,
-        }))
-      ),
-    ].sort((a, b) => a.date.getTime() - b.date.getTime());
-
-    allTransactions.forEach((tx) => {
-      if (tx.type === "VOUCHER") {
-        runningBalance += tx.amount;
-        ledgerData.push({
-          date: tx.date,
-          type: tx.type,
-          reference: tx.reference,
-          description: tx.description,
-          debit: tx.amount,
-          credit: 0,
-          balance: runningBalance,
-        });
-      } else {
-        runningBalance -= tx.amount;
-        ledgerData.push({
-          date: tx.date,
-          type: tx.type,
-          reference: tx.reference,
-          description: tx.description,
-          debit: 0,
-          credit: tx.amount,
-          balance: runningBalance,
-        });
+    const receipts = new Map<string, { date: Date; amount: number; method: string; periods: string[] }>();
+    for (const v of student.feeVouchers || []) {
+      for (const pay of v.payments || []) {
+        const key = pay.receiptGroup || pay.receiptNo;
+        const r = receipts.get(key) ?? { date: new Date(pay.paymentDate), amount: 0, method: pay.paymentMethod, periods: [] };
+        r.amount = round2(r.amount + pay.amount);
+        r.periods.push(getVoucherPeriod(v));
+        receipts.set(key, r);
       }
-    });
+    }
+    const payments = [...receipts.entries()].map(([receiptNo, r]) => ({
+      date: r.date,
+      sortKey: 2,
+      type: "PAYMENT" as const,
+      reference: receiptNo,
+      link: `/fees/receipts/${encodeURIComponent(receiptNo)}`,
+      description: `Payment (${r.method.replace(/_/g, " ").toLowerCase()}) for ${r.periods.join(", ")}`,
+      amount: r.amount,
+    }));
 
-    return ledgerData;
+    let running = 0;
+    return [...charges, ...payments]
+      .sort((a, b) => a.date.getTime() - b.date.getTime() || a.sortKey - b.sortKey)
+      .map((tx) => {
+        running = round2(running + (tx.type === "VOUCHER" ? tx.amount : -tx.amount));
+        return {
+          date: tx.date,
+          type: tx.type,
+          reference: tx.reference,
+          link: tx.link,
+          description: tx.description,
+          debit: tx.type === "VOUCHER" ? tx.amount : 0,
+          credit: tx.type === "PAYMENT" ? tx.amount : 0,
+          balance: running,
+        };
+      });
   };
 
   const ledgerData = buildLedgerData();
 
-  // Calculate totals
-  // Use subtotal for actual invoiced amount (not including carried forward balances)
-  const totalInvoiced =
-    student?.feeVouchers?.reduce((sum, v) => sum + v.subtotal, 0) || 0;
-  const totalPaid =
-    student?.feeVouchers?.reduce(
-      (sum, v) =>
-        sum + (v.payments?.reduce((pSum, p) => pSum + p.amount, 0) || 0),
+  // Totals (cancelled/waived vouchers don't count)
+  const totalInvoiced = round2(
+    (student?.feeVouchers || [])
+      .filter((v) => v.status !== "CANCELLED" && v.status !== "WAIVED")
+      .reduce((sum, v) => sum + voucherCharge(v), 0)
+  );
+  const totalPaid = round2(
+    (student?.feeVouchers || []).reduce(
+      (sum, v) => sum + (v.payments?.reduce((pSum, p) => pSum + p.amount, 0) || 0),
       0
-    ) || 0;
-  // Balance due is totalInvoiced - totalPaid (or sum of all balanceDue)
-  const totalBalance =
-    student?.feeVouchers?.reduce((sum, v) => sum + v.balanceDue, 0) || 0;
+    )
+  );
+  // What is still owed: balances on unpaid / partial / overdue vouchers
+  const totalBalance = round2(
+    (student?.feeVouchers || []).filter((v) => isOutstanding(v.status)).reduce((sum, v) => sum + v.balanceDue, 0)
+  );
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -948,8 +962,70 @@ export default function StudentProfilePage({
             >
               Edit Student
             </Button>
+            {can(Permission.UPDATE_STUDENT) &&
+              (student.status === "INACTIVE" ? (
+                <Button
+                  variant="outlined"
+                  color="success"
+                  startIcon={<UnarchiveIcon />}
+                  onClick={() => setLifecycleMode("restore")}
+                >
+                  Restore
+                </Button>
+              ) : (
+                <Button
+                  variant="outlined"
+                  color="warning"
+                  startIcon={<ArchiveIcon />}
+                  onClick={() => setLifecycleMode("archive")}
+                >
+                  Archive
+                </Button>
+              ))}
+            {can(Permission.DELETE_STUDENT) && (
+              <Button
+                variant="outlined"
+                color="error"
+                startIcon={<DeleteForeverIcon />}
+                onClick={() => setLifecycleMode("delete")}
+              >
+                Delete
+              </Button>
+            )}
           </Box>
         </Box>
+
+        {student.status === "INACTIVE" && (
+          <Alert
+            severity="warning"
+            sx={{ mb: 3 }}
+            action={
+              can(Permission.UPDATE_STUDENT) && (
+                <Button color="inherit" size="small" onClick={() => setLifecycleMode("restore")}>
+                  Restore
+                </Button>
+              )
+            }
+          >
+            This student is archived
+            {student.statusDate ? ` since ${new Date(student.statusDate).toLocaleDateString("en-PK")}` : ""}
+            {student.statusReason ? ` (${student.statusReason})` : ""}. No new monthly fees are generated and mobile
+            app login is blocked. Existing dues can still be received.
+          </Alert>
+        )}
+
+        <StudentLifecycleDialog
+          open={!!lifecycleMode}
+          mode={lifecycleMode ?? "archive"}
+          student={student}
+          onClose={() => setLifecycleMode(null)}
+          onModeChange={setLifecycleMode}
+          onDone={(mode) => {
+            setLifecycleMode(null);
+            if (mode === "delete") router.push("/students");
+            else fetchStudent();
+          }}
+        />
 
         {/* Profile Header Card */}
         <Paper
@@ -1441,18 +1517,10 @@ export default function StudentProfilePage({
             color="success"
             startIcon={<PaymentIcon />}
             onClick={() => {
-              const unpaidVoucher = student.feeVouchers?.find(
-                (v) => v.status !== "PAID" && v.status !== "CANCELLED"
-              );
-              if (unpaidVoucher) {
-                handleReceivePayment(unpaidVoucher);
-              }
+              setPaymentVoucher(null);
+              setShowPaymentDialog(true);
             }}
-            disabled={
-              !student.feeVouchers?.some(
-                (v) => v.status !== "PAID" && v.status !== "CANCELLED"
-              )
-            }
+            disabled={totalBalance <= 0}
             size="medium"
           >
             Receive Payment
@@ -1471,7 +1539,8 @@ export default function StudentProfilePage({
             color="warning"
             startIcon={<AccountBalanceWallet />}
             onClick={() => {
-              setNewOpeningBalance("0");
+              const existingOb = student.feeVouchers?.find((v) => v.isOpeningBalance);
+              setNewOpeningBalance(existingOb ? String(existingOb.totalAmount) : "0");
               setOpeningBalanceDialogOpen(true);
             }}
             size="medium"
@@ -1526,9 +1595,33 @@ export default function StudentProfilePage({
         {/* Ledger Tab */}
         <TabPanel value={tabValue} index={0}>
           <Paper sx={{ p: 3, borderRadius: 3 }}>
-            <Typography variant="h6" gutterBottom sx={{ color: "#1a237e" }}>
-              Account Ledger
-            </Typography>
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap", mb: 2 }}>
+              <Typography variant="h6" sx={{ color: "#1a237e", flex: 1 }}>
+                Account Ledger
+              </Typography>
+              <Chip label={`Charged ${formatCurrency(totalInvoiced)}`} variant="outlined" />
+              <Chip label={`Paid ${formatCurrency(totalPaid)}`} color="success" variant="outlined" />
+              <Chip
+                label={`Balance ${formatCurrency(totalBalance)}`}
+                color={totalBalance > 0 ? "error" : "success"}
+              />
+              <Button
+                size="small"
+                variant="contained"
+                color="success"
+                startIcon={<PaymentIcon />}
+                disabled={totalBalance <= 0}
+                onClick={() => {
+                  setPaymentVoucher(null);
+                  setShowPaymentDialog(true);
+                }}
+              >
+                Receive
+              </Button>
+              <Button size="small" variant="outlined" startIcon={<Print />} onClick={handlePrintRemainingBalance}>
+                Print statement
+              </Button>
+            </Box>
             <TableContainer>
               <Table size="small">
                 <TableHead>
@@ -1559,7 +1652,9 @@ export default function StudentProfilePage({
                   ) : (
                     ledgerData.map((entry, index) => (
                       <TableRow key={index} hover>
-                        <TableCell>{entry.date.toLocaleDateString()}</TableCell>
+                        <TableCell>
+                          {entry.date.getTime() === 0 ? "-" : entry.date.toLocaleDateString()}
+                        </TableCell>
                         <TableCell>
                           <Chip
                             label={entry.reference}
@@ -1568,6 +1663,8 @@ export default function StudentProfilePage({
                               entry.type === "VOUCHER" ? "primary" : "success"
                             }
                             variant="outlined"
+                            clickable
+                            onClick={() => router.push(entry.link)}
                           />
                         </TableCell>
                         <TableCell>{entry.description}</TableCell>
@@ -1943,6 +2040,15 @@ export default function StudentProfilePage({
                   sx={{ display: "flex", alignItems: "center", gap: 1, color: "#1a237e" }}
                 >
                   <Person color="primary" /> Guardian Details
+                  <Tooltip title="Edit guardian details">
+                    <IconButton
+                      size="small"
+                      sx={{ ml: "auto" }}
+                      onClick={() => router.push(`/students/${id}/edit#guardian`)}
+                    >
+                      <Edit fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
                 </Typography>
                 <Divider sx={{ mb: 2 }} />
                 <Grid container spacing={2}>
@@ -2258,22 +2364,15 @@ export default function StudentProfilePage({
         </TabPanel>
 
         {/* Receive Payment Dialog */}
-        {showPaymentDialog && paymentVoucher && student && (
+        {student && (
           <ReceivePaymentDialog
             open={showPaymentDialog}
             onClose={() => {
               setShowPaymentDialog(false);
               setPaymentVoucher(null);
             }}
-            student={{
-              id: student.id,
-              registrationNo: student.registrationNo,
-              firstName: student.firstName,
-              lastName: student.lastName,
-              class: student.class,
-              section: student.section,
-            }}
-            voucher={paymentVoucher}
+            studentId={student.id}
+            focusVoucherId={paymentVoucher?.id}
             onSuccess={handlePaymentSuccess}
           />
         )}
@@ -2618,6 +2717,16 @@ export default function StudentProfilePage({
               This creates a financial ledger entry that is cleared <strong>first</strong> when
               payments are received (FIFO).
             </Typography>
+            {(() => {
+              const ob = student.feeVouchers?.find((v) => v.isOpeningBalance);
+              return ob ? (
+                <Alert severity="info" sx={{ mb: 2 }}>
+                  Current opening balance is {formatCurrency(ob.totalAmount)}
+                  {ob.paidAmount > 0 ? ` (${formatCurrency(ob.paidAmount)} already received)` : ""}. Saving
+                  replaces this amount.
+                </Alert>
+              ) : null;
+            })()}
             <TextField
               label="Opening Balance (Rs.)"
               type="number"
@@ -2647,7 +2756,7 @@ export default function StudentProfilePage({
                 savingOpeningBalance ? <CircularProgress size={16} /> : <AccountBalanceWallet />
               }
             >
-              {savingOpeningBalance ? "Saving..." : "Add Opening Balance"}
+              {savingOpeningBalance ? "Saving..." : "Save Opening Balance"}
             </Button>
           </DialogActions>
         </Dialog>

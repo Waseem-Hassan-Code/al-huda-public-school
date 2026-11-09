@@ -32,6 +32,9 @@ import {
 import { useRouter } from "next/navigation";
 import MainLayout from "@/components/layout/MainLayout";
 import { formatDate, formatCurrency } from "@/lib/utils";
+import ReceivePaymentDialog from "@/components/dialogs/ReceivePaymentDialog";
+import VoucherSlip from "@/components/fees/VoucherSlip";
+import { periodLabel, rs, round2 } from "@/lib/fee-utils";
 
 interface FeeItem {
   id: string;
@@ -43,6 +46,8 @@ interface FeeItem {
 interface Payment {
   id: string;
   receiptNo: string;
+  receiptGroup?: string | null;
+  createdBy?: { name: string } | null;
   amount: number;
   paymentDate: string;
   paymentMethod: string;
@@ -54,6 +59,7 @@ interface Voucher {
   voucherNo: string;
   month: number;
   year: number;
+  isOpeningBalance?: boolean;
   subtotal: number;
   previousBalance: number;
   lateFee: number;
@@ -71,28 +77,16 @@ interface Voucher {
     firstName: string;
     lastName: string;
     fatherName: string;
+    guardianName?: string;
+    rollNo?: string | null;
     guardianPhone: string;
     class?: { name: string };
     section?: { name: string };
   };
   feeItems: FeeItem[];
   payments: Payment[];
+  arrears?: { total: number; items: { voucherId: string; voucherNo: string; period: string; balanceDue: number }[] };
 }
-
-const monthNames = [
-  "January",
-  "February",
-  "March",
-  "April",
-  "May",
-  "June",
-  "July",
-  "August",
-  "September",
-  "October",
-  "November",
-  "December",
-];
 
 const getStatusColor = (
   status: string
@@ -119,9 +113,10 @@ export default function VoucherDetailPage({
   const [voucher, setVoucher] = useState<Voucher | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [receiveOpen, setReceiveOpen] = useState(false);
 
-  const fetchVoucher = useCallback(async () => {
-    setLoading(true);
+  const fetchVoucher = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const response = await fetch(`/api/fee-vouchers/${id}`);
       if (!response.ok) {
@@ -143,6 +138,15 @@ export default function VoucherDetailPage({
   const handlePrint = () => {
     window.print();
   };
+
+  // Opened with ?print=1 (e.g. right after admission): print once loaded
+  useEffect(() => {
+    if (!voucher) return;
+    if (new URLSearchParams(window.location.search).get("print") === "1") {
+      const t = setTimeout(() => window.print(), 500);
+      return () => clearTimeout(t);
+    }
+  }, [voucher]);
 
   if (loading) {
     return (
@@ -204,11 +208,19 @@ export default function VoucherDetailPage({
             >
               Print
             </Button>
-            {voucher.status !== "PAID" && (
+            <Button
+              variant="outlined"
+              startIcon={<PersonIcon />}
+              onClick={() => router.push(`/students/${voucher.student.id}`)}
+            >
+              Student
+            </Button>
+            {(voucher.balanceDue > 0 || (voucher.arrears?.total ?? 0) > 0) && (
               <Button
                 variant="contained"
+                color="success"
                 startIcon={<PaymentIcon />}
-                onClick={() => router.push(`/fees/payments?voucherId=${id}`)}
+                onClick={() => setReceiveOpen(true)}
               >
                 Receive Payment
               </Button>
@@ -229,7 +241,7 @@ export default function VoucherDetailPage({
                     {voucher.voucherNo}
                   </Typography>
                   <Typography color="text.secondary">
-                    {monthNames[voucher.month - 1]} {voucher.year}
+                    {periodLabel(voucher)}
                   </Typography>
                 </Box>
               </Box>
@@ -363,14 +375,6 @@ export default function VoucherDetailPage({
                           </strong>
                         </TableCell>
                       </TableRow>
-                      {voucher.previousBalance > 0 && (
-                        <TableRow>
-                          <TableCell colSpan={2}>Previous Balance</TableCell>
-                          <TableCell align="right">
-                            Rs. {voucher.previousBalance.toLocaleString()}
-                          </TableCell>
-                        </TableRow>
-                      )}
                       {voucher.lateFee > 0 && (
                         <TableRow>
                           <TableCell colSpan={2}>Late Fee</TableCell>
@@ -423,6 +427,31 @@ export default function VoucherDetailPage({
                           </strong>
                         </TableCell>
                       </TableRow>
+                      {(voucher.arrears?.total ?? 0) > 0 && (
+                        <>
+                          <TableRow>
+                            <TableCell colSpan={2}>
+                              Arrears (previous dues)
+                              <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>
+                                {voucher.arrears!.items
+                                  .map((a) => `${a.period}: ${rs(a.balanceDue)}`)
+                                  .join(" · ")}
+                              </Typography>
+                            </TableCell>
+                            <TableCell align="right" sx={{ color: "error.main" }}>
+                              {rs(voucher.arrears!.total)}
+                            </TableCell>
+                          </TableRow>
+                          <TableRow sx={{ bgcolor: "warning.light" }}>
+                            <TableCell colSpan={2}>
+                              <strong>Total payable (incl. arrears)</strong>
+                            </TableCell>
+                            <TableCell align="right">
+                              <strong>{rs(round2(voucher.balanceDue + voucher.arrears!.total))}</strong>
+                            </TableCell>
+                          </TableRow>
+                        </>
+                      )}
                     </TableBody>
                   </Table>
                 </TableContainer>
@@ -451,13 +480,24 @@ export default function VoucherDetailPage({
                           <TableCell>Date</TableCell>
                           <TableCell>Method</TableCell>
                           <TableCell align="right">Amount</TableCell>
+                          <TableCell>Received by</TableCell>
                           <TableCell>Remarks</TableCell>
                         </TableRow>
                       </TableHead>
                       <TableBody>
                         {voucher.payments.map((payment) => (
                           <TableRow key={payment.id}>
-                            <TableCell>{payment.receiptNo}</TableCell>
+                            <TableCell>
+                              <Button
+                                size="small"
+                                startIcon={<PrintIcon fontSize="small" />}
+                                onClick={() =>
+                                  router.push(`/fees/receipts/${encodeURIComponent(payment.receiptGroup || payment.receiptNo)}`)
+                                }
+                              >
+                                {payment.receiptNo}
+                              </Button>
+                            </TableCell>
                             <TableCell>
                               {formatDate(payment.paymentDate)}
                             </TableCell>
@@ -471,6 +511,7 @@ export default function VoucherDetailPage({
                             <TableCell align="right">
                               Rs. {payment.amount.toLocaleString()}
                             </TableCell>
+                            <TableCell>{payment.createdBy?.name || "-"}</TableCell>
                             <TableCell>{payment.remarks || "-"}</TableCell>
                           </TableRow>
                         ))}
@@ -499,6 +540,19 @@ export default function VoucherDetailPage({
           </Paper>
         )}
       </Box>
+
+      {/* 80 mm slip used when printing (screen: off-screen) */}
+      <Box sx={{ position: "fixed", left: "-9999px", top: 0 }}>
+        <VoucherSlip id="fee-voucher-print" voucher={voucher as any} />
+      </Box>
+
+      <ReceivePaymentDialog
+        open={receiveOpen}
+        studentId={voucher.student.id}
+        focusVoucherId={voucher.id}
+        onClose={() => setReceiveOpen(false)}
+        onSuccess={() => fetchVoucher(true)}
+      />
     </MainLayout>
   );
 }

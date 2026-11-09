@@ -120,8 +120,8 @@ export interface Student {
   lastName: string;
   fatherName: string;
   motherName?: string | null;
-  dateOfBirth: Date;
-  gender: Gender;
+  dateOfBirth: Date | null;
+  gender: Gender | null;
   bloodGroup?: BloodGroup | null;
   religion: Religion;
   nationality: string;

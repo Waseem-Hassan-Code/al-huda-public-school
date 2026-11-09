@@ -10,6 +10,8 @@ import {
   Stepper,
   Step,
   StepLabel,
+  StepButton,
+  DialogActions,
   Button,
   TextField,
   Grid,
@@ -57,6 +59,9 @@ import {
   FamilyRestroom as FamilyIcon,
   AccountBalance as OpenBalanceIcon,
   PersonAdd as PersonAddIcon,
+  Delete as DeleteIcon,
+  EditNote as DraftIcon,
+  CloudDone as SavedIcon,
 } from "@mui/icons-material";
 import MainLayout from "@/components/layout/MainLayout";
 import ImageUpload from "@/components/common/ImageUpload";
@@ -66,8 +71,10 @@ import {
   maskPhone,
   isValidCNIC,
   capitalizeFirst,
+  formatDateTime,
 } from "@/lib/utils";
 import { toast } from "sonner";
+import { useAcademicSession, sessionStatus } from "@/components/providers/AcademicSessionProvider";
 
 const steps = [
   "Student Information",
@@ -125,6 +132,7 @@ interface FormData {
   admissionDate: string;
   previousSchool: string;
   previousClass: string;
+  academicYearId: string; // "" = the active session
   guardian: {
     firstName: string;
     lastName: string;
@@ -167,6 +175,59 @@ interface FeeStructure {
   feeType: string;
 }
 
+interface DraftSummary {
+  id: string;
+  studentName: string | null;
+  currentStep: number;
+  createdAt: string;
+  updatedAt: string;
+  createdBy: { id: string; name: string } | null;
+}
+
+function createEmptyForm(): FormData {
+  return {
+  registrationNo: "",
+  firstName: "",
+  lastName: "",
+  dateOfBirth: "",
+  gender: "",
+  cnic: "",
+  religion: "",
+  nationality: "Pakistani",
+  bloodGroup: "",
+  address: "",
+  city: "",
+  phone: "",
+  email: "",
+  photo: "",
+  classId: "",
+  sectionId: "",
+  admissionDate: new Date().toISOString().split("T")[0],
+  previousSchool: "",
+  previousClass: "",
+  academicYearId: "",
+  guardian: {
+    firstName: "",
+    lastName: "",
+    relationship: "",
+    cnic: "",
+    phone: "",
+    whatsapp: "",
+    sameAsPhone: false,
+    email: "",
+    occupation: "",
+    address: "",
+    city: "",
+  },
+  parentId: null,
+  monthlyFee: 0,
+  previousBalance: 0,
+  fees: [],
+  };
+}
+
+const AUTOSAVE_DELAY_MS = 1500;
+
 function useDebounce<T>(value: T, delay: number): T {
   const [debounced, setDebounced] = useState(value);
   useEffect(() => {
@@ -191,7 +252,6 @@ export default function AdmissionPage() {
   const [totalSimilar, setTotalSimilar] = useState(0);
   const [searchingStudents, setSearchingStudents] = useState(false);
   const [duplicateWarningDismissed, setDuplicateWarningDismissed] = useState(false);
-  const nameFieldsRef = useRef<HTMLDivElement | null>(null);
 
   // "Show all duplicates" modal
   const [allDuplicatesOpen, setAllDuplicatesOpen] = useState(false);
@@ -201,44 +261,218 @@ export default function AdmissionPage() {
   const [parentMatch, setParentMatch] = useState<ParentMatch | null>(null);
   const [searchingParent, setSearchingParent] = useState(false);
 
-  const [formData, setFormData] = useState<FormData>({
-    registrationNo: "",
-    firstName: "",
-    lastName: "",
-    dateOfBirth: "",
-    gender: "",
-    cnic: "",
-    religion: "",
-    nationality: "Pakistani",
-    bloodGroup: "",
-    address: "",
-    city: "",
-    phone: "",
-    email: "",
-    photo: "",
-    classId: "",
-    sectionId: "",
-    admissionDate: new Date().toISOString().split("T")[0],
-    previousSchool: "",
-    previousClass: "",
-    guardian: {
-      firstName: "",
-      lastName: "",
-      relationship: "",
-      cnic: "",
-      phone: "",
-      whatsapp: "",
-      sameAsPhone: false,
-      email: "",
-      occupation: "",
-      address: "",
-      city: "",
-    },
-    parentId: null,
-    monthlyFee: 0,
-    previousBalance: 0,
-    fees: [],
+  const [formData, setFormData] = useState<FormData>(createEmptyForm);
+
+  const { sessions, currentSession } = useAcademicSession();
+  // Sessions a student can be admitted into: the active one and upcoming ones
+  const admissionSessions = sessions.filter((s) => {
+    const st = sessionStatus(s);
+    return s.id !== currentSession?.id && (st === "UPCOMING" || st === "OPEN");
   });
+  const [admitted, setAdmitted] = useState<{
+    id: string;
+    registrationNo: string;
+    name: string;
+    voucherId?: string;
+  } | null>(null);
+
+  // ── Draft (auto-save) state ──────────────────────────────────────────────
+  const [draftId, setDraftId] = useState<string | null>(null);
+  const [drafts, setDrafts] = useState<DraftSummary[]>([]);
+  const [draftReady, setDraftReady] = useState(false); // true once a requested draft is loaded
+  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null);
+  const draftIdRef = useRef<string | null>(null);
+  const draftReadyRef = useRef(false);
+  const stopSavingRef = useRef(false); // set after submit / discard
+  const lastSavedSnapshotRef = useRef<string>("");
+  const emptySnapshotRef = useRef<string>(JSON.stringify(createEmptyForm()));
+  const latestRef = useRef({ formData, activeStep });
+  const saveChainRef = useRef<Promise<void>>(Promise.resolve());
+  const inFlightSnapshotRef = useRef<string | null>(null);
+  latestRef.current = { formData, activeStep };
+
+  const setCurrentDraftId = (id: string | null) => {
+    draftIdRef.current = id;
+    setDraftId(id);
+    const url = id ? `/students/admission?draft=${id}` : "/students/admission";
+    window.history.replaceState(null, "", url);
+  };
+
+  // Saves the form to the database. Does nothing if nothing changed, or if the
+  // form is still empty and no draft exists yet.
+  const saveDraft = useCallback((keepalive = false) => {
+    const run = async () => {
+      if (stopSavingRef.current || !draftReadyRef.current) return;
+      const { formData: data, activeStep: step } = latestRef.current;
+      const snapshot = JSON.stringify({ data, step });
+      if (snapshot === lastSavedSnapshotRef.current) return;
+      if (!draftIdRef.current && JSON.stringify(data) === emptySnapshotRef.current) return;
+      // The same content is already being sent (e.g. tab hidden + page closed)
+      if (snapshot === inFlightSnapshotRef.current) return;
+
+      inFlightSnapshotRef.current = snapshot;
+      setSaveState("saving");
+      try {
+        const res = await fetch("/api/admission-drafts", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: draftIdRef.current, data, currentStep: step }),
+          keepalive,
+        });
+        if (!res.ok) throw new Error("save failed");
+        const saved = await res.json();
+        if (stopSavingRef.current) return;
+        if (draftIdRef.current !== saved.id) setCurrentDraftId(saved.id);
+        lastSavedSnapshotRef.current = snapshot;
+        setLastSavedAt(new Date(saved.updatedAt));
+        setSaveState("saved");
+      } catch {
+        if (!stopSavingRef.current) setSaveState("error");
+      } finally {
+        if (inFlightSnapshotRef.current === snapshot) inFlightSnapshotRef.current = null;
+      }
+    };
+    // Leaving the page: send immediately. Otherwise queue saves one after
+    // another so two quick saves can't create two drafts.
+    if (keepalive) {
+      void run();
+    } else {
+      saveChainRef.current = saveChainRef.current.then(run);
+    }
+  }, []);
+
+  // Auto-save shortly after the user stops typing or changes step
+  useEffect(() => {
+    if (!draftReady) return;
+    const t = setTimeout(() => saveDraft(), AUTOSAVE_DELAY_MS);
+    return () => clearTimeout(t);
+  }, [formData, activeStep, draftReady, saveDraft]);
+
+  // Save when the user navigates away: closing/refreshing the tab, switching
+  // tabs, or leaving through the app's own navigation (component unmount).
+  useEffect(() => {
+    const onHide = () => saveDraft(true);
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") saveDraft(true);
+    };
+    window.addEventListener("pagehide", onHide);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.removeEventListener("pagehide", onHide);
+      document.removeEventListener("visibilitychange", onVisibility);
+      saveDraft(true);
+    };
+  }, [saveDraft]);
+
+  const loadDraftsList = useCallback(async () => {
+    try {
+      const res = await fetch("/api/admission-drafts");
+      if (res.ok) setDrafts((await res.json()).drafts || []);
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  const resumeDraft = useCallback(async (id: string) => {
+    // Store the admission currently on screen before switching to another one
+    saveDraft();
+    await saveChainRef.current;
+    draftReadyRef.current = false;
+    setDraftReady(false);
+    try {
+      const res = await fetch(`/api/admission-drafts/${id}`);
+      if (!res.ok) {
+        toast.error("That draft no longer exists");
+        setCurrentDraftId(null);
+        return;
+      }
+      const draft = await res.json();
+      const data: FormData = {
+        ...createEmptyForm(),
+        ...(draft.data || {}),
+        guardian: { ...createEmptyForm().guardian, ...(draft.data?.guardian || {}) },
+      };
+      setFormData(data);
+      setActiveStep(Math.min(Math.max(draft.currentStep || 0, 0), steps.length - 1));
+      setErrors({});
+      setCurrentDraftId(draft.id);
+      lastSavedSnapshotRef.current = JSON.stringify({ data, step: draft.currentStep || 0 });
+      setLastSavedAt(new Date(draft.updatedAt));
+      setSaveState("saved");
+      void loadDraftsList();
+    } catch {
+      toast.error("Could not load the draft");
+    } finally {
+      draftReadyRef.current = true;
+      setDraftReady(true);
+    }
+  }, [saveDraft, loadDraftsList]);
+
+  // On open: resume ?draft=<id> if present, and load the list of drafts
+  useEffect(() => {
+    if (status !== "authenticated") return;
+    const id = new URLSearchParams(window.location.search).get("draft");
+    if (id) {
+      void resumeDraft(id);
+    } else {
+      draftReadyRef.current = true;
+      setDraftReady(true);
+    }
+    void loadDraftsList();
+  }, [status, resumeDraft, loadDraftsList]);
+
+  const admitAnother = () => {
+    setAdmitted(null);
+    stopSavingRef.current = false;
+    lastSavedSnapshotRef.current = "";
+    draftIdRef.current = null;
+    setCurrentDraftId(null);
+    setFormData(createEmptyForm());
+    setActiveStep(0);
+    setErrors({});
+    setSaveState("idle");
+    setLastSavedAt(null);
+    setSimilarStudents([]);
+    setParentMatch(null);
+    window.scrollTo({ top: 0 });
+  };
+
+  const startNewAdmission = async () => {
+    // Make sure the current one is stored before clearing the form
+    saveDraft();
+    await saveChainRef.current;
+    lastSavedSnapshotRef.current = "";
+    draftIdRef.current = null;
+    setCurrentDraftId(null);
+    setFormData(createEmptyForm());
+    setActiveStep(0);
+    setErrors({});
+    setSaveState("idle");
+    setLastSavedAt(null);
+    void loadDraftsList();
+  };
+
+  const deleteDraft = async (id: string) => {
+    if (!window.confirm("Delete this draft admission? This can't be undone.")) return;
+    try {
+      const res = await fetch(`/api/admission-drafts/${id}`, { method: "DELETE" });
+      if (!res.ok) throw new Error();
+      setDrafts((prev) => prev.filter((d) => d.id !== id));
+      if (id === draftIdRef.current) {
+        draftIdRef.current = null;
+        lastSavedSnapshotRef.current = "";
+        setCurrentDraftId(null);
+        setFormData(createEmptyForm());
+        setActiveStep(0);
+        setSaveState("idle");
+        setLastSavedAt(null);
+      }
+      toast.success("Draft deleted");
+    } catch {
+      toast.error("Failed to delete draft");
+    }
+  };
 
   // Debounced values for search
   const debouncedName = useDebounce(
@@ -295,7 +529,17 @@ export default function AdmissionPage() {
         discountReason: "",
         selected: false, // unchecked by default
       }));
-    setFormData((prev) => ({ ...prev, fees: applicable }));
+    setFormData((prev) => {
+      // Keep choices already made for the same fees (e.g. from a resumed draft)
+      const previous = new Map(prev.fees.map((f) => [f.feeStructureId, f]));
+      const fees = applicable.map((f) => {
+        const p = previous.get(f.feeStructureId);
+        return p
+          ? { ...f, discount: p.discount, discountReason: p.discountReason, selected: p.selected }
+          : f;
+      });
+      return { ...prev, fees };
+    });
   }, [formData.classId, feeStructures]);
 
   // ── Duplicate student detection (debounced, limit=3) ────────────────────
@@ -421,46 +665,29 @@ export default function AdmissionPage() {
     });
   };
 
-  const validateStep = (step: number): boolean => {
+  // All fields are optional. Only the student's first name is needed to submit.
+  const validateForSubmit = (): boolean => {
     const newErrors: Record<string, string> = {};
-    switch (step) {
-      case 0:
-        if (!formData.firstName) newErrors.firstName = "First name is required";
-        if (!formData.lastName) newErrors.lastName = "Last name is required";
-        if (!formData.dateOfBirth) newErrors.dateOfBirth = "Date of birth is required";
-        if (!formData.gender) newErrors.gender = "Gender is required";
-        if (!formData.address) newErrors.address = "Address is required";
-        if (!formData.city) newErrors.city = "City is required";
-        break;
-      case 1:
-        if (!formData.classId) newErrors.classId = "Class is required";
-        if (!formData.sectionId) newErrors.sectionId = "Section is required";
-        if (!formData.admissionDate) newErrors.admissionDate = "Admission date is required";
-        break;
-      case 2:
-        if (!formData.guardian.firstName) newErrors["guardian.firstName"] = "Guardian first name is required";
-        if (!formData.guardian.lastName) newErrors["guardian.lastName"] = "Guardian last name is required";
-        if (!formData.guardian.relationship) newErrors["guardian.relationship"] = "Relationship is required";
-        if (!formData.guardian.phone) newErrors["guardian.phone"] = "Guardian phone is required";
-        if (!formData.guardian.cnic) newErrors["guardian.cnic"] = "Guardian CNIC is required";
-        break;
-      case 3:
-        // Monthly fee is now optional (can be 0)
-        break;
-    }
+    if (!formData.firstName.trim()) newErrors.firstName = "First name is needed to submit the admission";
     setErrors(newErrors);
+    if (newErrors.firstName) {
+      setActiveStep(0);
+      toast.error("Enter the student's first name before submitting");
+    }
     return Object.keys(newErrors).length === 0;
   };
 
   const handleNext = () => {
-    if (validateStep(activeStep)) setActiveStep((p) => p + 1);
+    setActiveStep((p) => Math.min(p + 1, steps.length - 1));
   };
   const handleBack = () => setActiveStep((p) => p - 1);
 
   const handleSubmit = async () => {
-    if (!validateStep(activeStep)) return;
+    if (!validateForSubmit()) return;
     try {
       setSubmitting(true);
+      // Wait for any in-flight save, then stop saving so the draft isn't recreated
+      await saveChainRef.current;
       const selectedFees = formData.fees
         .filter((f) => f.selected)
         .map((f) => ({
@@ -482,13 +709,20 @@ export default function AdmissionPage() {
           fees: selectedFees,
           previousBalance: formData.previousBalance || 0,
           parentId: formData.parentId || undefined,
+          draftId: draftIdRef.current || undefined,
         }),
       });
 
       if (response.ok) {
+        stopSavingRef.current = true;
         const data = await response.json();
-        toast.success(`Student admitted! ID: ${data.studentId || data.registrationNo}`);
-        router.push(`/students/${data.id}`);
+        setAdmitted({
+          id: data.id,
+          registrationNo: data.studentId || data.registrationNo,
+          name: `${data.firstName} ${data.lastName}`.trim(),
+          voucherId: data.admissionVoucher?.id,
+        });
+        void loadDraftsList();
       } else {
         const err = await response.json();
         toast.error(err.error || err.message || "Failed to admit student");
@@ -548,7 +782,7 @@ export default function AdmissionPage() {
 
       {/* ── Name fields with inline suggestion dropdown ─────────────── */}
       <Grid size={{ xs: 12, md: 8 }}>
-        <Box ref={nameFieldsRef} sx={{ position: "relative" }}>
+        <Box sx={{ position: "relative" }}>
           <Grid container spacing={2}>
             <Grid size={{ xs: 6 }}>
               <TextField
@@ -578,7 +812,6 @@ export default function AdmissionPage() {
               <TextField
                 label="Last Name"
                 fullWidth
-                required
                 value={formData.lastName}
                 onChange={(e) => handleInputChange("lastName", e.target.value)}
                 error={!!errors.lastName}
@@ -588,19 +821,18 @@ export default function AdmissionPage() {
           </Grid>
 
           {/* ── Inline suggestion dropdown ─────────────────────────────── */}
-          <Popper
-            open={showDuplicateWarning}
-            anchorEl={nameFieldsRef.current}
-            placement="bottom-start"
-            transition
-            style={{ zIndex: 1300, width: nameFieldsRef.current?.offsetWidth }}
-          >
-            {({ TransitionProps }) => (
-              <Fade {...TransitionProps} timeout={200}>
+          {/* Positioned under the name fields inside this box (no Popper), so it
+              can't break when the step changes and the fields leave the page. */}
+          {showDuplicateWarning && (
                 <ClickAwayListener onClickAway={() => setDuplicateWarningDismissed(true)}>
                   <Paper
                     elevation={8}
                     sx={{
+                      position: "absolute",
+                      top: "100%",
+                      left: 0,
+                      right: 0,
+                      zIndex: 1300,
                       mt: 0.5,
                       border: "1px solid",
                       borderColor: "warning.main",
@@ -719,9 +951,7 @@ export default function AdmissionPage() {
                     </Box>
                   </Paper>
                 </ClickAwayListener>
-              </Fade>
-            )}
-          </Popper>
+          )}
         </Box>
       </Grid>
 
@@ -730,7 +960,6 @@ export default function AdmissionPage() {
           label="Date of Birth"
           type="date"
           fullWidth
-          required
           InputLabelProps={{ shrink: true }}
           value={formData.dateOfBirth}
           onChange={(e) => handleInputChange("dateOfBirth", e.target.value)}
@@ -740,7 +969,7 @@ export default function AdmissionPage() {
       </Grid>
 
       <Grid size={{ xs: 12, md: 6 }}>
-        <FormControl fullWidth required error={!!errors.gender}>
+        <FormControl fullWidth error={!!errors.gender}>
           <InputLabel>Gender</InputLabel>
           <Select
             value={formData.gender}
@@ -818,7 +1047,6 @@ export default function AdmissionPage() {
         <TextField
           label="Address"
           fullWidth
-          required
           multiline
           rows={2}
           value={formData.address}
@@ -832,7 +1060,6 @@ export default function AdmissionPage() {
         <TextField
           label="City"
           fullWidth
-          required
           value={formData.city}
           onChange={(e) => handleInputChange("city", e.target.value)}
           error={!!errors.city}
@@ -871,7 +1098,37 @@ export default function AdmissionPage() {
       </Grid>
 
       <Grid size={{ xs: 12, md: 6 }}>
-        <FormControl fullWidth required error={!!errors.classId}>
+        <FormControl fullWidth>
+          <InputLabel shrink>Session</InputLabel>
+          <Select
+            notched
+            value={formData.academicYearId}
+            label="Session"
+            onChange={(e) => handleInputChange("academicYearId", e.target.value)}
+            displayEmpty
+            renderValue={(v) =>
+              v
+                ? sessions.find((s) => s.id === v)?.name ?? "Unknown session"
+                : `${currentSession?.name ?? "Active session"} (active)`
+            }
+          >
+            <MenuItem value="">{currentSession?.name ?? "Active session"} (active)</MenuItem>
+            {admissionSessions.map((s) => (
+              <MenuItem key={s.id} value={s.id}>
+                {s.name} (upcoming)
+              </MenuItem>
+            ))}
+          </Select>
+          <FormHelperText>
+            {admissionSessions.length
+              ? "Pick an upcoming session for admissions for next year"
+              : "Create the next session on the Sessions page to admit for next year"}
+          </FormHelperText>
+        </FormControl>
+      </Grid>
+
+      <Grid size={{ xs: 12, md: 6 }}>
+        <FormControl fullWidth error={!!errors.classId}>
           <InputLabel>Class</InputLabel>
           <Select
             value={formData.classId}
@@ -890,7 +1147,7 @@ export default function AdmissionPage() {
       </Grid>
 
       <Grid size={{ xs: 12, md: 6 }}>
-        <FormControl fullWidth required error={!!errors.sectionId} disabled={!formData.classId}>
+        <FormControl fullWidth error={!!errors.sectionId} disabled={!formData.classId}>
           <InputLabel>Section</InputLabel>
           <Select
             value={formData.sectionId}
@@ -910,7 +1167,6 @@ export default function AdmissionPage() {
           label="Admission Date"
           type="date"
           fullWidth
-          required
           InputLabelProps={{ shrink: true }}
           value={formData.admissionDate}
           onChange={(e) => handleInputChange("admissionDate", e.target.value)}
@@ -1040,7 +1296,6 @@ export default function AdmissionPage() {
         <TextField
           label="First Name"
           fullWidth
-          required
           value={formData.guardian.firstName}
           onChange={(e) => handleGuardianChange("firstName", e.target.value)}
           error={!!errors["guardian.firstName"]}
@@ -1052,7 +1307,6 @@ export default function AdmissionPage() {
         <TextField
           label="Last Name"
           fullWidth
-          required
           value={formData.guardian.lastName}
           onChange={(e) => handleGuardianChange("lastName", e.target.value)}
           error={!!errors["guardian.lastName"]}
@@ -1061,7 +1315,7 @@ export default function AdmissionPage() {
       </Grid>
 
       <Grid size={{ xs: 12, md: 6 }}>
-        <FormControl fullWidth required error={!!errors["guardian.relationship"]}>
+        <FormControl fullWidth error={!!errors["guardian.relationship"]}>
           <InputLabel>Relationship</InputLabel>
           <Select
             value={formData.guardian.relationship}
@@ -1086,7 +1340,6 @@ export default function AdmissionPage() {
         <TextField
           label="CNIC"
           fullWidth
-          required
           value={formData.guardian.cnic}
           onChange={(e) => handleGuardianChange("cnic", maskCNIC(e.target.value))}
           placeholder="XXXXX-XXXXXXX-X"
@@ -1109,7 +1362,6 @@ export default function AdmissionPage() {
         <TextField
           label="Phone"
           fullWidth
-          required
           value={formData.guardian.phone}
           onChange={(e) => {
             const v = maskPhone(e.target.value);
@@ -1383,6 +1635,12 @@ export default function AdmissionPage() {
           {[
             ["Class", selectedClass?.name || "—"],
             ["Section", sections.find((s) => s.id === formData.sectionId)?.name || "—"],
+            [
+              "Session",
+              formData.academicYearId
+                ? sessions.find((s) => s.id === formData.academicYearId)?.name ?? "—"
+                : currentSession?.name ?? "—",
+            ],
             ["Admission Date", formData.admissionDate],
           ].map(([label, value]) => (
             <Grid key={label} size={{ xs: 6, md: 3 }}>
@@ -1496,16 +1754,78 @@ export default function AdmissionPage() {
           <Typography variant="h4" fontWeight="bold" color="primary.main">
             New Student Admission
           </Typography>
-          <Typography variant="body2" color="text.secondary">
-            Complete all steps to admit a new student
-          </Typography>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 2, flexWrap: "wrap" }}>
+            <Typography variant="body2" color="text.secondary">
+              All fields are optional. Your progress is saved automatically as a draft.
+            </Typography>
+            {saveState === "saving" && (
+              <Chip size="small" icon={<CircularProgress size={12} />} label="Saving draft…" />
+            )}
+            {saveState === "saved" && lastSavedAt && (
+              <Chip
+                size="small"
+                color="success"
+                variant="outlined"
+                icon={<SavedIcon />}
+                label={`Draft saved ${formatDateTime(lastSavedAt)}`}
+              />
+            )}
+            {saveState === "error" && (
+              <Chip size="small" color="error" variant="outlined" label="Draft not saved, will retry" />
+            )}
+            {draftId && (
+              <Button size="small" startIcon={<PersonAddIcon />} onClick={startNewAdmission}>
+                New admission
+              </Button>
+            )}
+          </Box>
         </Box>
 
+        {drafts.filter((d) => d.id !== draftId).length > 0 && (
+          <Paper variant="outlined" sx={{ p: 2, mb: 3 }}>
+            <Typography variant="subtitle1" fontWeight="bold" sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+              <DraftIcon fontSize="small" color="primary" />
+              Unfinished admissions
+            </Typography>
+            <List dense disablePadding>
+              {drafts
+                .filter((d) => d.id !== draftId)
+                .map((d) => (
+                  <ListItem
+                    key={d.id}
+                    divider
+                    sx={{ pr: 20 }}
+                    secondaryAction={
+                      <Box sx={{ display: "flex", gap: 1 }}>
+                        <Button size="small" variant="outlined" onClick={() => resumeDraft(d.id)}>
+                          Resume
+                        </Button>
+                        <Tooltip title="Delete draft">
+                          <IconButton size="small" color="error" onClick={() => deleteDraft(d.id)}>
+                            <DeleteIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                      </Box>
+                    }
+                  >
+                    <ListItemText
+                      primary={d.studentName || "Unnamed student"}
+                      secondary={`Step ${d.currentStep + 1} of ${steps.length}: ${steps[d.currentStep] ?? ""} · saved ${formatDateTime(d.updatedAt)}${d.createdBy ? ` by ${d.createdBy.name}` : ""}`}
+                    />
+                  </ListItem>
+                ))}
+            </List>
+          </Paper>
+        )}
+
         <Paper sx={{ p: 3, mb: 3 }}>
-          <Stepper activeStep={activeStep} alternativeLabel>
-            {steps.map((label) => (
-              <Step key={label}>
-                <StepLabel>{label}</StepLabel>
+          {/* All fields are optional, so any step can be opened directly */}
+          <Stepper activeStep={activeStep} alternativeLabel nonLinear>
+            {steps.map((label, index) => (
+              <Step key={label} completed={false}>
+                <StepButton onClick={() => setActiveStep(index)}>
+                  <StepLabel>{label}</StepLabel>
+                </StepButton>
               </Step>
             ))}
           </Stepper>
@@ -1621,6 +1941,35 @@ export default function AdmissionPage() {
             </List>
           )}
         </DialogContent>
+      </Dialog>
+      {/* ── Admission complete ─────────────────────────────────────────── */}
+      <Dialog open={!!admitted} maxWidth="xs" fullWidth>
+        <DialogTitle sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+          <CheckCircleIcon color="success" />
+          Student admitted
+        </DialogTitle>
+        <DialogContent>
+          <Typography>
+            <strong>{admitted?.name}</strong> was admitted with registration number{" "}
+            <strong>{admitted?.registrationNo}</strong>.
+          </Typography>
+          {!admitted?.voucherId && (
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+              No fee voucher was created because no fees were selected.
+            </Typography>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ flexWrap: "wrap", gap: 1, px: 3, pb: 2 }}>
+          {admitted?.voucherId && (
+            <Button onClick={() => window.open(`/fees/vouchers/${admitted.voucherId}?print=1`, "_blank")}>
+              Print fee voucher
+            </Button>
+          )}
+          <Button onClick={() => admitted && router.push(`/students/${admitted.id}`)}>View profile</Button>
+          <Button variant="contained" startIcon={<PersonAddIcon />} onClick={admitAnother}>
+            Admit another
+          </Button>
+        </DialogActions>
       </Dialog>
     </MainLayout>
   );

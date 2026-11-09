@@ -6,6 +6,7 @@ import { hasPermission, Permission } from "@/lib/permissions";
 import { logTransaction } from "@/lib/transaction-log";
 import { getNextSequenceValue } from "@/lib/sequences";
 import { FeeStatus, FeeType } from "@prisma/client";
+import { round2 } from "@/lib/fee-utils";
 
 // GET - List fee vouchers with pagination and filtering
 export async function GET(request: NextRequest) {
@@ -64,17 +65,24 @@ export async function GET(request: NextRequest) {
       where.student = { ...where.student, sectionId };
     }
 
-    if (status) {
+    if (status === "OUTSTANDING") {
+      // Anything still owed: unpaid, partially paid or overdue
+      where.status = { in: [FeeStatus.UNPAID, FeeStatus.PARTIAL, FeeStatus.OVERDUE] };
+    } else if (status) {
       where.status = status;
     }
 
-    if (month) {
-      where.month = parseInt(month);
+    if (month === "0") {
+      // Opening balances are stored as month 0 / year 0
+      where.isOpeningBalance = true;
+    } else {
+      if (month) where.month = parseInt(month);
+      if (year) where.year = parseInt(year);
     }
 
-    if (year) {
-      where.year = parseInt(year);
-    }
+    // Totals and per-status counts for the same filter, ignoring the status
+    // filter for the counts so the status chips always show every bucket
+    const { status: _ignored, ...whereWithoutStatus } = where;
 
     const [vouchers, total] = await Promise.all([
       prisma.feeVoucher.findMany({
@@ -98,8 +106,29 @@ export async function GET(request: NextRequest) {
       prisma.feeVoucher.count({ where }),
     ]);
 
+    const [totals, byStatus] = await Promise.all([
+      prisma.feeVoucher.aggregate({
+        where: { ...where, status: where.status ?? { not: FeeStatus.CANCELLED } },
+        _sum: { totalAmount: true, paidAmount: true, balanceDue: true },
+      }),
+      prisma.feeVoucher.groupBy({
+        by: ["status"],
+        where: whereWithoutStatus,
+        _count: { _all: true },
+        _sum: { balanceDue: true },
+      }),
+    ]);
+
     return NextResponse.json({
       vouchers,
+      summary: {
+        totalAmount: round2(totals._sum.totalAmount ?? 0),
+        paidAmount: round2(totals._sum.paidAmount ?? 0),
+        balanceDue: round2(totals._sum.balanceDue ?? 0),
+        byStatus: Object.fromEntries(
+          byStatus.map((b) => [b.status, { count: b._count._all, balanceDue: round2(b._sum.balanceDue ?? 0) }])
+        ),
+      },
       pagination: {
         page,
         limit,
@@ -153,7 +182,62 @@ export async function POST(request: NextRequest) {
           { status: 400 }
         );
       }
+      // A student has at most one opening balance (month 0 / year 0 is unique
+      // per student), so "Set Opening Balance" updates the existing one.
+      const existing = await prisma.feeVoucher.findFirst({
+        where: { studentId, month: 0, year: 0 },
+      });
+      if (existing) {
+        if (amount + 0.005 < existing.paidAmount) {
+          return NextResponse.json(
+            {
+              error: `Rs. ${existing.paidAmount.toLocaleString()} has already been received against the opening balance, so it can't be set lower than that`,
+            },
+            { status: 400 }
+          );
+        }
+        const balanceDue = round2(Math.max(0, amount - existing.paidAmount));
+        const updated = await prisma.$transaction(async (tx) => {
+          await tx.feeVoucherItem.deleteMany({ where: { voucherId: existing.id } });
+          await tx.student.update({ where: { id: studentId }, data: { openingBalance: amount } });
+          return tx.feeVoucher.update({
+            where: { id: existing.id },
+            data: {
+              subtotal: amount,
+              totalAmount: amount,
+              balanceDue,
+              status:
+                balanceDue <= 0
+                  ? FeeStatus.PAID
+                  : existing.paidAmount > 0
+                    ? FeeStatus.PARTIAL
+                    : FeeStatus.UNPAID,
+              isOpeningBalance: true,
+              feeItems: {
+                create: customFeeItems.map((f: any) => ({
+                  feeType: FeeType.OTHER,
+                  description: f.description || "Opening Balance (Previous Dues)",
+                  amount: f.amount,
+                })),
+              },
+            },
+          });
+        });
+        await logTransaction({
+          action: "UPDATE",
+          entityType: "FEE",
+          entityId: updated.id,
+          userId: session.user.id,
+          details: { voucherNo: updated.voucherNo, openingBalanceFrom: existing.totalAmount, openingBalanceTo: amount },
+        });
+        return NextResponse.json(
+          { message: "Opening balance updated", voucherId: updated.id, voucherNo: updated.voucherNo },
+          { status: 200 }
+        );
+      }
+
       const voucherNo = await getNextSequenceValue("VOUCHER");
+      await prisma.student.update({ where: { id: studentId }, data: { openingBalance: amount } });
       const voucher = await prisma.feeVoucher.create({
         data: {
           voucherNo,
@@ -246,7 +330,7 @@ export async function POST(request: NextRequest) {
           prisma.feeVoucher.findMany({
             where: {
               studentId: sid,
-              status: { in: [FeeStatus.UNPAID, FeeStatus.PARTIAL] },
+              status: { in: [FeeStatus.UNPAID, FeeStatus.PARTIAL, FeeStatus.OVERDUE] },
             },
             orderBy: { createdAt: "desc" },
           }),

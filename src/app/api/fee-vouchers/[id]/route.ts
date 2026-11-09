@@ -5,6 +5,8 @@ import { prisma } from "@/lib/prisma";
 import { hasPermission, Permission } from "@/lib/permissions";
 import { logUpdate } from "@/lib/transaction-log";
 import { FeeStatus, FeeType } from "@prisma/client";
+import { getVoucherArrears } from "@/lib/fee-payment";
+import { round2 } from "@/lib/fee-utils";
 
 // GET - Get single voucher by ID
 export async function GET(
@@ -35,6 +37,7 @@ export async function GET(
         feeItems: true,
         payments: {
           orderBy: { paymentDate: "desc" },
+          include: { createdBy: { select: { name: true } } },
         },
       },
     });
@@ -43,7 +46,9 @@ export async function GET(
       return NextResponse.json({ error: "Voucher not found" }, { status: 404 });
     }
 
-    return NextResponse.json(voucher);
+    // Live arrears: unpaid balances on this student's older vouchers
+    const arrears = await getVoucherArrears(voucher);
+    return NextResponse.json({ ...voucher, arrears });
   } catch (error) {
     console.error("Fee Voucher GET Error:", error);
     return NextResponse.json(
@@ -111,9 +116,24 @@ export async function PUT(
       discount !== undefined ? parseFloat(discount) : existingVoucher.discount;
     const newLateFee =
       lateFee !== undefined ? parseFloat(lateFee) : existingVoucher.lateFee;
-    const previousBalance = existingVoucher.previousBalance;
-    const totalAmount = subtotal + previousBalance + newLateFee - newDiscount;
-    const balanceDue = totalAmount - existingVoucher.paidAmount;
+    // Arrears are NOT part of a voucher's own total (they stay on the older
+    // vouchers and are shown as a separate line), so previousBalance is left out.
+    const totalAmount = round2(subtotal + newLateFee - newDiscount);
+    if (totalAmount < 0) {
+      return NextResponse.json(
+        { error: "Discount can't be more than the fees plus late fee" },
+        { status: 400 }
+      );
+    }
+    if (totalAmount + 0.005 < existingVoucher.paidAmount) {
+      return NextResponse.json(
+        {
+          error: `The new total (Rs. ${totalAmount.toLocaleString()}) is less than what has already been paid (Rs. ${existingVoucher.paidAmount.toLocaleString()})`,
+        },
+        { status: 400 }
+      );
+    }
+    const balanceDue = round2(Math.max(0, totalAmount - existingVoucher.paidAmount));
 
     // Determine new status
     let newStatus: FeeStatus = existingVoucher.status;
@@ -121,6 +141,8 @@ export async function PUT(
       newStatus = FeeStatus.PAID;
     } else if (existingVoucher.paidAmount > 0) {
       newStatus = FeeStatus.PARTIAL;
+    } else if (existingVoucher.status === FeeStatus.OVERDUE) {
+      newStatus = FeeStatus.OVERDUE;
     } else {
       newStatus = FeeStatus.UNPAID;
     }

@@ -43,10 +43,13 @@ import MainLayout from "@/components/layout/MainLayout";
 import SimpleTable, { SimpleColumn } from "@/components/common/SimpleTable";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { toast } from "sonner";
+import ReceivePaymentDialog from "@/components/dialogs/ReceivePaymentDialog";
+import QuickReceiveButton from "@/components/fees/QuickReceiveButton";
 
 interface Payment {
   id: string;
   receiptNo: string;
+  receiptGroup?: string | null;
   amount: number;
   paymentMethod: string;
   paymentDate: string;
@@ -261,6 +264,24 @@ export default function PaymentsPage() {
       fetchPayments();
     }
   }, [status, fetchPayments]);
+
+  // Opened as /fees/payments?voucherId=... (older links): receive for that voucher's student
+  const [receiveFor, setReceiveFor] = useState<{ studentId: string; voucherId?: string } | null>(null);
+  useEffect(() => {
+    if (status !== "authenticated") return;
+    const voucherId = new URLSearchParams(window.location.search).get("voucherId");
+    if (!voucherId) return;
+    (async () => {
+      const res = await fetch(`/api/fee-vouchers/${voucherId}`);
+      if (res.ok) {
+        const v = await res.json();
+        setReceiveFor({ studentId: v.student.id, voucherId });
+      }
+    })();
+  }, [status]);
+
+  const printReceipt = (p: Payment) =>
+    window.open(`/fees/receipts/${encodeURIComponent(p.receiptGroup || p.receiptNo)}?print=1`, "_blank");
 
   // Handle class change
   const handleClassChange = (classId: string) => {
@@ -490,7 +511,7 @@ export default function PaymentsPage() {
           </IconButton>
           <IconButton
             size="small"
-            onClick={() => toast.info("Print functionality coming soon")}
+            onClick={() => printReceipt(row)}
           >
             <PrintIcon fontSize="small" />
           </IconButton>
@@ -541,14 +562,7 @@ export default function PaymentsPage() {
               Receive and manage student fee payments
             </Typography>
           </Box>
-          <Button
-            variant="contained"
-            startIcon={<PaymentIcon />}
-            onClick={handleOpenReceiveDialog}
-            sx={{ bgcolor: "#4caf50", "&:hover": { bgcolor: "#388e3c" } }}
-          >
-            Receive Payment
-          </Button>
+          <QuickReceiveButton onSuccess={fetchPayments} />
         </Box>
 
         {/* Summary Cards */}
@@ -633,393 +647,17 @@ export default function PaymentsPage() {
           />
         </Paper>
 
-        {/* Receive Payment Dialog */}
-        <Dialog
-          open={receiveDialogOpen}
-          onClose={handleCloseDialog}
-          maxWidth="sm"
-          fullWidth
-        >
-          <DialogTitle sx={{ bgcolor: "#1a237e", color: "white" }}>
-            <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-              <PaymentIcon />
-              Receive Payment
-            </Box>
-          </DialogTitle>
-          <DialogContent sx={{ minHeight: 400 }}>
-            {error && (
-              <Alert severity="error" sx={{ mt: 2, mb: 1 }}>
-                {error}
-              </Alert>
-            )}
-
-            {/* Step 1: Select Class, Section, Student */}
-            {dialogStep === "select" && (
-              <Box sx={{ mt: 2 }}>
-                <Grid container spacing={2}>
-                  <Grid size={{ xs: 12, sm: 6 }}>
-                    <FormControl fullWidth>
-                      <InputLabel>Select Class</InputLabel>
-                      <Select
-                        value={selectedClass}
-                        label="Select Class"
-                        onChange={(e) => handleClassChange(e.target.value)}
-                      >
-                        {classes.map((cls) => (
-                          <MenuItem key={cls.id} value={cls.id}>
-                            {cls.name}
-                          </MenuItem>
-                        ))}
-                      </Select>
-                    </FormControl>
-                  </Grid>
-                  <Grid size={{ xs: 12, sm: 6 }}>
-                    <FormControl fullWidth disabled={!selectedClass}>
-                      <InputLabel>Select Section</InputLabel>
-                      <Select
-                        value={selectedSection}
-                        label="Select Section"
-                        onChange={(e) => handleSectionChange(e.target.value)}
-                      >
-                        <MenuItem value="">All Sections</MenuItem>
-                        {sections.map((sec) => (
-                          <MenuItem key={sec.id} value={sec.id}>
-                            {sec.name}
-                          </MenuItem>
-                        ))}
-                      </Select>
-                    </FormControl>
-                  </Grid>
-                </Grid>
-
-                {selectedClass && (
-                  <Box sx={{ mt: 3 }}>
-                    <TextField
-                      fullWidth
-                      size="small"
-                      placeholder="Search student by name or registration..."
-                      value={studentSearch}
-                      onChange={(e) => setStudentSearch(e.target.value)}
-                      InputProps={{
-                        startAdornment: (
-                          <InputAdornment position="start">
-                            <SearchIcon />
-                          </InputAdornment>
-                        ),
-                      }}
-                      sx={{ mb: 2 }}
-                    />
-
-                    <Typography
-                      variant="subtitle2"
-                      color="text.secondary"
-                      sx={{ mb: 1 }}
-                    >
-                      Select Student ({filteredStudents.length} found)
-                    </Typography>
-
-                    <Paper
-                      variant="outlined"
-                      sx={{ maxHeight: 250, overflow: "auto" }}
-                    >
-                      <List dense>
-                        {filteredStudents.length === 0 ? (
-                          <ListItem>
-                            <ListItemText
-                              primary="No students found"
-                              secondary="Try selecting a different class or section"
-                            />
-                          </ListItem>
-                        ) : (
-                          filteredStudents.map((student) => (
-                            <ListItemButton
-                              key={student.id}
-                              onClick={() => handleSelectStudent(student)}
-                            >
-                              <ListItemAvatar>
-                                <Avatar src={student.photo || undefined}>
-                                  {student.firstName[0]}
-                                  {student.lastName[0]}
-                                </Avatar>
-                              </ListItemAvatar>
-                              <ListItemText
-                                primary={`${student.firstName} ${student.lastName}`}
-                                secondary={`${student.registrationNo} • ${
-                                  student.class?.name || ""
-                                }${
-                                  student.section?.name
-                                    ? ` - ${student.section.name}`
-                                    : ""
-                                }`}
-                              />
-                            </ListItemButton>
-                          ))
-                        )}
-                      </List>
-                    </Paper>
-                  </Box>
-                )}
-              </Box>
-            )}
-
-            {/* Step 2: Select Voucher */}
-            {dialogStep === "voucher" && selectedStudent && (
-              <Box sx={{ mt: 2 }}>
-                <Box sx={{ bgcolor: "grey.100", p: 2, borderRadius: 2, mb: 3 }}>
-                  <Typography variant="subtitle2" color="text.secondary">
-                    Selected Student
-                  </Typography>
-                  <Typography fontWeight={600}>
-                    {selectedStudent.registrationNo} -{" "}
-                    {selectedStudent.firstName} {selectedStudent.lastName}
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    {selectedStudent.class?.name || "N/A"} -{" "}
-                    {selectedStudent.section?.name || "N/A"}
-                  </Typography>
-                </Box>
-
-                <Typography
-                  variant="subtitle2"
-                  color="text.secondary"
-                  sx={{ mb: 1 }}
-                >
-                  Select Voucher to Pay
-                </Typography>
-
-                {vouchers.length === 0 ? (
-                  <Alert severity="info">
-                    No unpaid vouchers found for this student.
-                  </Alert>
-                ) : (
-                  <Paper
-                    variant="outlined"
-                    sx={{ maxHeight: 250, overflow: "auto" }}
-                  >
-                    <List>
-                      {vouchers.map((voucher) => (
-                        <ListItemButton
-                          key={voucher.id}
-                          onClick={() => handleSelectVoucher(voucher)}
-                        >
-                          <ListItemText
-                            primary={
-                              <Box
-                                sx={{
-                                  display: "flex",
-                                  justifyContent: "space-between",
-                                }}
-                              >
-                                <Typography fontWeight={500}>
-                                  {voucher.voucherNo}
-                                </Typography>
-                                <Chip
-                                  label={voucher.status}
-                                  size="small"
-                                  color={
-                                    voucher.status === "PARTIAL"
-                                      ? "warning"
-                                      : "error"
-                                  }
-                                />
-                              </Box>
-                            }
-                            secondary={
-                              <Box sx={{ mt: 0.5 }}>
-                                <Typography variant="body2">
-                                  {monthNames[voucher.month - 1]} {voucher.year}
-                                </Typography>
-                                <Typography
-                                  variant="body2"
-                                  color="error.main"
-                                  fontWeight={500}
-                                >
-                                  Balance Due:{" "}
-                                  {formatCurrency(voucher.balanceDue)}
-                                </Typography>
-                              </Box>
-                            }
-                          />
-                        </ListItemButton>
-                      ))}
-                    </List>
-                  </Paper>
-                )}
-              </Box>
-            )}
-
-            {/* Step 3: Payment Form */}
-            {dialogStep === "payment" && selectedStudent && selectedVoucher && (
-              <Box sx={{ mt: 2 }}>
-                {/* Student Info */}
-                <Box sx={{ bgcolor: "grey.100", p: 2, borderRadius: 2, mb: 2 }}>
-                  <Typography variant="subtitle2" color="text.secondary">
-                    Student
-                  </Typography>
-                  <Typography fontWeight={600}>
-                    {selectedStudent.registrationNo} -{" "}
-                    {selectedStudent.firstName} {selectedStudent.lastName}
-                  </Typography>
-                </Box>
-
-                {/* Voucher Info */}
-                <Box sx={{ bgcolor: "grey.100", p: 2, borderRadius: 2, mb: 3 }}>
-                  <Box
-                    sx={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      alignItems: "center",
-                      mb: 1,
-                    }}
-                  >
-                    <Typography variant="subtitle2" color="text.secondary">
-                      Fee Voucher
-                    </Typography>
-                    <Chip
-                      label={selectedVoucher.status}
-                      size="small"
-                      color={
-                        selectedVoucher.status === "PARTIAL"
-                          ? "warning"
-                          : "error"
-                      }
-                    />
-                  </Box>
-                  <Typography fontWeight={600}>
-                    {selectedVoucher.voucherNo}
-                  </Typography>
-                  <Typography
-                    variant="body2"
-                    color="text.secondary"
-                    sx={{ mb: 1 }}
-                  >
-                    {monthNames[selectedVoucher.month - 1]}{" "}
-                    {selectedVoucher.year}
-                  </Typography>
-                  <Divider sx={{ my: 1 }} />
-                  <Box
-                    sx={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      mb: 0.5,
-                    }}
-                  >
-                    <Typography variant="body2">Total Amount:</Typography>
-                    <Typography variant="body2" fontWeight={500}>
-                      {formatCurrency(selectedVoucher.totalAmount)}
-                    </Typography>
-                  </Box>
-                  <Box
-                    sx={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      mb: 0.5,
-                    }}
-                  >
-                    <Typography variant="body2">Paid Amount:</Typography>
-                    <Typography
-                      variant="body2"
-                      color="success.main"
-                      fontWeight={500}
-                    >
-                      {formatCurrency(selectedVoucher.paidAmount)}
-                    </Typography>
-                  </Box>
-                  <Box
-                    sx={{ display: "flex", justifyContent: "space-between" }}
-                  >
-                    <Typography variant="body2" fontWeight={600}>
-                      Balance Due:
-                    </Typography>
-                    <Typography
-                      variant="body2"
-                      color="error.main"
-                      fontWeight={600}
-                    >
-                      {formatCurrency(selectedVoucher.balanceDue)}
-                    </Typography>
-                  </Box>
-                </Box>
-
-                {/* Payment Form */}
-                <Grid container spacing={2}>
-                  <Grid size={{ xs: 12, sm: 6 }}>
-                    <TextField
-                      fullWidth
-                      label="Amount"
-                      type="number"
-                      value={paymentAmount}
-                      onChange={(e) => setPaymentAmount(e.target.value)}
-                      required
-                      InputProps={{
-                        startAdornment: (
-                          <Typography sx={{ mr: 1 }}>Rs.</Typography>
-                        ),
-                      }}
-                      helperText={`Max: ${formatCurrency(
-                        selectedVoucher.balanceDue
-                      )}`}
-                    />
-                  </Grid>
-                  <Grid size={{ xs: 12, sm: 6 }}>
-                    <FormControl fullWidth>
-                      <InputLabel>Payment Method</InputLabel>
-                      <Select
-                        value={paymentMethod}
-                        label="Payment Method"
-                        onChange={(e) => setPaymentMethod(e.target.value)}
-                      >
-                        {PAYMENT_METHODS.map((method) => (
-                          <MenuItem key={method.value} value={method.value}>
-                            {method.label}
-                          </MenuItem>
-                        ))}
-                      </Select>
-                    </FormControl>
-                  </Grid>
-                  <Grid size={{ xs: 12 }}>
-                    <TextField
-                      fullWidth
-                      label="Reference (Cheque #, Transaction ID, etc.)"
-                      value={paymentReference}
-                      onChange={(e) => setPaymentReference(e.target.value)}
-                    />
-                  </Grid>
-                  <Grid size={{ xs: 12 }}>
-                    <TextField
-                      fullWidth
-                      label="Remarks"
-                      value={paymentRemarks}
-                      onChange={(e) => setPaymentRemarks(e.target.value)}
-                      multiline
-                      rows={2}
-                    />
-                  </Grid>
-                </Grid>
-              </Box>
-            )}
-          </DialogContent>
-          <DialogActions sx={{ p: 2 }}>
-            {dialogStep !== "select" && (
-              <Button onClick={handleDialogBack} disabled={submitting}>
-                Back
-              </Button>
-            )}
-            <Button onClick={handleCloseDialog} disabled={submitting}>
-              Cancel
-            </Button>
-            {dialogStep === "payment" && (
-              <Button
-                variant="contained"
-                color="success"
-                onClick={handleSubmitPayment}
-                disabled={submitting || !paymentAmount}
-              >
-                {submitting ? "Processing..." : "Receive Payment"}
-              </Button>
-            )}
-          </DialogActions>
-        </Dialog>
+        {/* Receive Payment (oldest dues first) */}
+        <ReceivePaymentDialog
+          open={!!receiveFor}
+          studentId={receiveFor?.studentId ?? null}
+          focusVoucherId={receiveFor?.voucherId}
+          onClose={() => {
+            setReceiveFor(null);
+            window.history.replaceState(null, "", "/fees/payments");
+          }}
+          onSuccess={fetchPayments}
+        />
 
         {/* View Payment Dialog */}
         <Dialog
@@ -1123,7 +761,7 @@ export default function PaymentsPage() {
           <DialogActions>
             <Button
               startIcon={<PrintIcon />}
-              onClick={() => toast.info("Print functionality coming soon")}
+              onClick={() => selectedPayment && printReceipt(selectedPayment)}
             >
               Print Receipt
             </Button>

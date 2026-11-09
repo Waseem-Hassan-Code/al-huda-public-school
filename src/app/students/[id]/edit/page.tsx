@@ -16,6 +16,9 @@ import {
   MenuItem,
   CircularProgress,
   Divider,
+  Checkbox,
+  FormControlLabel,
+  Alert,
 } from "@mui/material";
 import { ArrowBack as BackIcon, Save as SaveIcon } from "@mui/icons-material";
 import MainLayout from "@/components/layout/MainLayout";
@@ -46,6 +49,25 @@ interface FormData {
   classId: string;
   sectionId: string;
   status: string;
+  // Parent / guardian
+  fatherName: string;
+  motherName: string;
+  guardianName: string;
+  guardianRelation: string;
+  guardianCnic: string;
+  guardianPhone: string;
+  guardianWhatsapp: string;
+  guardianPhone2: string;
+  guardianEmail: string;
+  guardianOccupation: string;
+  guardianAddress: string;
+}
+
+const GUARDIAN_RELATIONS = ["FATHER", "MOTHER", "GUARDIAN", "BROTHER", "SISTER", "UNCLE", "AUNT", "OTHER"];
+
+interface FamilyInfo {
+  parentId: string;
+  siblingCount: number;
 }
 
 export default function EditStudentPage({
@@ -78,7 +100,21 @@ export default function EditStudentPage({
     classId: "",
     sectionId: "",
     status: "ACTIVE",
+    fatherName: "",
+    motherName: "",
+    guardianName: "",
+    guardianRelation: "",
+    guardianCnic: "",
+    guardianPhone: "",
+    guardianWhatsapp: "",
+    guardianPhone2: "",
+    guardianEmail: "",
+    guardianOccupation: "",
+    guardianAddress: "",
   });
+  // Siblings share one family (Parent) record; offer to update it with them
+  const [family, setFamily] = useState<FamilyInfo | null>(null);
+  const [applyToFamily, setApplyToFamily] = useState(true);
 
   useEffect(() => {
     setMounted(true);
@@ -118,7 +154,23 @@ export default function EditStudentPage({
             classId: student.class?.id || "",
             sectionId: student.section?.id || "",
             status: student.status || "ACTIVE",
+            fatherName: student.fatherName || "",
+            motherName: student.motherName || "",
+            guardianName: student.guardianName || "",
+            guardianRelation: student.guardianRelation || "",
+            guardianCnic: student.guardianCnic || "",
+            guardianPhone: student.guardianPhone || "",
+            guardianWhatsapp: student.guardianWhatsapp || "",
+            guardianPhone2: student.guardianPhone2 || "",
+            guardianEmail: student.guardianEmail || "",
+            guardianOccupation: student.guardianOccupation || "",
+            guardianAddress: student.guardianAddress || "",
           });
+          setFamily(
+            student.parent
+              ? { parentId: student.parent.id, siblingCount: student.parent.students?.length ?? 0 }
+              : null
+          );
         } else {
           toast.error("Failed to load student");
           router.push("/students");
@@ -141,6 +193,13 @@ export default function EditStudentPage({
     }
   }, [status, id, router]);
 
+  // Opened from the profile's guardian card (#guardian): scroll to that section
+  useEffect(() => {
+    if (!loading && window.location.hash === "#guardian") {
+      document.getElementById("guardian")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }, [loading]);
+
   const handleInputChange = (field: string, value: string) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
   };
@@ -150,8 +209,9 @@ export default function EditStudentPage({
   };
 
   const handleSave = async () => {
-    if (!formData.firstName || !formData.lastName) {
-      toast.error("First name and last name are required");
+    // Same rule as admission: only the first name is required
+    if (!formData.firstName.trim()) {
+      toast.error("First name is required");
       return;
     }
 
@@ -161,7 +221,10 @@ export default function EditStudentPage({
       const dataToSend = {
         ...formData,
         firstName: capitalizeFirst(formData.firstName),
-        lastName: capitalizeFirst(formData.lastName),
+        lastName: formData.lastName ? capitalizeFirst(formData.lastName) : "",
+        guardianName: formData.guardianName.trim(),
+        guardianEmail: formData.guardianEmail.trim().toLowerCase(),
+        applyToFamily: !!family && applyToFamily,
       };
 
       const res = await fetch(`/api/students/${id}`, {
@@ -171,7 +234,14 @@ export default function EditStudentPage({
       });
 
       if (res.ok) {
-        toast.success("Student updated successfully");
+        const saved = await res.json().catch(() => ({}));
+        const fam = saved?.family;
+        toast.success("Student updated successfully", {
+          description:
+            fam && (fam.changed || fam.newlyLinked > 0) && fam.siblingCount > 0
+              ? `Linked as sibling of ${fam.siblingCount} student${fam.siblingCount === 1 ? "" : "s"} with the same guardian CNIC`
+              : undefined,
+        });
         router.push(`/students/${id}`);
       } else {
         const data = await res.json();
@@ -480,6 +550,145 @@ export default function EditStudentPage({
                     </Select>
                   </FormControl>
                 </Grid>
+              </Grid>
+            </Paper>
+          </Grid>
+          {/* Parent / Guardian Information */}
+          <Grid size={{ xs: 12 }} id="guardian">
+            <Paper sx={{ p: 3 }}>
+              <Typography variant="h6" gutterBottom>
+                Parent / Guardian Information
+              </Typography>
+              <Divider sx={{ mb: 2 }} />
+              <Grid container spacing={2}>
+                <Grid size={{ xs: 12, sm: 6, md: 4 }}>
+                  <TextField
+                    fullWidth
+                    label="Father Name"
+                    value={formData.fatherName}
+                    onChange={(e) => handleInputChange("fatherName", e.target.value)}
+                  />
+                </Grid>
+                <Grid size={{ xs: 12, sm: 6, md: 4 }}>
+                  <TextField
+                    fullWidth
+                    label="Mother Name"
+                    value={formData.motherName}
+                    onChange={(e) => handleInputChange("motherName", e.target.value)}
+                  />
+                </Grid>
+                <Grid size={{ xs: 12, md: 4 }} />
+                <Grid size={{ xs: 12, sm: 6, md: 4 }}>
+                  <TextField
+                    fullWidth
+                    label="Guardian Name"
+                    value={formData.guardianName}
+                    onChange={(e) => handleInputChange("guardianName", e.target.value)}
+                  />
+                </Grid>
+                <Grid size={{ xs: 12, sm: 6, md: 4 }}>
+                  <FormControl fullWidth>
+                    <InputLabel>Relationship</InputLabel>
+                    <Select
+                      value={formData.guardianRelation}
+                      label="Relationship"
+                      onChange={(e) => handleInputChange("guardianRelation", e.target.value)}
+                    >
+                      <MenuItem value="">Not set</MenuItem>
+                      {/* Keep older values (e.g. from the mobile app) selectable */}
+                      {[
+                        ...GUARDIAN_RELATIONS,
+                        ...(formData.guardianRelation && !GUARDIAN_RELATIONS.includes(formData.guardianRelation)
+                          ? [formData.guardianRelation]
+                          : []),
+                      ].map((r) => (
+                        <MenuItem key={r} value={r}>
+                          {r.charAt(0) + r.slice(1).toLowerCase()}
+                        </MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+                </Grid>
+                <Grid size={{ xs: 12, sm: 6, md: 4 }}>
+                  <TextField
+                    fullWidth
+                    label="Guardian CNIC"
+                    placeholder="XXXXX-XXXXXXX-X"
+                    value={formData.guardianCnic}
+                    onChange={(e) => handleInputChange("guardianCnic", maskCNIC(e.target.value))}
+                  />
+                </Grid>
+                <Grid size={{ xs: 12, sm: 6, md: 4 }}>
+                  <TextField
+                    fullWidth
+                    label="Guardian Phone"
+                    placeholder="03XX-XXXXXXX"
+                    value={formData.guardianPhone}
+                    onChange={(e) => handleInputChange("guardianPhone", maskPhone(e.target.value))}
+                  />
+                </Grid>
+                <Grid size={{ xs: 12, sm: 6, md: 4 }}>
+                  <TextField
+                    fullWidth
+                    label="WhatsApp Number"
+                    placeholder="03XX-XXXXXXX"
+                    value={formData.guardianWhatsapp}
+                    onChange={(e) => handleInputChange("guardianWhatsapp", maskPhone(e.target.value))}
+                  />
+                </Grid>
+                <Grid size={{ xs: 12, sm: 6, md: 4 }}>
+                  <TextField
+                    fullWidth
+                    label="Emergency Contact"
+                    placeholder="03XX-XXXXXXX"
+                    value={formData.guardianPhone2}
+                    onChange={(e) => handleInputChange("guardianPhone2", maskPhone(e.target.value))}
+                  />
+                </Grid>
+                <Grid size={{ xs: 12, sm: 6, md: 4 }}>
+                  <TextField
+                    fullWidth
+                    label="Guardian Email"
+                    type="email"
+                    value={formData.guardianEmail}
+                    onChange={(e) => handleInputChange("guardianEmail", e.target.value)}
+                  />
+                </Grid>
+                <Grid size={{ xs: 12, sm: 6, md: 4 }}>
+                  <TextField
+                    fullWidth
+                    label="Occupation"
+                    value={formData.guardianOccupation}
+                    onChange={(e) => handleInputChange("guardianOccupation", e.target.value)}
+                  />
+                </Grid>
+                <Grid size={{ xs: 12, md: 4 }}>
+                  <TextField
+                    fullWidth
+                    label="Guardian Address"
+                    value={formData.guardianAddress}
+                    onChange={(e) => handleInputChange("guardianAddress", e.target.value)}
+                  />
+                </Grid>
+                {family && (
+                  <Grid size={{ xs: 12 }}>
+                    <Alert severity="info" icon={false}>
+                      <FormControlLabel
+                        control={
+                          <Checkbox
+                            checked={applyToFamily}
+                            onChange={(e) => setApplyToFamily(e.target.checked)}
+                          />
+                        }
+                        label={
+                          family.siblingCount > 0
+                            ? `Also update the family record and the guardian details of ${family.siblingCount} sibling${family.siblingCount === 1 ? "" : "s"}`
+                            : "Also update the linked family (parent) record"
+                        }
+                      />
+                    </Alert>
+                  </Grid>
+                )}
               </Grid>
             </Paper>
           </Grid>

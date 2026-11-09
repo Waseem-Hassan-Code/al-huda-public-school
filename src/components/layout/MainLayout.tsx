@@ -8,6 +8,7 @@ import { useAppDispatch, useAppSelector } from "@/store";
 import { setUser } from "@/store/authSlice";
 import Sidebar from "./Sidebar";
 import Topbar from "./Topbar";
+import SessionBanner from "./SessionBanner";
 
 const drawerWidth = 280;
 const collapsedDrawerWidth = 72;
@@ -122,6 +123,7 @@ export default function MainLayout({ children }: MainLayoutProps) {
           minHeight: "100vh",
         }}
       >
+        <SessionBanner />
         {children}
       </Box>
     </Box>

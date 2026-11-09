@@ -1,0 +1,283 @@
+// Applies pending Prisma migrations. Runs automatically before `npm run dev`,
+// `npm start` and on IIS startup (via scripts/start.mjs).
+//
+// Baseline (one time only, for databases created earlier with `db push`):
+// - If prisma/migrations/0_init doesn't exist yet, it is generated from the
+//   CURRENT DATABASE (what it already contains), so newer migrations still
+//   apply on top of it. On an empty database it is generated from schema.prisma.
+// - When a database has tables but no migration history, 0_init is marked as
+//   applied only if the database matches 0_init exactly. Otherwise it stops.
+// Then `prisma migrate deploy` applies only pending migrations. It is safe to
+// run on every start: with nothing pending it does nothing.
+//
+// Development only (`npm run dev`, which passes --auto-create): after that, it
+// compares schema.prisma with the database. If you changed the schema, it writes
+// a new migration for the difference and applies it, so you never create
+// migrations by hand. Changes that can lose data (dropping a table or column,
+// changing a column type) need you to type "yes" first. Production (`npm start`,
+// IIS) never creates migrations; it only applies the ones committed from dev.
+
+import { spawnSync } from "node:child_process";
+import readline from "node:readline/promises";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
+
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const schemaPath = path.join("prisma", "schema.prisma");
+const migrationsDir = path.join(root, "prisma", "migrations");
+const BASELINE = "0_init";
+const baselineFile = path.join(migrationsDir, BASELINE, "migration.sql");
+const prismaCli = path.join(root, "node_modules", "prisma", "build", "index.js");
+
+// Make DATABASE_URL from .env available to every Prisma call, including the
+// temporary schema copy used to create a missing database.
+if (!process.env.DATABASE_URL && existsSync(path.join(root, ".env"))) {
+  const m = readFileSync(path.join(root, ".env"), "utf8").match(/^\s*DATABASE_URL\s*=\s*(.*)\s*$/m);
+  if (m) process.env.DATABASE_URL = m[1].trim().replace(/^(['"])(.*)\1$/, "$2");
+}
+
+function log(msg) {
+  console.log(`[migrate] ${msg}`);
+}
+
+function prisma(args, capture = false) {
+  const result = spawnSync(process.execPath, [prismaCli, ...args], {
+    cwd: root,
+    env: process.env,
+    encoding: "utf8",
+    stdio: capture ? ["ignore", "pipe", "pipe"] : "inherit",
+  });
+  if (result.error) throw result.error;
+  return result;
+}
+
+function migrationFolders() {
+  if (!existsSync(migrationsDir)) return [];
+  return readdirSync(migrationsDir, { withFileTypes: true })
+    .filter((d) => d.isDirectory())
+    .map((d) => d.name)
+    .sort();
+}
+
+// SQL that would recreate the database exactly as it is right now.
+function currentDatabaseSql() {
+  const r = prisma(
+    ["migrate", "diff", "--from-empty", "--to-schema-datasource", schemaPath, "--script"],
+    true
+  );
+  if (r.status !== 0) {
+    // P1003 = the database doesn't exist yet. Treat it as empty: Prisma creates
+    // it on the first `migrate resolve` / `migrate deploy`.
+    if (/P1003/.test(`${r.stdout}${r.stderr}`)) {
+      log("Database doesn't exist yet. It will be created.");
+      databaseMissing = true;
+      return "";
+    }
+    throw new Error(`Could not read the database schema:\n${r.stderr}`);
+  }
+  return r.stdout;
+}
+
+let databaseMissing = false;
+
+// Create the (empty) database. `migrate deploy` creates a missing database, so run
+// it against a temporary copy of the schema with no migrations next to it.
+function createEmptyDatabase() {
+  const tmp = mkdtempSync(path.join(os.tmpdir(), "prisma-create-db-"));
+  try {
+    mkdirSync(path.join(tmp, "migrations"));
+    const tmpSchema = path.join(tmp, "schema.prisma");
+    copyFileSync(path.join(root, schemaPath), tmpSchema);
+    const r = prisma(["migrate", "deploy", "--schema", tmpSchema], true);
+    if (r.status !== 0) {
+      throw new Error(
+        `Could not create the database. Create it yourself (pgAdmin: Databases > Create > Database) ` +
+          `and start again.\n${r.stdout}${r.stderr}`
+      );
+    }
+    databaseMissing = false;
+    log("Database created.");
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+}
+
+const normalize = (sql) => sql.replace(/--.*$/gm, "").replace(/\s+/g, " ").trim();
+const isEmptyDatabase = (sql) => !/CREATE\s+(TABLE|TYPE)/i.test(sql);
+
+function writeLockFile() {
+  const schema = readFileSync(path.join(root, schemaPath), "utf8");
+  const provider =
+    schema.match(/datasource\s+\w+\s*\{[^}]*provider\s*=\s*"(\w+)"/)?.[1] ?? "postgresql";
+  writeFileSync(
+    path.join(migrationsDir, "migration_lock.toml"),
+    `# Please do not edit this file manually\n# It should be added in your version-control system (e.g., Git)\nprovider = "${provider}"\n`,
+    "utf8"
+  );
+}
+
+function createBaseline() {
+  const dbSql = currentDatabaseSql();
+
+  if (!isEmptyDatabase(dbSql)) {
+    log(`Creating baseline migration ${BASELINE} from the current database...`);
+    mkdirSync(path.dirname(baselineFile), { recursive: true });
+    writeFileSync(baselineFile, dbSql, "utf8");
+  } else {
+    // Brand-new empty database: build everything from schema.prisma, and mark
+    // the other migrations as applied because schema.prisma already includes them.
+    // 0_init is written last, so a failure here leaves nothing half-done.
+    log(`Empty database. Creating baseline migration ${BASELINE} from schema.prisma...`);
+    const r = prisma(
+      ["migrate", "diff", "--from-empty", "--to-schema-datamodel", schemaPath, "--script"],
+      true
+    );
+    if (r.status !== 0) throw new Error(`Could not generate baseline migration:\n${r.stderr}`);
+    if (databaseMissing) createEmptyDatabase();
+    for (const name of migrationFolders().filter((n) => n !== BASELINE)) {
+      if (prisma(["migrate", "resolve", "--applied", name]).status !== 0) {
+        throw new Error(`prisma migrate resolve failed for ${name}.`);
+      }
+    }
+    mkdirSync(path.dirname(baselineFile), { recursive: true });
+    writeFileSync(baselineFile, r.stdout, "utf8");
+  }
+  writeLockFile();
+  log(`Created prisma/migrations/${BASELINE}. Commit the prisma/migrations folder to git.`);
+}
+
+// Database has tables but no migration history (it was created with `db push`).
+function baselineExistingDatabase() {
+  log("Database has tables but no migration history (it was created with `db push`).");
+  const matches = normalize(currentDatabaseSql()) === normalize(readFileSync(baselineFile, "utf8"));
+  if (!matches) {
+    throw new Error(
+      `This database does not match prisma/migrations/${BASELINE}, so it can't be marked ` +
+        `as applied safely. Bring the database in line with the schema that ${BASELINE} ` +
+        `describes, or mark the migrations it already contains with ` +
+        `\`npx prisma migrate resolve --applied <name>\`, then start the app again.`
+    );
+  }
+  log(`Database matches ${BASELINE}. Marking it as already applied...`);
+  if (prisma(["migrate", "resolve", "--applied", BASELINE]).status !== 0) {
+    throw new Error("prisma migrate resolve failed.");
+  }
+}
+
+// SQL needed to bring the database in line with schema.prisma ("" when in sync)
+function pendingSchemaChanges() {
+  const r = prisma(
+    ["migrate", "diff", "--from-schema-datasource", schemaPath, "--to-schema-datamodel", schemaPath,
+     "--script", "--exit-code"],
+    true
+  );
+  if (r.status === 0) return "";
+  if (r.status === 2) return r.stdout;
+  throw new Error(`Could not compare schema.prisma with the database:\n${r.stderr}`);
+}
+
+// Statements that can delete data or fail on existing rows
+const RISKY = [
+  [/DROP TABLE\s+"?([\w.]+)"?/gi, (m) => `drops table ${m[1]}`],
+  [/DROP COLUMN\s+"?(\w+)"?/gi, (m) => `drops column ${m[1]}`],
+  [/ALTER COLUMN\s+"?(\w+)"?\s+(?:SET DATA\s+)?TYPE/gi, (m) => `changes the type of column ${m[1]}`],
+  [/ALTER COLUMN\s+"?(\w+)"?\s+SET NOT NULL/gi, (m) => `makes column ${m[1]} required (fails if rows are empty)`],
+  [/DROP TYPE\s+"?(\w+)"?/gi, (m) => `drops enum ${m[1]}`],
+  [/CREATE UNIQUE INDEX/gi, () => "adds a unique constraint (fails if existing rows have duplicates)"],
+];
+
+function riskyChanges(sql) {
+  const found = [];
+  for (const [re, describe] of RISKY) for (const m of sql.matchAll(re)) found.push(describe(m));
+  return [...new Set(found)];
+}
+
+function migrationName(sql) {
+  const stamp = new Date().toISOString().replace(/\D/g, "").slice(0, 14);
+  const tables = [...sql.matchAll(/(?:CREATE TABLE|ALTER TABLE|DROP TABLE)\s+"?(\w+)"?/gi)].map((m) => m[1]);
+  const hint = [...new Set(tables)].slice(0, 3).join("_").toLowerCase().replace(/[^a-z0-9_]/g, "") || "schema";
+  return `${stamp}_auto_${hint}`;
+}
+
+async function confirm(question) {
+  if (!process.stdin.isTTY) return false;
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    return (await rl.question(question)).trim().toLowerCase() === "yes";
+  } finally {
+    rl.close();
+  }
+}
+
+async function autoCreateMigration() {
+  const sql = pendingSchemaChanges();
+  if (!sql.trim()) return;
+
+  log("schema.prisma has changes that aren't in the database yet.");
+  const risks = riskyChanges(sql);
+  if (risks.length) {
+    log("WARNING: this change can lose data or fail on existing rows:");
+    for (const r of risks) log(`  - ${r}`);
+    log("Note: renaming a field or model looks like drop + add, which deletes that data.");
+    const ok = await confirm('[migrate] Type "yes" to create and apply this migration: ');
+    if (!ok) {
+      throw new Error(
+        "Schema change not applied. Undo it in schema.prisma, or run `npm run dev` again and type yes. " +
+          "To keep data on a rename, create the migration by hand: `npm run db:migrate -- --create-only --name rename_x`, " +
+          "edit the SQL to use RENAME, then start again."
+      );
+    }
+  }
+
+  const name = migrationName(sql);
+  mkdirSync(path.join(migrationsDir, name), { recursive: true });
+  writeFileSync(path.join(migrationsDir, name, "migration.sql"), sql, "utf8");
+  log(`Created migration prisma/migrations/${name}. Commit it so production gets the change.`);
+
+  const deploy = prisma(["migrate", "deploy"], true);
+  process.stdout.write(deploy.stdout ?? "");
+  if (deploy.status !== 0) {
+    process.stderr.write(deploy.stderr ?? "");
+    throw new Error(
+      `Migration ${name} failed. Fix the problem (or delete that folder and adjust schema.prisma), then start again.`
+    );
+  }
+}
+
+export async function runMigrations({ autoCreate = false } = {}) {
+  if (!existsSync(prismaCli)) {
+    throw new Error("Prisma CLI not found in node_modules. Run `npm install` first.");
+  }
+
+  if (!existsSync(baselineFile)) createBaseline();
+
+  log("Applying pending migrations (prisma migrate deploy)...");
+  let deploy = prisma(["migrate", "deploy"], true);
+  process.stdout.write(deploy.stdout ?? "");
+
+  if (deploy.status !== 0 && /P3005/.test(`${deploy.stdout}${deploy.stderr}`)) {
+    baselineExistingDatabase();
+    deploy = prisma(["migrate", "deploy"], true);
+    process.stdout.write(deploy.stdout ?? "");
+  }
+
+  if (deploy.status !== 0) {
+    process.stderr.write(deploy.stderr ?? "");
+    throw new Error("Database migration failed. The app was not started.");
+  }
+
+  if (autoCreate) await autoCreateMigration();
+  log("Database is up to date.");
+}
+
+// Allow running directly: `node scripts/migrate.mjs [--auto-create]`
+if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
+  try {
+    await runMigrations({ autoCreate: process.argv.includes("--auto-create") });
+  } catch (err) {
+    console.error(`[migrate] ${err.message}`);
+    process.exit(1);
+  }
+}

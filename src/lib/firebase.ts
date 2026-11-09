@@ -1016,6 +1016,27 @@ export async function upsertStudentInFirebase(student: any): Promise<void> {
   await setDoc(ref, firebaseStudent, { merge: true });
 }
 
+/** Removes a permanently deleted student and their mobile app login. */
+export async function deleteStudentFromFirebase(studentId: string): Promise<void> {
+  const db = getFirestoreDb();
+  await deleteDoc(doc(db, COLLECTIONS.STUDENTS, studentId));
+  const snapshot = await getDocs(
+    query(collection(db, COLLECTIONS.USER_IDENTITIES), where("entityId", "==", studentId))
+  );
+  await Promise.all(snapshot.docs.map((d) => deleteDoc(d.ref)));
+}
+
+/** Allows or blocks a student's mobile app login (used by archive / restore). */
+export async function setStudentMobileAccess(studentId: string, allowed: boolean): Promise<void> {
+  const db = getFirestoreDb();
+  const snapshot = await getDocs(
+    query(collection(db, COLLECTIONS.USER_IDENTITIES), where("entityId", "==", studentId))
+  );
+  await Promise.all(
+    snapshot.docs.map((d) => updateDoc(d.ref, { isApproved: allowed, updatedAt: Timestamp.now() }))
+  );
+}
+
 export async function upsertTeacherInFirebase(teacher: any): Promise<void> {
   const db = getFirestoreDb();
   const now = Timestamp.now();

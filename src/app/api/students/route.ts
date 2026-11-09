@@ -9,6 +9,18 @@ import { notifyStudentRegistered } from "@/lib/notifications";
 import { FeeStatus, FeeType } from "@prisma/client";
 import { upsertStudentInFirebase } from "@/lib/firebase";
 
+// A student profile counts as incomplete when any of these is missing
+const INCOMPLETE_CONDITIONS = [
+  { dateOfBirth: null },
+  { gender: null },
+  { classId: null },
+  { sectionId: null },
+  { lastName: "" },
+  { address: "" },
+  { guardianName: "" },
+  { guardianPhone: "" },
+];
+
 // Blood group mapping from display format to enum format
 const bloodGroupMap: Record<string, string> = {
   "A+": "A_POSITIVE",
@@ -56,22 +68,44 @@ export async function GET(request: NextRequest) {
     const classId = searchParams.get("classId");
     const sectionId = searchParams.get("sectionId");
     const status = searchParams.get("status");
+    const academicYearId = searchParams.get("academicYearId");
+    const incompleteOnly = searchParams.get("incomplete") === "1";
     const sortBy = searchParams.get("sortBy") || "createdAt";
     const sortOrder = searchParams.get("sortOrder") || "desc";
 
     const skip = (page - 1) * limit;
 
     // Build where clause
-    const where: any = {};
+    const where: any = { AND: [] as any[] };
 
     if (search) {
-      where.OR = [
-        { name: { contains: search, mode: "insensitive" } },
-        { lastName: { contains: search, mode: "insensitive" } },
-        { studentId: { contains: search, mode: "insensitive" } },
-        { email: { contains: search, mode: "insensitive" } },
-        { cnic: { contains: search, mode: "insensitive" } },
-      ];
+      where.AND.push({
+        OR: [
+          { firstName: { contains: search, mode: "insensitive" } },
+          { lastName: { contains: search, mode: "insensitive" } },
+          { registrationNo: { contains: search, mode: "insensitive" } },
+          { rollNo: { contains: search, mode: "insensitive" } },
+          { guardianName: { contains: search, mode: "insensitive" } },
+          { guardianPhone: { contains: search, mode: "insensitive" } },
+          { email: { contains: search, mode: "insensitive" } },
+          { cnic: { contains: search, mode: "insensitive" } },
+        ],
+      });
+    }
+
+    // Students enrolled in a session: currently in it, or moved out of it at year end
+    if (academicYearId) {
+      where.AND.push({
+        OR: [
+          { academicYearId },
+          { promotionHistory: { some: { fromAcademicYearId: academicYearId } } },
+        ],
+      });
+    }
+
+    // Profiles missing key details (admission fields are optional)
+    if (incompleteOnly) {
+      where.AND.push({ OR: INCOMPLETE_CONDITIONS });
     }
 
     if (classId) {
@@ -82,8 +116,14 @@ export async function GET(request: NextRequest) {
       where.sectionId = sectionId;
     }
 
-    if (status) {
+    if (status === "ARCHIVED") {
+      // Archived = deactivated (status INACTIVE)
+      where.status = "INACTIVE";
+    } else if (status) {
       where.status = status;
+    } else if (searchParams.get("includeArchived") !== "1") {
+      // Archived students are hidden unless asked for
+      where.status = { not: "INACTIVE" };
     }
 
     // Get students with pagination
@@ -182,20 +222,40 @@ export async function POST(request: NextRequest) {
       monthlyFee,
       fees,
       previousBalance: rawPreviousBalance,
+      // Admission draft to remove once the student is created
+      draftId,
+      // Session to admit into (defaults to the active session)
+      academicYearId: requestedAcademicYearId,
     } = body;
+
+    // Only the student's first name is required; everything else is optional.
+    if (!firstName || !String(firstName).trim()) {
+      return NextResponse.json(
+        { error: "Student first name is required" },
+        { status: 400 }
+      );
+    }
+    const guardianFullName = guardian
+      ? `${(guardian.firstName || "").trim()} ${(guardian.lastName || "").trim()}`.trim()
+      : "";
 
     const previousBalance = parseFloat(rawPreviousBalance || "0") || 0;
 
-    // Get current academic year
-    const currentAcademicYear = await prisma.academicYear.findFirst({
-      where: { isCurrent: true },
-    });
+    // Session to admit into: the one chosen on the form, or the active session
+    const currentAcademicYear = requestedAcademicYearId
+      ? await prisma.academicYear.findFirst({
+          where: { id: String(requestedAcademicYearId), isActive: true },
+        })
+      : await prisma.academicYear.findFirst({
+          where: { isCurrent: true },
+        });
 
     if (!currentAcademicYear) {
       return NextResponse.json(
         {
-          error:
-            "No active academic year found. Please set up an academic year first.",
+          error: requestedAcademicYearId
+            ? "The selected session doesn't exist or is closed."
+            : "No active academic session found. Set one up on the Academic Sessions page first.",
         },
         { status: 400 }
       );
@@ -284,7 +344,8 @@ export async function POST(request: NextRequest) {
     // ── Generate Unique Student Email ─────────────────────────────────────────
     const safeFirstName = (firstName || "").toLowerCase().replace(/[^a-z0-9]/g, "");
     const safeLastName = (lastName || "").toLowerCase().replace(/[^a-z0-9]/g, "");
-    let generatedEmail = `${safeFirstName}.${safeLastName}@stdatalhuda.com`;
+    const emailBase = [safeFirstName, safeLastName].filter(Boolean).join(".") || "student";
+    let generatedEmail = `${emailBase}@stdatalhuda.com`;
     let emailCounter = 1;
 
     while (true) {
@@ -293,7 +354,7 @@ export async function POST(request: NextRequest) {
         select: { id: true },
       });
       if (!existingEmail) break;
-      generatedEmail = `${safeFirstName}.${safeLastName}${emailCounter}@stdatalhuda.com`;
+      generatedEmail = `${emailBase}${emailCounter}@stdatalhuda.com`;
       emailCounter++;
     }
 
@@ -303,19 +364,19 @@ export async function POST(request: NextRequest) {
       const student = await tx.student.create({
         data: {
           registrationNo,
-          firstName,
-          lastName,
+          firstName: String(firstName).trim(),
+          lastName: (lastName || "").trim(),
           fatherName:
-            guardian?.relationship === "FATHER"
-              ? `${guardian.firstName} ${guardian.lastName}`
-              : guardian?.firstName || firstName, // Use guardian name as fallback
-          dateOfBirth: new Date(dateOfBirth),
-          gender,
+            guardian?.relationship === "FATHER" && guardianFullName
+              ? guardianFullName
+              : guardian?.firstName?.trim() || "", // Use guardian name as fallback
+          dateOfBirth: dateOfBirth ? new Date(dateOfBirth) : null,
+          gender: gender || null,
           cnic: cnic || null,
           religion: religion ? religion.toUpperCase() : "ISLAM",
           nationality: nationality || "Pakistani",
           bloodGroup: convertBloodGroup(bloodGroup),
-          address,
+          address: address || "",
           city: city || "Karachi",
           phone: phone || null,
           email: generatedEmail,
@@ -328,9 +389,7 @@ export async function POST(request: NextRequest) {
           previousSchool: previousSchool || null,
           previousClass: previousClass || null,
           // Guardian info - stored directly on student
-          guardianName: guardian
-            ? `${guardian.firstName} ${guardian.lastName}`
-            : "",
+          guardianName: guardianFullName,
           guardianRelation: guardian?.relationship || "FATHER",
           guardianCnic: guardian?.cnic || null,
           guardianPhone: guardian?.phone || "",
@@ -514,6 +573,13 @@ export async function POST(request: NextRequest) {
       });
     }
 
+    // The admission is complete, so its saved draft is no longer needed
+    if (draftId) {
+      await prisma.admissionDraft
+        .deleteMany({ where: { id: String(draftId) } })
+        .catch((err: unknown) => console.error("Failed to delete admission draft:", err));
+    }
+
     // Sync student to Firebase students collection (fire-and-forget)
     upsertStudentInFirebase(result.student).catch((err) =>
       console.error("Firebase student upsert failed (non-critical):", err)
@@ -522,10 +588,12 @@ export async function POST(request: NextRequest) {
     // Send notification for new student registration
     try {
       // Get class and section names
-      const classInfo = await prisma.class.findUnique({
-        where: { id: classId },
-        select: { name: true },
-      });
+      const classInfo = classId
+        ? await prisma.class.findUnique({
+            where: { id: classId },
+            select: { name: true },
+          })
+        : null;
       const sectionInfo = sectionId
         ? await prisma.section.findUnique({
             where: { id: sectionId },

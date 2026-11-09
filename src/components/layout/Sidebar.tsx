@@ -38,6 +38,7 @@ import {
   AccountBalance as AccountBalanceIcon,
   Message as MessageIcon,
   Sync as SyncIcon,
+  CalendarMonth as CalendarMonthIcon,
 } from "@mui/icons-material";
 import { useRouter, usePathname } from "next/navigation";
 import { useTranslation } from "react-i18next";
@@ -142,6 +143,12 @@ export default function Sidebar() {
           icon: <SubjectIcon />,
           path: "/subjects",
           permission: Permission.VIEW_SUBJECTS,
+        },
+        {
+          text: "Academic Sessions",
+          icon: <CalendarMonthIcon />,
+          path: "/sessions",
+          permission: Permission.VIEW_ACADEMIC_YEAR,
         },
       ],
     },

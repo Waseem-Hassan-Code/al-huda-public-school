@@ -170,6 +170,7 @@ export async function POST(request: NextRequest) {
         reference,
         totalApplied: result.totalApplied,
         allocations: result.allocations,
+        outstandingAfter: result.outstandingAfter,
         message: `Payment of ${result.totalApplied} recorded. Receipt: ${result.primaryReceiptNo}`,
       },
       { status: 201 }

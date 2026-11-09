@@ -5,6 +5,7 @@ import {
   AuthProvider,
   ThemeProvider,
   I18nProvider,
+  AcademicSessionProvider,
 } from "@/components/providers";
 import { ReduxProvider } from "@/store/ReduxProvider";
 import { Toaster } from "sonner";
@@ -41,7 +42,7 @@ export default function RootLayout({
           <ReduxProvider>
             <ThemeProvider>
               <I18nProvider>
-                {children}
+                <AcademicSessionProvider>{children}</AcademicSessionProvider>
                 <Toaster
                   position="top-right"
                   expand={true}

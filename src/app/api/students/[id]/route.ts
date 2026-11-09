@@ -4,7 +4,13 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { hasPermission, Permission } from "@/lib/permissions";
 import { logUpdate, logDelete } from "@/lib/transaction-log";
-import { upsertStudentInFirebase, updateStudentIdentityEmail } from "@/lib/firebase";
+import {
+  upsertStudentInFirebase,
+  updateStudentIdentityEmail,
+  deleteStudentFromFirebase,
+  setStudentMobileAccess,
+} from "@/lib/firebase";
+import { linkFamilyByCnic, FamilyLinkResult } from "@/lib/family-link";
 
 // GET - Get single student by ID
 export async function GET(
@@ -131,6 +137,8 @@ export async function PUT(
       guardianOccupation,
       guardianAddress,
       guardianMonthlyIncome,
+      // Also update the shared family (Parent) record and siblings' guardian details
+      applyToFamily,
     } = body;
 
     // Build update data object, only including defined fields
@@ -188,8 +196,59 @@ export async function PUT(
         },
       });
 
-      return student;
+      // Siblings share one Parent record. When asked, keep it and the siblings'
+      // own guardian details in line with this student's guardian details.
+      let siblingIds: string[] = [];
+      if (applyToFamily && student.parentId) {
+        const parentData: Record<string, any> = {};
+        if (guardianName !== undefined && String(guardianName).trim())
+          parentData.name = String(guardianName).trim();
+        if (guardianCnic !== undefined) parentData.cnic = guardianCnic || null;
+        if (guardianPhone !== undefined) parentData.phone = guardianPhone || "";
+        if (guardianWhatsapp !== undefined) parentData.whatsapp = guardianWhatsapp || null;
+        if (guardianEmail !== undefined) parentData.email = guardianEmail || null;
+        if (guardianOccupation !== undefined) parentData.occupation = guardianOccupation || null;
+        if (guardianAddress !== undefined) parentData.address = guardianAddress || null;
+        if (Object.keys(parentData).length > 0) {
+          await tx.parent.update({ where: { id: student.parentId }, data: parentData });
+        }
+
+        const siblingData: Record<string, any> = {};
+        for (const key of [
+          "guardianName",
+          "guardianRelation",
+          "guardianCnic",
+          "guardianPhone",
+          "guardianWhatsapp",
+          "guardianPhone2",
+          "guardianEmail",
+          "guardianOccupation",
+          "guardianAddress",
+          "fatherName",
+          "motherName",
+        ]) {
+          if (updateData[key] !== undefined) siblingData[key] = updateData[key];
+        }
+        const siblings = await tx.student.findMany({
+          where: { parentId: student.parentId, id: { not: id } },
+          select: { id: true },
+        });
+        siblingIds = siblings.map((s: { id: string }) => s.id);
+        if (siblingIds.length > 0 && Object.keys(siblingData).length > 0) {
+          await tx.student.updateMany({ where: { id: { in: siblingIds } }, data: siblingData });
+        }
+      }
+
+      // Sibling link: put the student in the family matching their guardian
+      // CNIC (same as admission does), whenever the CNIC is saved.
+      let family: FamilyLinkResult | null = null;
+      if (guardianCnic !== undefined && guardianCnic) {
+        family = await linkFamilyByCnic(tx, id);
+      }
+
+      return { student, siblingIds, family };
     });
+    const { student: updatedStudent, siblingIds, family } = result;
 
     // Log the transaction
     await logUpdate(
@@ -200,10 +259,19 @@ export async function PUT(
       session.user.id
     );
 
-    // Sync updated student to Firebase (fire-and-forget)
-    upsertStudentInFirebase(result).catch((err) =>
+    // Sync updated student (and any updated siblings) to Firebase (fire-and-forget)
+    upsertStudentInFirebase(updatedStudent).catch((err) =>
       console.error("Firebase student sync failed (non-critical):", err)
     );
+    if (siblingIds.length > 0) {
+      prisma.student
+        .findMany({
+          where: { id: { in: siblingIds } },
+          include: { class: true, section: true, academicYear: true },
+        })
+        .then((sibs) => Promise.all(sibs.map((s) => upsertStudentInFirebase(s))))
+        .catch((err) => console.error("Firebase sibling sync failed (non-critical):", err));
+    }
 
     // If email changed, keep the identity doc in sync (fire-and-forget)
     if (email !== undefined) {
@@ -212,7 +280,12 @@ export async function PUT(
       );
     }
 
-    return NextResponse.json(result);
+    return NextResponse.json({
+      ...updatedStudent,
+      parentId: family?.parentId ?? updatedStudent.parentId,
+      siblingsUpdated: siblingIds.length,
+      family,
+    });
   } catch (error) {
     console.error("Student PUT Error:", error);
     return NextResponse.json(
@@ -222,7 +295,99 @@ export async function PUT(
   }
 }
 
-// DELETE - Delete student (soft delete by changing status)
+// PATCH - Archive or restore a student
+// Body: { action: "archive" | "restore", reason?: string }
+// Archive keeps every record but deactivates the student: status INACTIVE,
+// hidden from the default students list, no new monthly fee vouchers, and no
+// mobile app login. Restore makes them active again.
+export async function PATCH(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const session = await getServerSession(authOptions);
+    const { id } = await params;
+    if (!session) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    if (!hasPermission(session.user.role, Permission.UPDATE_STUDENT)) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
+    const { action, reason } = await request.json();
+    if (action !== "archive" && action !== "restore") {
+      return NextResponse.json({ error: 'action must be "archive" or "restore"' }, { status: 400 });
+    }
+
+    const existing = await prisma.student.findUnique({ where: { id }, select: { id: true, status: true } });
+    if (!existing) return NextResponse.json({ error: "Student not found" }, { status: 404 });
+
+    const archive = action === "archive";
+    const student = await prisma.student.update({
+      where: { id },
+      data: archive
+        ? {
+            status: "INACTIVE",
+            isActive: false,
+            statusReason: (reason && String(reason).trim()) || "Archived",
+            statusDate: new Date(),
+            updatedById: session.user.id,
+          }
+        : {
+            status: "ACTIVE",
+            isActive: true,
+            statusReason: null,
+            statusDate: new Date(),
+            updatedById: session.user.id,
+          },
+      include: { class: true, section: true, academicYear: true },
+    });
+
+    await logUpdate(
+      "STUDENT",
+      id,
+      { status: existing.status },
+      { status: student.status, action, reason: reason || null },
+      session.user.id
+    );
+
+    // Mobile app: reflect status and allow / block login (fire-and-forget)
+    upsertStudentInFirebase(student).catch((err) =>
+      console.error("Firebase student sync failed (non-critical):", err)
+    );
+    setStudentMobileAccess(id, !archive).catch((err) =>
+      console.error("Firebase mobile access update failed (non-critical):", err)
+    );
+
+    return NextResponse.json({
+      message: archive ? "Student archived" : "Student restored",
+      student,
+    });
+  } catch (error) {
+    console.error("Student PATCH Error:", error);
+    return NextResponse.json({ error: "Failed to update student" }, { status: 500 });
+  }
+}
+
+// What a permanent delete removes, per table
+async function deletionCounts(id: string) {
+  const [feeVouchers, payments, attendance, marks, complaints, messages, subjects, promotions] =
+    await Promise.all([
+      prisma.feeVoucher.count({ where: { studentId: id } }),
+      prisma.payment.count({ where: { studentId: id } }),
+      prisma.attendance.count({ where: { studentId: id } }),
+      prisma.studentMark.count({ where: { studentId: id } }),
+      prisma.complaint.count({ where: { studentId: id } }),
+      prisma.message.count({ where: { studentId: id } }),
+      prisma.studentSubject.count({ where: { studentId: id } }),
+      prisma.promotionHistory.count({ where: { studentId: id } }),
+    ]);
+  return { feeVouchers, payments, attendance, marks, complaints, messages, subjects, promotions };
+}
+
+// DELETE - Permanently delete a student and everything linked to them.
+//   ?preview=1            → only returns what would be deleted
+//   ?confirm=<regNo>      → required to actually delete (guards against accidental calls)
 export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -239,26 +404,71 @@ export async function DELETE(
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    // Soft delete by changing status
-    const student = await prisma.student.update({
+    const student = await prisma.student.findUnique({
       where: { id },
-      data: { status: "INACTIVE" },
+      select: { id: true, registrationNo: true, firstName: true, lastName: true, parentId: true },
     });
+    if (!student) return NextResponse.json({ error: "Student not found" }, { status: 404 });
 
-    // Log the transaction
+    const searchParams = request.nextUrl.searchParams;
+    const counts = await deletionCounts(id);
+    const familyOthers = student.parentId
+      ? await prisma.student.count({ where: { parentId: student.parentId, id: { not: id } } })
+      : 0;
+
+    if (searchParams.get("preview") === "1") {
+      return NextResponse.json({
+        student,
+        counts,
+        removesFamilyRecord: !!student.parentId && familyOthers === 0,
+      });
+    }
+
+    if (searchParams.get("confirm") !== student.registrationNo) {
+      return NextResponse.json(
+        { error: "Type the student's registration number to confirm the permanent delete" },
+        { status: 400 }
+      );
+    }
+
+    await prisma.$transaction(
+      async (tx) => {
+        // Fees: payments first (they point at vouchers), then vouchers (items cascade)
+        await tx.payment.deleteMany({ where: { studentId: id } });
+        await tx.feeVoucher.updateMany({ where: { studentId: id }, data: { previousVoucherId: null } });
+        await tx.feeVoucher.deleteMany({ where: { studentId: id } });
+        await tx.attendance.deleteMany({ where: { studentId: id } });
+        await tx.studentMark.deleteMany({ where: { studentId: id } });
+        await tx.complaint.deleteMany({ where: { studentId: id } });
+        await tx.message.deleteMany({ where: { studentId: id } });
+        // Subject enrolments and promotion history are removed with the student (cascade)
+        await tx.student.delete({ where: { id } });
+        // Family record with no students left
+        if (student.parentId && familyOthers === 0) {
+          await tx.parent.delete({ where: { id: student.parentId } });
+        }
+      },
+      { timeout: 30000 }
+    );
+
     await logDelete(
       "STUDENT",
       id,
-      { registrationNo: student.registrationNo },
+      {
+        registrationNo: student.registrationNo,
+        name: `${student.firstName} ${student.lastName}`.trim(),
+        permanent: true,
+        removed: counts,
+      },
       session.user.id
     );
 
-    // Reflect deactivation in Firebase (fire-and-forget)
-    upsertStudentInFirebase(student).catch((err) =>
-      console.error("Firebase student deactivate failed (non-critical):", err)
+    // Remove from the mobile app too (fire-and-forget)
+    deleteStudentFromFirebase(id).catch((err) =>
+      console.error("Firebase student delete failed (non-critical):", err)
     );
 
-    return NextResponse.json({ message: "Student deleted successfully" });
+    return NextResponse.json({ message: "Student permanently deleted", removed: counts });
   } catch (error) {
     console.error("Student DELETE Error:", error);
     return NextResponse.json(

@@ -1599,14 +1599,19 @@ export default function SettingsPage() {
                 title="Academic Sessions"
                 subheader="Manage academic years and set the active session"
                 action={
-                  <Button
-                    variant="contained"
-                    startIcon={<AddIcon />}
-                    onClick={() => handleOpenAcademicYearDialog()}
-                    size="small"
-                  >
-                    Add Session
-                  </Button>
+                  <Box sx={{ display: "flex", gap: 1 }}>
+                    <Button variant="outlined" size="small" href="/sessions">
+                      Open Sessions page
+                    </Button>
+                    <Button
+                      variant="contained"
+                      startIcon={<AddIcon />}
+                      onClick={() => handleOpenAcademicYearDialog()}
+                      size="small"
+                    >
+                      Add Session
+                    </Button>
+                  </Box>
                 }
               />
               <CardContent>

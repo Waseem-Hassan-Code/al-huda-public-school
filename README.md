@@ -270,3 +270,16 @@ This project is licensed under the MIT License.
 ## Support
 
 For support, email support@alhudapublicschool.edu.pk or create an issue in the repository.
+
+## Database migrations
+
+Migrations are created and applied automatically:
+
+- `npm run dev` applies pending migrations, then compares `prisma/schema.prisma` with the database. If you changed the schema, it writes a new migration (`prisma/migrations/<timestamp>_auto_<tables>`) and applies it. Commit that folder.
+- Changes that can lose data (dropping a table or column, changing a column type, making a column required, adding a unique constraint) are shown first and only applied if you type `yes`.
+- `npm start` and IIS (`web.config` -> `scripts/start.mjs`) only apply migrations committed from development. They never create new ones. If a migration fails, the app does not start; check the logs.
+- `npm run db:deploy` applies pending migrations without starting the app.
+
+Renaming a field or model looks like "drop + add" to Prisma, which deletes that column's data. To keep the data, create that one migration by hand: `npm run db:migrate -- --create-only --name rename_x`, change the SQL to `ALTER TABLE ... RENAME COLUMN ...`, then start the app.
+
+Don't use `prisma db push`. It changes the database without creating a migration, so production would never receive the change.

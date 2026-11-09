@@ -29,6 +29,8 @@ import {
   Edit as EditIcon,
   Delete as DeleteIcon,
   Visibility as ViewIcon,
+  Archive as ArchiveIcon,
+  Unarchive as UnarchiveIcon,
   FilterList as FilterIcon,
   Download as DownloadIcon,
 } from "@mui/icons-material";
@@ -39,6 +41,8 @@ import { formatDate, getInitials, debounce, formatName } from "@/lib/utils";
 import { toast } from "sonner";
 import { usePermissions } from "@/hooks/usePermissions";
 import { Permission } from "@/lib/permissions";
+import { useAcademicSession } from "@/components/providers/AcademicSessionProvider";
+import StudentLifecycleDialog, { LifecycleMode } from "@/components/students/StudentLifecycleDialog";
 
 interface Student {
   id: string;
@@ -57,6 +61,7 @@ interface Student {
   guardianName: string;
   guardianRelation: string;
   guardianPhone: string;
+  address?: string;
   createdAt: string;
   feeVouchers?: Array<{
     month: number;
@@ -64,6 +69,20 @@ interface Student {
     balanceDue: number;
     status: string;
   }>;
+}
+
+// Key details that may have been skipped at admission (all fields are optional)
+function missingDetails(s: Student): string[] {
+  const missing: string[] = [];
+  if (!s.lastName) missing.push("Last name");
+  if (!s.dateOfBirth) missing.push("Date of birth");
+  if (!s.gender) missing.push("Gender");
+  if (!s.class) missing.push("Class");
+  if (!s.section) missing.push("Section");
+  if (!s.address) missing.push("Address");
+  if (!s.guardianName) missing.push("Guardian name");
+  if (!s.guardianPhone) missing.push("Guardian phone");
+  return missing;
 }
 
 interface ClassOption {
@@ -85,9 +104,12 @@ export default function StudentsPage() {
   const [classFilter, setClassFilter] = useState("");
   const [sectionFilter, setSectionFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
+  const [incompleteFilter, setIncompleteFilter] = useState(false);
+  const { selectedSession } = useAcademicSession();
+  const sessionId = selectedSession?.id ?? "";
   const [classes, setClasses] = useState<ClassOption[]>([]);
-  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-  const [studentToDelete, setStudentToDelete] = useState<Student | null>(null);
+  // Archive / restore / permanent delete
+  const [lifecycle, setLifecycle] = useState<{ mode: LifecycleMode; student: Student } | null>(null);
 
   // Permission checks
   const canCreateStudent = can(Permission.CREATE_STUDENT);
@@ -132,6 +154,8 @@ export default function StudentsPage() {
       if (classFilter) params.append("classId", classFilter);
       if (sectionFilter) params.append("sectionId", sectionFilter);
       if (statusFilter) params.append("status", statusFilter);
+      if (sessionId) params.append("academicYearId", sessionId);
+      if (incompleteFilter) params.append("incomplete", "1");
 
       const response = await fetch(`/api/students?${params.toString()}`);
       if (response.ok) {
@@ -145,7 +169,7 @@ export default function StudentsPage() {
     } finally {
       setLoading(false);
     }
-  }, [page, limit, search, classFilter, sectionFilter, statusFilter]);
+  }, [page, limit, search, classFilter, sectionFilter, statusFilter, sessionId, incompleteFilter]);
 
   useEffect(() => {
     if (status === "authenticated") {
@@ -162,27 +186,6 @@ export default function StudentsPage() {
     []
   );
 
-  const handleDelete = async () => {
-    if (!studentToDelete) return;
-
-    try {
-      const response = await fetch(`/api/students/${studentToDelete.id}`, {
-        method: "DELETE",
-      });
-
-      if (response.ok) {
-        toast.success("Student deleted successfully");
-        fetchStudents();
-      } else {
-        toast.error("Failed to delete student");
-      }
-    } catch (error) {
-      toast.error("An error occurred");
-    } finally {
-      setDeleteDialogOpen(false);
-      setStudentToDelete(null);
-    }
-  };
 
   // Check if student is a defaulter (has unpaid fees older than 2 months)
   const isDefaulter = (student: Student): boolean => {
@@ -231,6 +234,21 @@ export default function StudentsPage() {
               <Typography variant="body2" fontWeight="600">
                 {formatName(row.firstName, row.lastName)}
               </Typography>
+              {missingDetails(row).length > 0 && (
+                <Tooltip title={`Missing: ${missingDetails(row).join(", ")}`}>
+                  <Chip
+                    label="Incomplete"
+                    size="small"
+                    color="warning"
+                    variant="outlined"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      router.push(`/students/${row.id}/edit`);
+                    }}
+                    sx={{ height: "20px", fontSize: "0.65rem", fontWeight: "bold" }}
+                  />
+                </Tooltip>
+              )}
               {isDefaulter(row) && (
                 <Chip
                   label="Defaulter"
@@ -321,15 +339,34 @@ export default function StudentsPage() {
               </IconButton>
             </Tooltip>
           )}
+          {canUpdateStudent &&
+            (row.status === "INACTIVE" ? (
+              <Tooltip title="Restore (make active)">
+                <IconButton
+                  size="small"
+                  color="success"
+                  onClick={() => setLifecycle({ mode: "restore", student: row })}
+                >
+                  <UnarchiveIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            ) : (
+              <Tooltip title="Archive (deactivate, keep records)">
+                <IconButton
+                  size="small"
+                  color="warning"
+                  onClick={() => setLifecycle({ mode: "archive", student: row })}
+                >
+                  <ArchiveIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            ))}
           {canDeleteStudent && (
-            <Tooltip title="Delete">
+            <Tooltip title="Delete permanently">
               <IconButton
                 size="small"
                 color="error"
-                onClick={() => {
-                  setStudentToDelete(row);
-                  setDeleteDialogOpen(true);
-                }}
+                onClick={() => setLifecycle({ mode: "delete", student: row })}
               >
                 <DeleteIcon fontSize="small" />
               </IconButton>
@@ -360,7 +397,9 @@ export default function StudentsPage() {
               Students
             </Typography>
             <Typography variant="body2" color="text.secondary">
-              Manage student records and admissions
+              {selectedSession
+                ? `Students enrolled in session ${selectedSession.name}`
+                : "Manage student records and admissions"}
             </Typography>
           </Box>
           <Box sx={{ display: "flex", gap: 1 }}>
@@ -459,19 +498,34 @@ export default function StudentsPage() {
               >
                 <MenuItem value="">All Status</MenuItem>
                 <MenuItem value="ACTIVE">Active</MenuItem>
-                <MenuItem value="INACTIVE">Inactive</MenuItem>
+                <MenuItem value="ARCHIVED">Archived (inactive)</MenuItem>
                 <MenuItem value="GRADUATED">Graduated</MenuItem>
                 <MenuItem value="TRANSFERRED">Transferred</MenuItem>
                 <MenuItem value="EXPELLED">Expelled</MenuItem>
               </Select>
             </FormControl>
-            {(classFilter || sectionFilter || statusFilter) && (
+            <FormControl size="small" sx={{ minWidth: 150 }}>
+              <InputLabel>Profile</InputLabel>
+              <Select
+                value={incompleteFilter ? "incomplete" : ""}
+                label="Profile"
+                onChange={(e) => {
+                  setIncompleteFilter(e.target.value === "incomplete");
+                  setPage(1);
+                }}
+              >
+                <MenuItem value="">All profiles</MenuItem>
+                <MenuItem value="incomplete">Incomplete only</MenuItem>
+              </Select>
+            </FormControl>
+            {(classFilter || sectionFilter || statusFilter || incompleteFilter) && (
               <Button
                 size="small"
                 onClick={() => {
                   setClassFilter("");
                   setSectionFilter("");
                   setStatusFilter("");
+                  setIncompleteFilter(false);
                   setPage(1);
                 }}
               >
@@ -496,29 +550,18 @@ export default function StudentsPage() {
           }}
         />
 
-        {/* Delete Confirmation Dialog */}
-        <Dialog
-          open={deleteDialogOpen}
-          onClose={() => setDeleteDialogOpen(false)}
-        >
-          <DialogTitle>Confirm Delete</DialogTitle>
-          <DialogContent>
-            Are you sure you want to delete student{" "}
-            <strong>
-              {formatName(
-                studentToDelete?.firstName,
-                studentToDelete?.lastName
-              )}
-            </strong>
-            ? This action cannot be undone.
-          </DialogContent>
-          <DialogActions>
-            <Button onClick={() => setDeleteDialogOpen(false)}>Cancel</Button>
-            <Button onClick={handleDelete} color="error" variant="contained">
-              Delete
-            </Button>
-          </DialogActions>
-        </Dialog>
+        {/* Archive / restore / permanent delete */}
+        <StudentLifecycleDialog
+          open={!!lifecycle}
+          mode={lifecycle?.mode ?? "archive"}
+          student={lifecycle?.student ?? null}
+          onClose={() => setLifecycle(null)}
+          onModeChange={(mode) => setLifecycle((l) => (l ? { ...l, mode } : l))}
+          onDone={() => {
+            setLifecycle(null);
+            fetchStudents();
+          }}
+        />
       </Box>
     </MainLayout>
   );

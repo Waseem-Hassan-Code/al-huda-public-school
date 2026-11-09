@@ -43,6 +43,7 @@ import {
   debounce,
   getMonthName,
 } from "@/lib/utils";
+import ReceivePaymentDialog from "@/components/dialogs/ReceivePaymentDialog";
 import { toast } from "sonner";
 
 interface FeeVoucher {
@@ -515,92 +516,17 @@ export default function FeesPage() {
           }}
         />
 
-        {/* Payment Dialog */}
-        <Dialog
+        {/* Payment Dialog: oldest dues first, opening balance included */}
+        <ReceivePaymentDialog
           open={paymentDialogOpen}
-          onClose={() => setPaymentDialogOpen(false)}
-          maxWidth="sm"
-          fullWidth
-        >
-          <DialogTitle>Collect Payment</DialogTitle>
-          <DialogContent>
-            {selectedVoucher && (
-              <Box sx={{ pt: 1 }}>
-                <Typography variant="subtitle2" gutterBottom>
-                  {selectedVoucher.student.firstName}{" "}
-                  {selectedVoucher.student.lastName} (
-                  {selectedVoucher.student.registrationNo})
-                </Typography>
-                <Typography variant="body2" color="text.secondary" gutterBottom>
-                  Voucher: {selectedVoucher.voucherNumber} •{" "}
-                  {getMonthName(selectedVoucher.month - 1)}{" "}
-                  {selectedVoucher.year}
-                </Typography>
-                <Box sx={{ display: "flex", gap: 2, my: 2 }}>
-                  <Paper sx={{ p: 2, flex: 1, bgcolor: "grey.100" }}>
-                    <Typography variant="caption">Total Amount</Typography>
-                    <Typography variant="h6">
-                      {formatCurrency(selectedVoucher.totalAmount)}
-                    </Typography>
-                  </Paper>
-                  <Paper sx={{ p: 2, flex: 1, bgcolor: "success.light" }}>
-                    <Typography variant="caption">Paid</Typography>
-                    <Typography variant="h6">
-                      {formatCurrency(selectedVoucher.paidAmount)}
-                    </Typography>
-                  </Paper>
-                  <Paper sx={{ p: 2, flex: 1, bgcolor: "error.light" }}>
-                    <Typography variant="caption">Balance</Typography>
-                    <Typography variant="h6">
-                      {formatCurrency(selectedVoucher.balanceDue)}
-                    </Typography>
-                  </Paper>
-                </Box>
-                <Grid container spacing={2}>
-                  <Grid size={{ xs: 6 }}>
-                    <TextField
-                      label="Payment Amount"
-                      type="number"
-                      fullWidth
-                      value={paymentAmount}
-                      onChange={(e) => setPaymentAmount(e.target.value)}
-                      InputProps={{
-                        startAdornment: (
-                          <InputAdornment position="start">Rs</InputAdornment>
-                        ),
-                      }}
-                    />
-                  </Grid>
-                  <Grid size={{ xs: 6 }}>
-                    <FormControl fullWidth>
-                      <InputLabel>Payment Method</InputLabel>
-                      <Select
-                        value={paymentMethod}
-                        label="Payment Method"
-                        onChange={(e) => setPaymentMethod(e.target.value)}
-                      >
-                        <MenuItem value="CASH">Cash</MenuItem>
-                        <MenuItem value="BANK_TRANSFER">Bank Transfer</MenuItem>
-                        <MenuItem value="CHEQUE">Cheque</MenuItem>
-                        <MenuItem value="ONLINE">Online</MenuItem>
-                      </Select>
-                    </FormControl>
-                  </Grid>
-                </Grid>
-              </Box>
-            )}
-          </DialogContent>
-          <DialogActions>
-            <Button onClick={() => setPaymentDialogOpen(false)}>Cancel</Button>
-            <Button
-              variant="contained"
-              onClick={handlePayment}
-              disabled={paymentProcessing || !paymentAmount}
-            >
-              {paymentProcessing ? "Processing..." : "Record Payment"}
-            </Button>
-          </DialogActions>
-        </Dialog>
+          studentId={selectedVoucher?.student.id ?? null}
+          focusVoucherId={selectedVoucher?.id}
+          onClose={() => {
+            setPaymentDialogOpen(false);
+            setSelectedVoucher(null);
+          }}
+          onSuccess={() => fetchVouchers()}
+        />
 
         {/* Generate Vouchers Dialog */}
         <Dialog
