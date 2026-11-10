@@ -245,7 +245,9 @@ export default function EditStudentPage({
         router.push(`/students/${id}`);
       } else {
         const data = await res.json();
-        toast.error(data.error || "Failed to update student");
+        toast.error(data.error || "Failed to update student", {
+          description: data.details,
+        });
       }
     } catch (error) {
       toast.error("An error occurred");
@@ -371,6 +373,7 @@ export default function EditStudentPage({
                         handleInputChange("gender", e.target.value)
                       }
                     >
+                      <MenuItem value="">Not set</MenuItem>
                       <MenuItem value="MALE">Male</MenuItem>
                       <MenuItem value="FEMALE">Female</MenuItem>
                       <MenuItem value="OTHER">Other</MenuItem>
@@ -398,11 +401,11 @@ export default function EditStudentPage({
                         handleInputChange("religion", e.target.value)
                       }
                     >
-                      <MenuItem value="Islam">Islam</MenuItem>
-                      <MenuItem value="Christianity">Christianity</MenuItem>
-                      <MenuItem value="Hinduism">Hinduism</MenuItem>
-                      <MenuItem value="Sikhism">Sikhism</MenuItem>
-                      <MenuItem value="Other">Other</MenuItem>
+                      <MenuItem value="ISLAM">Islam</MenuItem>
+                      <MenuItem value="CHRISTIANITY">Christianity</MenuItem>
+                      <MenuItem value="HINDUISM">Hinduism</MenuItem>
+                      <MenuItem value="SIKHISM">Sikhism</MenuItem>
+                      <MenuItem value="OTHER">Other</MenuItem>
                     </Select>
                   </FormControl>
                 </Grid>
@@ -426,14 +429,14 @@ export default function EditStudentPage({
                         handleInputChange("bloodGroup", e.target.value)
                       }
                     >
-                      <MenuItem value="A+">A+</MenuItem>
-                      <MenuItem value="A-">A-</MenuItem>
-                      <MenuItem value="B+">B+</MenuItem>
-                      <MenuItem value="B-">B-</MenuItem>
-                      <MenuItem value="AB+">AB+</MenuItem>
-                      <MenuItem value="AB-">AB-</MenuItem>
-                      <MenuItem value="O+">O+</MenuItem>
-                      <MenuItem value="O-">O-</MenuItem>
+                      <MenuItem value="A_POSITIVE">A+</MenuItem>
+                      <MenuItem value="A_NEGATIVE">A-</MenuItem>
+                      <MenuItem value="B_POSITIVE">B+</MenuItem>
+                      <MenuItem value="B_NEGATIVE">B-</MenuItem>
+                      <MenuItem value="AB_POSITIVE">AB+</MenuItem>
+                      <MenuItem value="AB_NEGATIVE">AB-</MenuItem>
+                      <MenuItem value="O_POSITIVE">O+</MenuItem>
+                      <MenuItem value="O_NEGATIVE">O-</MenuItem>
                     </Select>
                   </FormControl>
                 </Grid>

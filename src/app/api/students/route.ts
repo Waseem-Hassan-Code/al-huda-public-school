@@ -143,6 +143,8 @@ export async function GET(request: NextRequest) {
               year: true,
               balanceDue: true,
               status: true,
+              dueDate: true,
+              isOpeningBalance: true,
             },
           },
         },

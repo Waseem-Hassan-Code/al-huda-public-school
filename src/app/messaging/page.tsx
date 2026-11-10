@@ -60,6 +60,8 @@ import {
 } from "@mui/icons-material";
 import MainLayout from "@/components/layout/MainLayout";
 import { toast } from "sonner";
+import SmsSetupGuide, { SmsPhoneStatus } from "@/components/messaging/SmsSetupGuide";
+import { fifoCompare, isOutstanding, rs, round2, shortPeriodLabel } from "@/lib/fee-utils";
 
 interface Student {
   id: string;
@@ -73,7 +75,45 @@ interface Student {
   guardianPhone: string;
   guardianWhatsapp?: string;
   photo?: string;
+  monthlyFee?: number;
+  // Unpaid / partly paid vouchers (from the students list API)
+  feeVouchers?: {
+    month: number;
+    year: number;
+    balanceDue: number;
+    status: string;
+    dueDate?: string;
+    isOpeningBalance?: boolean;
+  }[];
 }
+
+// What a student owes, for the fee placeholders in messages
+function feeInfo(student: Student) {
+  const due = (student.feeVouchers ?? [])
+    .filter((v) => isOutstanding(v.status) && v.balanceDue > 0)
+    .sort(fifoCompare);
+  const total = round2(due.reduce((sum, v) => sum + v.balanceDue, 0));
+  const latestDue = due
+    .filter((v) => !v.isOpeningBalance && !(v.month === 0 && v.year === 0) && v.dueDate)
+    .map((v) => new Date(v.dueDate as string))
+    .sort((a, b) => b.getTime() - a.getTime())[0];
+  return {
+    total,
+    totalText: rs(total),
+    // e.g. "Opening balance Rs. 5,000, Oct 2026 Rs. 3,500" (short, to keep SMS compact)
+    monthsText: due.length
+      ? due
+          .map((v) => `${v.isOpeningBalance || (v.month === 0 && v.year === 0) ? "Opening balance" : shortPeriodLabel(v)} ${rs(v.balanceDue)}`)
+          .join(", ")
+      : "no dues",
+    dueDateText: (latestDue ?? new Date()).toLocaleDateString("en-PK", { day: "numeric", month: "short", year: "numeric" }),
+    monthlyFeeText: rs(student.monthlyFee ?? 0),
+  };
+}
+
+// Placeholders that need fee data; messages using them skip students with nothing due
+const FEE_PLACEHOLDERS = ["{totalDue}", "{dueMonths}", "{dueDate}"];
+const usesFeeDetails = (text: string) => FEE_PLACEHOLDERS.some((p) => text.includes(p));
 
 interface ClassOption {
   id: string;
@@ -139,7 +179,7 @@ const MESSAGE_TEMPLATES = [
   {
     id: "fee_reminder",
     title: "Fee Reminder",
-    message: "Dear {guardianName}, this is a reminder that {studentName}'s ({className}) monthly fee is due. Please pay at your earliest convenience. - Al-Huda Public School",
+    message: "Dear {guardianName}, fee reminder for {studentName} ({className}). Outstanding: {totalDue} ({dueMonths}). Due date: {dueDate}. Please pay at the school office. - Al-Huda Public School",
   },
   {
     id: "absent_notice",
@@ -194,6 +234,25 @@ export default function MessagingPage() {
   const [selectedTemplate, setSelectedTemplate] = useState("");
   const [tabValue, setTabValue] = useState(0);
   const [selectAll, setSelectAll] = useState(false);
+
+  // SMS phone (USB + ADB) status
+  const [phoneStatus, setPhoneStatus] = useState<SmsPhoneStatus | null>(null);
+  const [enablingSms, setEnablingSms] = useState(false);
+  const [checkingPhone, setCheckingPhone] = useState(false);
+  const checkPhone = async () => {
+    setCheckingPhone(true);
+    try {
+      const res = await fetch("/api/sms/status");
+      setPhoneStatus(res.ok ? await res.json() : null);
+    } catch {
+      setPhoneStatus(null);
+    } finally {
+      setCheckingPhone(false);
+    }
+  };
+  useEffect(() => {
+    if (messageType === "sms") void checkPhone();
+  }, [messageType]);
   
   // Message history state
   const [messageHistory, setMessageHistory] = useState<MessageHistory[]>([]);
@@ -352,19 +411,7 @@ export default function MessagingPage() {
     // If only one student is selected, populate with their data
     if (selectedStudents.length === 1) {
       const student = selectedStudents[0];
-      const today = new Date().toLocaleDateString("en-PK", {
-        day: "numeric",
-        month: "short",
-        year: "numeric",
-      });
-      
-      let populatedMessage = template.message
-        .replace("{guardianName}", student.guardianName)
-        .replace("{studentName}", `${student.firstName} ${student.lastName}`)
-        .replace("{className}", `${student.class?.name || ""} ${student.section?.name || ""}`.trim())
-        .replace("{date}", today);
-      
-      setMessage(populatedMessage);
+      setMessage(personalizeMessage(student, template.message));
     } else {
       // For multiple students, show template with placeholders
       setMessage(template.message);
@@ -379,11 +426,16 @@ export default function MessagingPage() {
       year: "numeric",
     });
     
+    const fee = feeInfo(student);
     return baseMessage
       .replace(/{guardianName}/g, student.guardianName)
       .replace(/{studentName}/g, `${student.firstName} ${student.lastName}`)
       .replace(/{className}/g, `${student.class?.name || ""} ${student.section?.name || ""}`.trim())
-      .replace(/{date}/g, today);
+      .replace(/{date}/g, today)
+      .replace(/{totalDue}/g, fee.totalText)
+      .replace(/{dueMonths}/g, fee.monthsText)
+      .replace(/{dueDate}/g, fee.dueDateText)
+      .replace(/{monthlyFee}/g, fee.monthlyFeeText);
   };
 
   const handleSendMessage = async () => {
@@ -405,8 +457,25 @@ export default function MessagingPage() {
     }
 
     if (messageType === "sms" && !settings?.smsEnabled) {
-      toast.error("SMS is not configured. Please configure it in settings.");
-      setSettingsDialogOpen(true);
+      toast.error('SMS is turned off. Use "Turn on SMS" in the SMS setup steps.');
+      return;
+    }
+
+    // Fee reminders only go to students who actually owe something
+    let targets = selectedStudents;
+    if (usesFeeDetails(message)) {
+      targets = selectedStudents.filter((st) => feeInfo(st).total > 0);
+      if (targets.length === 0) {
+        toast.error("None of the selected students have unpaid fees");
+        return;
+      }
+      if (targets.length < selectedStudents.length) {
+        toast.info(`${selectedStudents.length - targets.length} student(s) with no dues were skipped`);
+      }
+    }
+
+    if (messageType === "sms" && phoneStatus?.connected && !phoneStatus.supportsSilent && targets.length > 1) {
+      toast.error("This phone needs someone to tap Send for every SMS. Select one parent at a time, or use WhatsApp for bulk messages.");
       return;
     }
 
@@ -414,7 +483,7 @@ export default function MessagingPage() {
 
     try {
       // Prepare recipients with personalized messages
-      const recipients = selectedStudents.map((student) => ({
+      const recipients = targets.map((student) => ({
         studentId: student.id,
         guardianName: student.guardianName,
         guardianPhone: student.guardianPhone,
@@ -442,11 +511,35 @@ export default function MessagingPage() {
         fetchMessageHistory(); // Refresh history
       } else {
         toast.error(data.error || "Failed to send messages");
+        if (data.phoneStatus) setPhoneStatus(data.phoneStatus);
       }
     } catch (error) {
       toast.error("Failed to send messages");
     } finally {
       setSending(false);
+    }
+  };
+
+  const enableSms = async () => {
+    setEnablingSms(true);
+    try {
+      const res = await fetch("/api/messaging/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...settingsForm, smsEnabled: true }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(res.status === 403 ? "Only an admin can turn on SMS" : data.error || "Could not turn on SMS");
+        return;
+      }
+      setSettingsForm((f) => ({ ...f, smsEnabled: true }));
+      setSettings((prev) => (prev ? { ...prev, smsEnabled: true } : prev));
+      toast.success("SMS turned on");
+    } catch {
+      toast.error("Could not turn on SMS");
+    } finally {
+      setEnablingSms(false);
     }
   };
 
@@ -660,6 +753,17 @@ export default function MessagingPage() {
                     </Typography>
                   }
                 />
+                <Button
+                  size="small"
+                  onClick={() => {
+                    const withDues = filteredStudents.filter((st) => feeInfo(st).total > 0);
+                    setSelectedStudents(withDues);
+                    setSelectAll(false);
+                    toast.info(`${withDues.length} student(s) with unpaid fees selected`);
+                  }}
+                >
+                  Select students with dues
+                </Button>
                 <Chip
                   size="small"
                   label={`${selectedStudents.length} selected`}
@@ -703,6 +807,8 @@ export default function MessagingPage() {
                         </Avatar>
                       </ListItemAvatar>
                       <ListItemText
+                        // The second line holds a Box (div); render it in a div, not the default <p>
+                        slotProps={{ secondary: { component: "div" } }}
                         primary={
                           <Typography variant="body2" fontWeight={500}>
                             {student.firstName} {student.lastName}
@@ -752,9 +858,8 @@ export default function MessagingPage() {
                 <Tab
                   icon={<SmsIcon />}
                   iconPosition="start"
-                  label={`SMS ${settings?.smsEnabled ? "" : "(Not configured)"}`}
+                  label={`SMS${settings?.smsEnabled ? "" : " (off)"}`}
                   sx={{ minHeight: 48 }}
-                  disabled={!settings?.smsEnabled}
                 />
               </Tabs>
 
@@ -766,9 +871,15 @@ export default function MessagingPage() {
               </TabPanel>
 
               <TabPanel value={tabValue} index={1}>
-                <Alert severity="info" sx={{ mb: 2 }}>
-                  SMS messages will be sent from {settings?.smsNumber || "configured number"}.
-                </Alert>
+                {/* Phone connected by USB sends the SMS (in-app ADB). Live setup checklist. */}
+                <SmsSetupGuide
+                  status={phoneStatus}
+                  checking={checkingPhone}
+                  onCheck={checkPhone}
+                  smsEnabled={!!settings?.smsEnabled}
+                  enabling={enablingSms}
+                  onEnable={enableSms}
+                />
               </TabPanel>
 
               {/* Selected Recipients */}
@@ -823,11 +934,11 @@ export default function MessagingPage() {
                     />
                   ))}
                 </Box>
-                {selectedStudents.length > 1 && (
-                  <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: "block" }}>
-                    Tip: Placeholders like {"{studentName}"}, {"{guardianName}"}, {"{className}"} will be replaced for each student.
-                  </Typography>
-                )}
+                <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: "block" }}>
+                  Placeholders filled in for each student: {"{studentName}"}, {"{guardianName}"}, {"{className}"}, {"{date}"}, and fee
+                  details {"{totalDue}"} (total outstanding), {"{dueMonths}"} (unpaid months with amounts), {"{dueDate}"},{" "}
+                  {"{monthlyFee}"}. Messages with fee details are only sent to students who owe something.
+                </Typography>
               </Box>
 
               {/* Message Input */}
@@ -997,29 +1108,19 @@ export default function MessagingPage() {
             SMS Settings
           </Typography>
           <Alert severity="info" sx={{ mb: 2 }}>
-            Configure your SMS gateway provider credentials here.
+            SMS is sent through an Android phone connected to this computer by USB (USB debugging on). No SMS
+            provider account is needed. The phone number below is only shown for reference.
           </Alert>
           <Grid container spacing={2}>
             <Grid size={{ xs: 12, sm: 6 }}>
               <TextField
                 fullWidth
                 size="small"
-                label="SMS Sender Number/ID"
-                placeholder="School SMS ID"
+                label="SMS phone number (optional)"
+                placeholder="03XX-XXXXXXX"
                 value={settingsForm.smsNumber}
                 onChange={(e) => setSettingsForm({ ...settingsForm, smsNumber: e.target.value })}
-                helperText="The sender ID for SMS messages"
-              />
-            </Grid>
-            <Grid size={{ xs: 12, sm: 6 }}>
-              <TextField
-                fullWidth
-                size="small"
-                label="SMS API Key"
-                type="password"
-                value={settingsForm.smsApiKey}
-                onChange={(e) => setSettingsForm({ ...settingsForm, smsApiKey: e.target.value })}
-                helperText={settings?.smsConfigured ? "API key is configured" : "From your SMS provider"}
+                helperText="The SIM number of the connected phone"
               />
             </Grid>
             <Grid size={12}>

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getPhoneStatus, sendSms } from "@/lib/sms-phone";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
@@ -117,26 +118,49 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (type === "SMS" && (!settings?.smsEnabled || !settings?.smsNumber)) {
+    if (type === "SMS" && !settings?.smsEnabled) {
       return NextResponse.json(
-        { error: "SMS is not configured. Please configure it in settings." },
+        { error: "SMS is turned off. Turn it on in Messaging settings." },
         { status: 400 }
       );
     }
 
-    // Create message records and send
-    const results = await Promise.all(
-      recipients.map(async (recipient: any) => {
+    // SMS goes through the USB-connected phone: check it before creating records
+    if (type === "SMS") {
+      const phoneStatus = await getPhoneStatus();
+      if (!phoneStatus.connected) {
+        return NextResponse.json(
+          { error: phoneStatus.problem || "SMS phone is not connected", phoneStatus },
+          { status: 503 }
+        );
+      }
+      // Android 6+ can't send in the background: each SMS opens the phone's SMS
+      // app and someone taps Send, so sending to many parents at once won't work.
+      if (!phoneStatus.supportsSilent && recipients.length > 1) {
+        return NextResponse.json(
+          {
+            error: `This phone (Android ${phoneStatus.androidVersion}) needs someone to tap Send for every SMS, so bulk SMS isn't possible with it. Send to one parent at a time, or use WhatsApp for bulk messages.`,
+            phoneStatus,
+          },
+          { status: 400 }
+        );
+      }
+    }
+
+    // Create a message record for one recipient and send it
+    const sendOne = async (recipient: any) => {
         const phone =
           type === "WHATSAPP"
             ? recipient.guardianWhatsapp || recipient.guardianPhone
             : recipient.guardianPhone;
+        // The page personalises the text per parent (student name etc.)
+        const text: string = recipient.personalizedMessage || content;
 
         // Create message record
         const message = await prisma.message.create({
           data: {
             type,
-            content,
+            content: text,
             templateName,
             studentId: recipient.studentId,
             recipientName: recipient.guardianName,
@@ -151,7 +175,7 @@ export async function POST(request: NextRequest) {
           try {
             const sendResult = await sendWhatsAppMessage(
               phone,
-              content,
+              text,
               settings?.whatsappApiKey || ""
             );
 
@@ -185,19 +209,32 @@ export async function POST(request: NextRequest) {
             };
           }
         } else {
-          // SMS sending would go here
-          // For now, mark as sent (mock)
-          await prisma.message.update({
-            where: { id: message.id },
-            data: {
-              status: "SENT",
-              sentAt: new Date(),
-            },
-          });
-          return { studentId: recipient.studentId, success: true };
+          // SMS through the USB-connected Android phone
+          try {
+            if (!phone) throw new Error("No guardian phone number");
+            const sent = await sendSms(phone, text);
+            await prisma.message.update({
+              where: { id: message.id },
+              data: { status: "SENT", sentAt: new Date(), recipientPhone: sent.to },
+            });
+            return { studentId: recipient.studentId, success: true, note: sent.note, method: sent.method };
+          } catch (error: any) {
+            await prisma.message.update({
+              where: { id: message.id },
+              data: { status: "FAILED", errorMessage: error.message },
+            });
+            return { studentId: recipient.studentId, success: false, error: error.message };
+          }
         }
-      })
-    );
+    };
+
+    // WhatsApp in parallel; SMS one after another (one phone, one SMS at a time)
+    const results: any[] = [];
+    if (type === "SMS") {
+      for (const recipient of recipients) results.push(await sendOne(recipient));
+    } else {
+      results.push(...(await Promise.all(recipients.map(sendOne))));
+    }
 
     const successCount = results.filter((r) => r.success).length;
     const failCount = results.filter((r) => !r.success).length;
@@ -217,8 +254,12 @@ export async function POST(request: NextRequest) {
       },
     });
 
+    const openedOnPhone = results.some((r) => r.method === "intent");
     return NextResponse.json({
-      message: `Sent ${successCount} messages successfully. ${failCount} failed.`,
+      message:
+        type === "SMS" && openedOnPhone && failCount === 0
+          ? "SMS app opened on the phone. Tap Send on the phone to deliver it."
+          : `Sent ${successCount} messages successfully. ${failCount} failed.`,
       results,
     });
   } catch (error) {

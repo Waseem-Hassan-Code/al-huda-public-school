@@ -283,3 +283,16 @@ Migrations are created and applied automatically:
 Renaming a field or model looks like "drop + add" to Prisma, which deletes that column's data. To keep the data, create that one migration by hand: `npm run db:migrate -- --create-only --name rename_x`, change the SQL to `ALTER TABLE ... RENAME COLUMN ...`, then start the app.
 
 Don't use `prisma db push`. It changes the database without creating a migration, so production would never receive the change.
+
+## SMS (Android phone over USB)
+
+SMS is sent from inside the web app through an Android phone connected by USB. There is no separate SMS server to start (the old `sms-bridge` folder is retired).
+
+One-time setup on the computer running the app:
+
+1. Install Android Platform Tools (contains `adb`). Either add its folder to the system PATH, or set `ADB_PATH` to the full path of `adb.exe` (in `.env`, or under `<environmentVariables>` in `web.config` for IIS), for example `C:\platform-tools\adb.exe`.
+2. On the phone, turn on Developer options and USB debugging, connect it by USB, and tap **Allow** with "Always allow from this computer" ticked.
+3. Under IIS the app runs as the IIS account, so the phone asks to allow the computer once more the first time the app uses it. Allow it the same way.
+4. In Messaging, open Settings and tick **Enable SMS Messaging**.
+
+The SMS tab shows whether the phone is connected. On Android 5.1 and older, SMS is sent automatically (bulk works). On Android 6 and newer, Android doesn't allow background sending over USB: each SMS opens the phone's SMS app with the text filled in and someone taps Send, so SMS goes to one parent at a time.

@@ -88,6 +88,25 @@ export async function GET(
   }
 }
 
+// Form values → database enum values. Accepts "A+", "a_positive", "Islam", etc.
+const GENDERS = ["MALE", "FEMALE", "OTHER"];
+const RELIGIONS = ["ISLAM", "CHRISTIANITY", "HINDUISM", "SIKHISM", "OTHER"];
+const BLOOD_GROUPS: Record<string, string> = {
+  "A+": "A_POSITIVE", "A-": "A_NEGATIVE", "B+": "B_POSITIVE", "B-": "B_NEGATIVE",
+  "O+": "O_POSITIVE", "O-": "O_NEGATIVE", "AB+": "AB_POSITIVE", "AB-": "AB_NEGATIVE",
+};
+function toEnum(value: unknown, allowed: string[]): string | null | "INVALID" {
+  if (value === null || value === undefined || String(value).trim() === "") return null;
+  const v = String(value).trim().toUpperCase();
+  return allowed.includes(v) ? v : "INVALID";
+}
+function toBloodGroup(value: unknown): string | null | "INVALID" {
+  if (value === null || value === undefined || String(value).trim() === "") return null;
+  const v = String(value).trim().toUpperCase();
+  if (BLOOD_GROUPS[v]) return BLOOD_GROUPS[v];
+  return Object.values(BLOOD_GROUPS).includes(v) ? v : "INVALID";
+}
+
 // PUT - Update student
 export async function PUT(
   request: NextRequest,
@@ -150,11 +169,25 @@ export async function PUT(
     if (motherName !== undefined) updateData.motherName = motherName;
     if (dateOfBirth !== undefined)
       updateData.dateOfBirth = dateOfBirth ? new Date(dateOfBirth) : null;
-    if (gender !== undefined) updateData.gender = gender;
+    if (gender !== undefined) {
+      // Optional since admission fields became optional: "" clears it
+      const g = toEnum(gender, GENDERS);
+      if (g === "INVALID") return NextResponse.json({ error: `Invalid gender: ${gender}` }, { status: 400 });
+      updateData.gender = g;
+    }
     if (cnic !== undefined) updateData.cnic = cnic;
-    if (religion !== undefined) updateData.religion = religion;
+    if (religion !== undefined) {
+      // Religion is required in the database: an empty value leaves it unchanged
+      const r = toEnum(religion, RELIGIONS);
+      if (r === "INVALID") return NextResponse.json({ error: `Invalid religion: ${religion}` }, { status: 400 });
+      if (r) updateData.religion = r;
+    }
     if (nationality !== undefined) updateData.nationality = nationality;
-    if (bloodGroup !== undefined) updateData.bloodGroup = bloodGroup || null;
+    if (bloodGroup !== undefined) {
+      const b = toBloodGroup(bloodGroup);
+      if (b === "INVALID") return NextResponse.json({ error: `Invalid blood group: ${bloodGroup}` }, { status: 400 });
+      updateData.bloodGroup = b;
+    }
     if (address !== undefined) updateData.address = address;
     if (city !== undefined) updateData.city = city;
     if (phone !== undefined) updateData.phone = phone;
@@ -289,7 +322,10 @@ export async function PUT(
   } catch (error) {
     console.error("Student PUT Error:", error);
     return NextResponse.json(
-      { error: "Failed to update student" },
+      {
+        error: "Failed to update student",
+        details: error instanceof Error ? error.message.split("\n").filter(Boolean).slice(-1)[0] : undefined,
+      },
       { status: 500 }
     );
   }
@@ -365,7 +401,13 @@ export async function PATCH(
     });
   } catch (error) {
     console.error("Student PATCH Error:", error);
-    return NextResponse.json({ error: "Failed to update student" }, { status: 500 });
+    return NextResponse.json(
+      {
+        error: "Failed to update student",
+        details: error instanceof Error ? error.message.split("\n").filter(Boolean).slice(-1)[0] : undefined,
+      },
+      { status: 500 }
+    );
   }
 }
 
