@@ -97,6 +97,10 @@ export enum Permission {
 
   // Messaging
   SEND_MESSAGES = "messaging.send",
+
+  // Finance (school expenses, income vs expenses)
+  VIEW_FINANCE = "finance.view",
+  MANAGE_FINANCE = "finance.manage",
 }
 
 // Role-based permissions
@@ -114,6 +118,7 @@ export const rolePermissions: Record<string, Permission[]> = {
   PRINCIPAL: [
     Permission.VIEW_DASHBOARD,
     Permission.VIEW_REPORTS,
+    Permission.VIEW_FINANCE,
     Permission.VIEW_USERS,
     Permission.VIEW_STUDENTS,
     Permission.CREATE_STUDENT,
@@ -182,6 +187,8 @@ export const rolePermissions: Record<string, Permission[]> = {
   ACCOUNTANT: [
     Permission.VIEW_DASHBOARD,
     Permission.VIEW_REPORTS,
+    Permission.VIEW_FINANCE,
+    Permission.MANAGE_FINANCE,
     Permission.VIEW_STUDENTS,
     Permission.VIEW_STUDENT_FEES,
     Permission.VIEW_TEACHERS,
@@ -279,6 +286,7 @@ export function getPermissionsForRole(role: string): Permission[] {
 // Permission groups for UI display
 export const permissionGroups = {
   Dashboard: [Permission.VIEW_DASHBOARD, Permission.VIEW_REPORTS],
+  Finance: [Permission.VIEW_FINANCE, Permission.MANAGE_FINANCE],
   Users: [
     Permission.VIEW_USERS,
     Permission.CREATE_USER,

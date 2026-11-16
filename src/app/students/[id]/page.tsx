@@ -74,8 +74,9 @@ import ReceivePaymentDialog from "@/components/dialogs/ReceivePaymentDialog";
 import ResultCardsTab from "@/components/students/ResultCardsTab";
 import AttendanceCalendar from "@/components/common/AttendanceCalendar";
 import RemainingBalancePrint from "@/components/students/RemainingBalancePrint";
-import { isOutstanding, round2, voucherCharge } from "@/lib/fee-utils";
+import { isOutstanding, periodLabel, round2, voucherCharge } from "@/lib/fee-utils";
 import StudentLifecycleDialog, { LifecycleMode } from "@/components/students/StudentLifecycleDialog";
+import FeePlanDialog from "@/components/students/FeePlanDialog";
 import { usePermissions } from "@/hooks/usePermissions";
 import { Permission } from "@/lib/permissions";
 
@@ -191,12 +192,14 @@ interface StudentDetail {
   guardianMonthlyIncome?: string;
   class?: { id: string; name: string };
   section?: { id: string; name: string };
-  academicYear?: { id: string; name: string };
+  academicYear?: { id: string; name: string; startDate?: string; endDate?: string };
   admissionType: string;
   admissionDate: string;
   previousSchool?: string;
   previousClass?: string;
   monthlyFee: number;
+  feePlan?: string; // "MONTHLY" | "SESSION"
+  sessionFee?: number;
   openingBalance: number;
   status: string;
   statusReason?: string;
@@ -293,6 +296,8 @@ export default function StudentProfilePage({
   const [showPaymentDialog, setShowPaymentDialog] = useState(false);
   // Archive / restore / permanent delete
   const [lifecycleMode, setLifecycleMode] = useState<LifecycleMode | null>(null);
+  const [feePlanOpen, setFeePlanOpen] = useState(false);
+  const [creatingSessionVoucher, setCreatingSessionVoucher] = useState(false);
   const { can } = usePermissions();
   const [paymentVoucher, setPaymentVoucher] = useState<FeeVoucher | null>(null);
 
@@ -655,9 +660,8 @@ export default function StudentProfilePage({
   };
 
   const getVoucherPeriod = (v: FeeVoucher): string => {
-    if (v.isOpeningBalance || (v.month === 0 && v.year === 0)) return "Opening Balance";
-    if (v.month < 1 || v.month > 12) return `Period ${v.month}/${v.year}`;
-    return `${monthNames[v.month - 1]} ${v.year}`;
+    // Opening balance, session fee ("Session fee 2026-27") or month
+    return periodLabel(v);
   };
 
   const handleSaveOpeningBalance = async () => {
@@ -861,6 +865,12 @@ export default function StudentProfilePage({
 
     return student.feeVouchers.some((voucher) => {
       if (voucher.balanceDue <= 0) return false;
+
+      // Session fees are payable all session: overdue only after their due date
+      if (voucher.month === 13) {
+        const due = (voucher as { dueDate?: string }).dueDate;
+        return !!due && new Date(due) < today;
+      }
 
       // Create date from voucher month and year
       const voucherDate = new Date(voucher.year, voucher.month - 1, 1);
@@ -1336,6 +1346,95 @@ export default function StudentProfilePage({
                   >
                     Generate Voucher
                   </Button>
+
+                  {/* Fee plan: monthly tuition or one fee for the whole session */}
+                  {(() => {
+                    const startYear = student.academicYear?.startDate
+                      ? new Date(student.academicYear.startDate).getFullYear()
+                      : null;
+                    const sessionVoucher = student.feeVouchers?.find(
+                      (v) => v.month === 13 && v.year === startYear && v.status !== "CANCELLED"
+                    );
+                    const onSessionPlan = student.feePlan === "SESSION";
+                    return (
+                      <Box sx={{ mt: 2, pt: 2, borderTop: "1px solid rgba(255,255,255,0.3)" }}>
+                        <Typography variant="caption" sx={{ color: "rgba(255,255,255,0.75)", display: "block", mb: 0.5 }}>
+                          Fee plan
+                        </Typography>
+                        <Typography variant="body1" fontWeight={600}>
+                          {onSessionPlan
+                            ? `Per session: ${formatCurrency(student.sessionFee || 0)}`
+                            : "Monthly"}
+                        </Typography>
+                        {onSessionPlan && (
+                          <Typography variant="caption" sx={{ opacity: 0.8, display: "block" }}>
+                            {sessionVoucher
+                              ? `${student.academicYear?.name ?? "This session"}: ${
+                                  sessionVoucher.balanceDue > 0
+                                    ? `${formatCurrency(sessionVoucher.balanceDue)} still due`
+                                    : "paid in full"
+                                }`
+                              : `No session fee voucher for ${student.academicYear?.name ?? "this session"} yet`}
+                            {" · monthly tuition not charged"}
+                          </Typography>
+                        )}
+                        <Box sx={{ display: "flex", gap: 1, mt: 1, flexWrap: "wrap" }}>
+                          <Button
+                            size="small"
+                            variant="outlined"
+                            onClick={() => setFeePlanOpen(true)}
+                            sx={{ color: "white", borderColor: "rgba(255,255,255,0.6)" }}
+                          >
+                            Change fee plan
+                          </Button>
+                          {onSessionPlan && !sessionVoucher && (student.sessionFee || 0) > 0 && (
+                            <Button
+                              size="small"
+                              variant="contained"
+                              disabled={creatingSessionVoucher}
+                              onClick={async () => {
+                                setCreatingSessionVoucher(true);
+                                try {
+                                  const r = await fetch("/api/fee-vouchers/session", {
+                                    method: "POST",
+                                    headers: { "Content-Type": "application/json" },
+                                    body: JSON.stringify({ studentId: student.id, academicYearId: student.academicYear?.id }),
+                                  });
+                                  const d = await r.json();
+                                  if (!r.ok) throw new Error(d.error || "Failed");
+                                  toast.success(d.message);
+                                  fetchStudent();
+                                } catch (e) {
+                                  toast.error((e as Error).message);
+                                } finally {
+                                  setCreatingSessionVoucher(false);
+                                }
+                              }}
+                              sx={{ bgcolor: "white", color: "primary.main", "&:hover": { bgcolor: "grey.100" } }}
+                            >
+                              Create session fee voucher
+                            </Button>
+                          )}
+                        </Box>
+                        <FeePlanDialog
+                          open={feePlanOpen}
+                          student={{
+                            id: student.id,
+                            feePlan: student.feePlan,
+                            monthlyFee: student.monthlyFee,
+                            sessionFee: student.sessionFee,
+                            hasSessionVoucher: !!sessionVoucher,
+                            sessionName: student.academicYear?.name,
+                          }}
+                          onClose={() => setFeePlanOpen(false)}
+                          onSaved={() => {
+                            setFeePlanOpen(false);
+                            fetchStudent();
+                          }}
+                        />
+                      </Box>
+                    );
+                  })()}
 
                   {/* Opening balance */}
                   {(student.openingBalance > 0 ||
@@ -2526,7 +2625,7 @@ export default function StudentProfilePage({
             {selectedVoucher && (
               <Typography variant="body2" color="text.secondary">
                 {selectedVoucher.voucherNo} -{" "}
-                {monthNames[selectedVoucher.month - 1]} {selectedVoucher.year}
+                {getVoucherPeriod(selectedVoucher)}
               </Typography>
             )}
           </DialogTitle>
@@ -2782,6 +2881,7 @@ export default function StudentProfilePage({
                 registrationNo: student.registrationNo,
                 firstName: student.firstName,
                 lastName: student.lastName,
+                fatherName: student.fatherName,
                 class: student.class,
                 section: student.section,
               }}

@@ -131,6 +131,8 @@ const permissionLabels: Record<string, string> = {
   "settings.manage": "Manage Settings",
   "logs.view": "View Logs",
   "messaging.send": "Send Messages",
+  "finance.view": "View Finance (income & expenses)",
+  "finance.manage": "Record & Edit Expenses",
 };
 
 // Permission icons based on action type

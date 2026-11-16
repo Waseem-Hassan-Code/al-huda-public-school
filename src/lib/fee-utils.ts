@@ -16,6 +16,47 @@ export const MONTH_NAMES = [
   "December",
 ];
 
+// Session fee vouchers are stored as month 13 of the session's start year
+// (opening balances use month 0 / year 0). Keeps one voucher per student per session.
+export const SESSION_FEE_MONTH = 13;
+
+type PeriodLike = { month: number; year: number; isOpeningBalance?: boolean; isSessionFee?: boolean };
+
+export function isSessionFeeVoucher(v: PeriodLike): boolean {
+  return !!v.isSessionFee || v.month === SESSION_FEE_MONTH;
+}
+
+/** "2026-27" for a session starting in 2026 */
+export function sessionYearsLabel(startYear: number): string {
+  return `${startYear}-${String(startYear + 1).slice(-2)}`;
+}
+
+/**
+ * Due date wording: session fees are payable any time during the session,
+ * so they read "Due up to Mar 2027"; other vouchers show the date.
+ */
+export function dueLabel(v: PeriodLike & { dueDate: string | Date }): string {
+  const d = new Date(v.dueDate);
+  if (isSessionFeeVoucher(v)) {
+    return `Due up to ${d.toLocaleDateString("en-PK", { month: "short", year: "numeric" })}`;
+  }
+  return d.toLocaleDateString("en-PK", { day: "2-digit", month: "short", year: "numeric" });
+}
+
+/** "Nov 2026" */
+export function monthYearLabel(d: Date | string): string {
+  return new Date(d).toLocaleDateString("en-PK", { month: "short", year: "numeric" });
+}
+
+/**
+ * Period wording for printed slips/receipts: the opening balance is printed as
+ * "Previous dues" (parents don't know the term "opening balance").
+ */
+export function printPeriodLabel(v: PeriodLike): string {
+  if (v.isOpeningBalance || (v.month === 0 && v.year === 0)) return "Previous dues";
+  return periodLabel(v);
+}
+
 // Voucher statuses that still have money owed on them
 export const OUTSTANDING_STATUSES = ["UNPAID", "PARTIAL", "OVERDUE"] as const;
 
@@ -24,15 +65,17 @@ export function isOutstanding(status: string): boolean {
 }
 
 /** Human label for a voucher's period, e.g. "March 2026" or "Opening Balance". */
-export function periodLabel(v: { month: number; year: number; isOpeningBalance?: boolean }): string {
+export function periodLabel(v: PeriodLike): string {
   if (v.isOpeningBalance || (v.month === 0 && v.year === 0)) return "Opening Balance";
+  if (isSessionFeeVoucher(v)) return `Session fee ${sessionYearsLabel(v.year)}`;
   if (v.month < 1 || v.month > 12) return `Period ${v.month}/${v.year}`;
   return `${MONTH_NAMES[v.month - 1]} ${v.year}`;
 }
 
 /** Short label, e.g. "Mar 2026" or "Opening". */
-export function shortPeriodLabel(v: { month: number; year: number; isOpeningBalance?: boolean }): string {
+export function shortPeriodLabel(v: PeriodLike): string {
   if (v.isOpeningBalance || (v.month === 0 && v.year === 0)) return "Opening";
+  if (isSessionFeeVoucher(v)) return `Session ${sessionYearsLabel(v.year)}`;
   if (v.month < 1 || v.month > 12) return `${v.month}/${v.year}`;
   return `${MONTH_NAMES[v.month - 1].slice(0, 3)} ${v.year}`;
 }

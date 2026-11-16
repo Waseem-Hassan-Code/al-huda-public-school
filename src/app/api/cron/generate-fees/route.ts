@@ -86,24 +86,28 @@ export async function POST(request: NextRequest) {
           (fs) => !fs.classId || fs.classId === student.classId
         );
 
-        if (applicableFees.length === 0 && student.monthlyFee === 0) {
+        // Students on the per-session plan pay tuition through their session
+        // fee voucher, so no monthly tuition for them (other recurring fees still apply)
+        const monthlyTuition = student.feePlan === "SESSION" ? 0 : student.monthlyFee || 0;
+
+        if (applicableFees.length === 0 && monthlyTuition === 0) {
           skipped++;
           continue;
         }
 
         // Calculate total amount
-        let totalAmount = student.monthlyFee || 0;
+        let totalAmount = monthlyTuition;
         const feeItems: {
           feeType: FeeType;
           description: string;
           amount: number;
         }[] = [];
 
-        if (student.monthlyFee > 0) {
+        if (monthlyTuition > 0) {
           feeItems.push({
             feeType: FeeType.MONTHLY_FEE,
             description: `Monthly Fee - ${targetMonth}/${targetYear}`,
-            amount: student.monthlyFee,
+            amount: monthlyTuition,
           });
         }
 

@@ -75,6 +75,10 @@ export async function GET(request: NextRequest) {
     if (month === "0") {
       // Opening balances are stored as month 0 / year 0
       where.isOpeningBalance = true;
+    } else if (month === "13") {
+      // Session fee vouchers (optionally for one session start year)
+      where.isSessionFee = true;
+      if (year) where.year = parseInt(year);
     } else {
       if (month) where.month = parseInt(month);
       if (year) where.year = parseInt(year);
@@ -321,6 +325,7 @@ export async function POST(request: NextRequest) {
             where: { id: sid },
             select: {
               monthlyFee: true,
+              feePlan: true,
               classId: true,
               firstName: true,
               lastName: true,
@@ -367,6 +372,10 @@ export async function POST(request: NextRequest) {
           // Use student's monthly fee (batch generation or no custom items)
           if (!student || student.monthlyFee === 0) {
             return { studentId: sid, status: "no_fees" };
+          }
+          // Per-session plan: tuition comes from the session fee voucher instead
+          if (student.feePlan === "SESSION") {
+            return { studentId: sid, status: "session_plan" };
           }
           subtotal = student.monthlyFee;
           voucherFeeItems = [
@@ -447,9 +456,12 @@ export async function POST(request: NextRequest) {
     const created = results.filter((r) => r.status === "created").length;
     const exists = results.filter((r) => r.status === "exists").length;
     const noFees = results.filter((r) => r.status === "no_fees").length;
+    const sessionPlan = results.filter((r) => r.status === "session_plan").length;
 
     return NextResponse.json({
-      message: `Generated ${created} vouchers. ${exists} already existed. ${noFees} students have no fee structure.`,
+      message: `Generated ${created} vouchers. ${exists} already existed. ${noFees} students have no fee structure.${
+        sessionPlan ? ` ${sessionPlan} on the per-session fee plan were skipped.` : ""
+      }`,
       results,
     });
   } catch (error) {

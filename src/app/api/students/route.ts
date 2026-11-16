@@ -8,6 +8,7 @@ import { logCreate, logTransaction } from "@/lib/transaction-log";
 import { notifyStudentRegistered } from "@/lib/notifications";
 import { FeeStatus, FeeType } from "@prisma/client";
 import { upsertStudentInFirebase } from "@/lib/firebase";
+import { createSessionFeeVoucher } from "@/lib/session-fee";
 
 // A student profile counts as incomplete when any of these is missing
 const INCOMPLETE_CONDITIONS = [
@@ -221,7 +222,10 @@ export async function POST(request: NextRequest) {
       // Family linking (optional — if provided, skip auto-create)
       parentId: suppliedParentId,
       // Fee info
-      monthlyFee,
+      monthlyFee: rawMonthlyFee,
+      // "MONTHLY" (default) or "SESSION": one agreed fee for the whole session
+      feePlan: rawFeePlan,
+      sessionFee: rawSessionFee,
       fees,
       previousBalance: rawPreviousBalance,
       // Admission draft to remove once the student is created
@@ -242,6 +246,11 @@ export async function POST(request: NextRequest) {
       : "";
 
     const previousBalance = parseFloat(rawPreviousBalance || "0") || 0;
+    const feePlan = rawFeePlan === "SESSION" ? "SESSION" : "MONTHLY";
+    const sessionFee = Math.max(0, parseFloat(rawSessionFee || "0") || 0);
+    const enteredMonthlyFee = Math.max(0, parseFloat(rawMonthlyFee || "0") || 0);
+    // Session-plan students don't get monthly tuition on their vouchers
+    const monthlyFee = feePlan === "SESSION" ? 0 : enteredMonthlyFee;
 
     // Session to admit into: the one chosen on the form, or the active session
     const currentAcademicYear = requestedAcademicYearId
@@ -399,7 +408,9 @@ export async function POST(request: NextRequest) {
           guardianEmail: guardian?.email || null,
           guardianOccupation: guardian?.occupation || null,
           guardianAddress: guardian?.address || null,
-          monthlyFee: monthlyFee || 0,
+          monthlyFee: enteredMonthlyFee,
+          feePlan,
+          sessionFee,
           openingBalance: previousBalance,
           parentId: resolvedParentId,
           status: "ACTIVE",
@@ -528,7 +539,18 @@ export async function POST(request: NextRequest) {
         });
       }
 
-      return { student, admissionVoucher, openingBalanceVoucher };
+      // Per-session plan: create this session's fee voucher right away
+      let sessionFeeVoucher = null;
+      if (feePlan === "SESSION" && sessionFee > 0) {
+        sessionFeeVoucher = await createSessionFeeVoucher({
+          studentId: student.id,
+          academicYear: currentAcademicYear,
+          createdById: session.user.id,
+          tx,
+        });
+      }
+
+      return { student, admissionVoucher, openingBalanceVoucher, sessionFeeVoucher };
     });
 
     // Log the student creation
@@ -620,6 +642,7 @@ export async function POST(request: NextRequest) {
         ...result.student,
         studentId: result.student.registrationNo, // For backward compatibility
         admissionVoucher: result.admissionVoucher,
+        sessionFeeVoucherId: result.sessionFeeVoucher?.voucherId ?? null,
       },
       { status: 201 }
     );

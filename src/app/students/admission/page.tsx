@@ -12,6 +12,8 @@ import {
   StepLabel,
   StepButton,
   DialogActions,
+  ToggleButton,
+  ToggleButtonGroup,
   Button,
   TextField,
   Grid,
@@ -148,6 +150,8 @@ interface FormData {
   };
   parentId: string | null;
   monthlyFee: number;
+  feePlan: "MONTHLY" | "SESSION";
+  sessionFee: number;
   previousBalance: number;
   fees: {
     feeStructureId: string;
@@ -221,6 +225,8 @@ function createEmptyForm(): FormData {
   },
   parentId: null,
   monthlyFee: 0,
+  feePlan: "MONTHLY",
+  sessionFee: 0,
   previousBalance: 0,
   fees: [],
   };
@@ -720,7 +726,7 @@ export default function AdmissionPage() {
           id: data.id,
           registrationNo: data.studentId || data.registrationNo,
           name: `${data.firstName} ${data.lastName}`.trim(),
-          voucherId: data.admissionVoucher?.id,
+          voucherId: data.admissionVoucher?.id ?? data.sessionFeeVoucherId ?? undefined,
         });
         void loadDraftsList();
       } else {
@@ -739,7 +745,9 @@ export default function AdmissionPage() {
   const additionalFees = formData.fees
     .filter((f) => f.selected)
     .reduce((s, f) => s + f.amount - f.discount, 0);
-  const totalFees = formData.monthlyFee + additionalFees;
+  // First voucher(s): monthly tuition + extra fees, or the session fee + extra fees
+  const tuitionNow = formData.feePlan === "SESSION" ? formData.sessionFee : formData.monthlyFee;
+  const totalFees = tuitionNow + additionalFees;
 
   const allSiblings = [
     ...(parentMatch?.siblings || []),
@@ -1453,25 +1461,61 @@ export default function AdmissionPage() {
         Fee Structure
       </Typography>
 
-      {/* Monthly Tuition Fee */}
+      {/* Fee plan: monthly tuition, or one agreed fee for the whole session */}
       <Paper variant="outlined" sx={{ p: 2, mb: 3, bgcolor: "primary.50" }}>
         <Typography variant="subtitle1" fontWeight="bold" gutterBottom color="primary">
-          Monthly Tuition Fee
+          Tuition Fee Plan
         </Typography>
-        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-          Individual monthly fee for this student (leave 0 if not applicable now).
-        </Typography>
-        <TextField
-          label="Monthly Tuition Fee (Rs.)"
-          type="number"
-          value={formData.monthlyFee || ""}
-          onChange={(e) => handleInputChange("monthlyFee", Number(e.target.value))}
-          inputProps={{ min: 0 }}
-          InputProps={{
-            startAdornment: <Typography sx={{ mr: 1 }}>Rs.</Typography>,
-          }}
-          sx={{ maxWidth: 300 }}
-        />
+        <ToggleButtonGroup
+          exclusive
+          size="small"
+          color="primary"
+          value={formData.feePlan}
+          onChange={(_, v) => v && handleInputChange("feePlan", v)}
+          sx={{ mb: 2 }}
+        >
+          <ToggleButton value="MONTHLY">Monthly fee</ToggleButton>
+          <ToggleButton value="SESSION">Per session (whole year)</ToggleButton>
+        </ToggleButtonGroup>
+
+        {formData.feePlan === "MONTHLY" ? (
+          <>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+              Individual monthly fee for this student (leave 0 if not applicable now).
+            </Typography>
+            <TextField
+              label="Monthly Tuition Fee (Rs.)"
+              type="number"
+              value={formData.monthlyFee || ""}
+              onChange={(e) => handleInputChange("monthlyFee", Number(e.target.value))}
+              inputProps={{ min: 0 }}
+              InputProps={{
+                startAdornment: <Typography sx={{ mr: 1 }}>Rs.</Typography>,
+              }}
+              sx={{ maxWidth: 300 }}
+            />
+          </>
+        ) : (
+          <>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+              One agreed fee for the whole session. A session fee voucher is created now, payable from the start of
+              the session and due by the session&apos;s end. Parents can pay in advance, in parts, or at the end;
+              anything unpaid carries to the next session as arrears. No monthly tuition vouchers are generated.
+            </Typography>
+            <TextField
+              label="Session Fee (Rs.)"
+              type="number"
+              value={formData.sessionFee || ""}
+              onChange={(e) => handleInputChange("sessionFee", Math.max(0, Number(e.target.value)))}
+              inputProps={{ min: 0 }}
+              InputProps={{
+                startAdornment: <Typography sx={{ mr: 1 }}>Rs.</Typography>,
+              }}
+              helperText={formData.sessionFee > 0 ? undefined : "Leave 0 to add the session fee voucher later"}
+              sx={{ maxWidth: 300 }}
+            />
+          </>
+        )}
       </Paper>
 
       {/* Opening Balance */}
@@ -1687,8 +1731,10 @@ export default function AdmissionPage() {
         </Typography>
         <Grid container spacing={2}>
           <Grid size={{ xs: 6, md: 3 }}>
-            <Typography variant="body2" color="text.secondary">Monthly Fee</Typography>
-            <Typography variant="h6" color="primary">{formatCurrency(formData.monthlyFee)}</Typography>
+            <Typography variant="body2" color="text.secondary">
+              {formData.feePlan === "SESSION" ? "Session Fee (whole session)" : "Monthly Fee"}
+            </Typography>
+            <Typography variant="h6" color="primary">{formatCurrency(tuitionNow)}</Typography>
           </Grid>
           {additionalFees > 0 && (
             <Grid size={{ xs: 6, md: 3 }}>

@@ -29,6 +29,8 @@ import {
   Report as ComplaintIcon,
   Payment as PaymentIcon,
   AccountBalance as AccountBalanceIcon,
+  ShoppingCart as ExpenseIcon,
+  Savings as NetIcon,
 } from "@mui/icons-material";
 import MainLayout from "@/components/layout/MainLayout";
 import StatCard from "@/components/dashboard/StatCard";
@@ -78,6 +80,14 @@ export default function DashboardPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState<DashboardStats | null>(null);
+  // This month's income vs expenses (null when the user can't see Finance)
+  const [finance, setFinance] = useState<{
+    income: number;
+    expenses: number;
+    salaries: number;
+    totalSpending: number;
+    net: number;
+  } | null>(null);
   const [recentPayments, setRecentPayments] = useState<RecentPayment[]>([]);
   const [chartData, setChartData] = useState<ChartData[]>([]);
 
@@ -125,6 +135,7 @@ export default function DashboardPage() {
         if (response.ok) {
           const data = await response.json();
           setStats(data.stats);
+          setFinance(data.finance ?? null);
           setRecentPayments(data.recentPayments);
           setChartData(data.chartData);
         }
@@ -226,6 +237,48 @@ export default function DashboardPage() {
             />
           </Grid>
         </Grid>
+
+        {/* Finance: this month's income vs spending */}
+        {finance && (
+          <Grid container spacing={3} sx={{ mb: 4 }}>
+            <Grid size={{ xs: 12, md: 4 }}>
+              <StatCard
+                title="Fees Collected (this month)"
+                value={formatCurrency(finance.income)}
+                icon={<TrendingUpIcon sx={{ fontSize: 28 }} />}
+                color="#2e7d32"
+                clickable
+                onClick={() => router.push("/finance")}
+              />
+            </Grid>
+            <Grid size={{ xs: 12, md: 4 }}>
+              <StatCard
+                title="Expenses (this month)"
+                value={formatCurrency(finance.totalSpending)}
+                subtitle={
+                  finance.salaries > 0
+                    ? `${formatCurrency(finance.expenses)} expenses + ${formatCurrency(finance.salaries)} salaries`
+                    : "Recorded expenses"
+                }
+                icon={<ExpenseIcon sx={{ fontSize: 28 }} />}
+                color="#d32f2f"
+                clickable
+                onClick={() => router.push("/finance")}
+              />
+            </Grid>
+            <Grid size={{ xs: 12, md: 4 }}>
+              <StatCard
+                title={finance.net >= 0 ? "Net Balance (surplus)" : "Net Balance (deficit)"}
+                value={formatCurrency(finance.net)}
+                subtitle="Fees collected minus expenses"
+                icon={<NetIcon sx={{ fontSize: 28 }} />}
+                color={finance.net >= 0 ? "#1565c0" : "#e65100"}
+                clickable
+                onClick={() => router.push("/finance")}
+              />
+            </Grid>
+          </Grid>
+        )}
 
         {/* Second Row Stats */}
         <Grid container spacing={3} sx={{ mb: 4 }}>

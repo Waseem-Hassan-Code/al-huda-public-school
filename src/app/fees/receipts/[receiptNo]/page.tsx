@@ -1,14 +1,15 @@
 "use client";
 
-// Printable receipt for one counter transaction (all vouchers it paid).
-// Prints on the 80 mm thermal printer like the other receipts (#payment-receipt-print).
+// Printable receipt for one counter transaction (all vouchers it paid), laid out
+// as bordered tables on the 80 mm thermal printer (#payment-receipt-print).
 
 import { use, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Alert, Box, Button, CircularProgress, Divider, Paper, Typography } from "@mui/material";
+import { Alert, Box, Button, CircularProgress, Paper } from "@mui/material";
 import { ArrowBack as BackIcon, Print as PrintIcon } from "@mui/icons-material";
 import MainLayout from "@/components/layout/MainLayout";
-import { rs } from "@/lib/fee-utils";
+import { PrintHeader, PrintSheet, PrintTable } from "@/components/print/PrintBlocks";
+import { monthYearLabel, rs, round2 } from "@/lib/fee-utils";
 
 interface Receipt {
   receiptNo: string;
@@ -42,13 +43,6 @@ const METHOD_LABELS: Record<string, string> = {
   CREDIT_CARD: "Card",
 };
 
-const Row = ({ label, value, bold }: { label: string; value: React.ReactNode; bold?: boolean }) => (
-  <Box sx={{ display: "flex", justifyContent: "space-between", gap: 1, fontWeight: bold ? 800 : 600 }}>
-    <span>{label}</span>
-    <span style={{ textAlign: "right" }}>{value}</span>
-  </Box>
-);
-
 export default function ReceiptPage({ params }: { params: Promise<{ receiptNo: string }> }) {
   const { receiptNo } = use(params);
   const router = useRouter();
@@ -77,6 +71,10 @@ export default function ReceiptPage({ params }: { params: Promise<{ receiptNo: s
     }
   }, [receipt]);
 
+  const r = receipt;
+  // Everything owed before this payment = paid now + still outstanding
+  const duesBefore = r ? round2(r.total + r.outstandingNow) : 0;
+
   return (
     <MainLayout>
       <Box sx={{ p: 3 }}>
@@ -85,9 +83,9 @@ export default function ReceiptPage({ params }: { params: Promise<{ receiptNo: s
             Back
           </Button>
           <Box sx={{ flex: 1 }} />
-          {receipt && (
+          {r && (
             <>
-              <Button variant="outlined" onClick={() => router.push(`/students/${receipt.student.id}`)}>
+              <Button variant="outlined" onClick={() => router.push(`/students/${r.student.id}`)}>
                 Student profile
               </Button>
               <Button variant="contained" startIcon={<PrintIcon />} onClick={() => window.print()}>
@@ -98,67 +96,65 @@ export default function ReceiptPage({ params }: { params: Promise<{ receiptNo: s
         </Box>
 
         {error && <Alert severity="error">{error}</Alert>}
-        {!receipt && !error && (
+        {!r && !error && (
           <Box sx={{ display: "flex", justifyContent: "center", py: 6 }}>
             <CircularProgress />
           </Box>
         )}
 
-        {receipt && (
-          <Paper sx={{ width: "80mm", mx: "auto", p: 0 }} elevation={3}>
-            <Box
-              id="payment-receipt-print"
-              sx={{ p: "10px", fontFamily: "monospace", fontSize: "13px", lineHeight: 1.6, fontWeight: 600 }}
-            >
-              <Box sx={{ textAlign: "center" }}>
-                <Typography sx={{ fontFamily: "inherit", fontWeight: 800, fontSize: "15px", textTransform: "uppercase" }}>
-                  Al-Huda Public School and College Meithakheil
-                </Typography>
-                <Typography sx={{ fontFamily: "inherit", fontWeight: 700 }}>Fee Payment Receipt</Typography>
-              </Box>
-              <Divider sx={{ my: 1, borderStyle: "dashed" }} />
-              <Row label="Receipt #" value={receipt.receiptNo} />
-              <Row
-                label="Date"
-                value={new Date(receipt.paymentDate).toLocaleDateString("en-PK", {
+        {r && (
+          <Paper sx={{ width: "80mm", mx: "auto" }} elevation={3}>
+            <PrintSheet id="payment-receipt-print">
+              <PrintHeader
+                title="FEE RECEIPT"
+                subtitle={`Receipt # ${r.receiptNo} · ${new Date(r.paymentDate).toLocaleDateString("en-PK", {
                   day: "2-digit",
                   month: "short",
                   year: "numeric",
-                })}
+                })}`}
               />
-              <Divider sx={{ my: 1, borderStyle: "dashed" }} />
-              <Row label="Student" value={`${receipt.student.firstName} ${receipt.student.lastName}`} />
-              <Row label="Reg #" value={receipt.student.registrationNo} />
-              {(receipt.student.fatherName || receipt.student.guardianName) && (
-                <Row label="Father/Guardian" value={receipt.student.fatherName || receipt.student.guardianName} />
-              )}
-              <Row
-                label="Class"
-                value={`${receipt.student.class?.name ?? "-"}${receipt.student.section ? ` - ${receipt.student.section.name}` : ""}`}
+
+              <PrintTable
+                rows={[
+                  { label: "Student", value: `${r.student.firstName} ${r.student.lastName}` },
+                  { label: "Reg #", value: r.student.registrationNo },
+                  ...(r.student.fatherName || r.student.guardianName
+                    ? [{ label: "Father/Guardian", value: r.student.fatherName || r.student.guardianName }]
+                    : []),
+                  {
+                    label: "Class",
+                    value: `${r.student.class?.name ?? "-"}${r.student.section ? ` - ${r.student.section.name}` : ""}`,
+                  },
+                ]}
               />
-              <Divider sx={{ my: 1, borderStyle: "dashed" }} />
-              <Typography sx={{ fontFamily: "inherit", fontWeight: 800 }}>Paid for</Typography>
-              {receipt.lines.map((l) => (
-                <Row key={l.receiptNo} label={l.period} value={rs(l.amount)} />
-              ))}
-              <Divider sx={{ my: 1 }} />
-              <Row label="TOTAL PAID" value={rs(receipt.total)} bold />
-              <Row
-                label="Method"
-                value={`${METHOD_LABELS[receipt.paymentMethod] ?? receipt.paymentMethod}${receipt.reference ? ` (${receipt.reference})` : ""}`}
+
+              <PrintTable
+                header={["Paid for", "Amount"]}
+                rows={[
+                  ...r.lines.map((l) => ({
+                    label: l.period === "Opening Balance" ? "Previous dues" : l.period,
+                    value: rs(l.amount),
+                  })),
+                ]}
               />
-              <Divider sx={{ my: 1, borderStyle: "dashed" }} />
-              <Row label="Balance remaining" value={rs(receipt.outstandingNow)} bold />
-              {receipt.remarks && (
-                <Typography sx={{ fontFamily: "inherit", fontSize: "12px", mt: 0.5 }}>Note: {receipt.remarks}</Typography>
-              )}
-              <Divider sx={{ my: 1, borderStyle: "dashed" }} />
-              <Box sx={{ textAlign: "center", fontSize: "11px" }}>
-                {receipt.receivedBy ? `Received by ${receipt.receivedBy}` : ""}
-                <br />
-                Thank you!
+
+              <PrintTable
+                rows={[
+                  { label: `Total dues up to ${monthYearLabel(r.paymentDate)}`, value: rs(duesBefore) },
+                  {
+                    label: `Paid (${METHOD_LABELS[r.paymentMethod] ?? r.paymentMethod}${r.reference ? `, ${r.reference}` : ""})`,
+                    value: rs(r.total),
+                  },
+                  { label: "BALANCE REMAINING", value: rs(r.outstandingNow), total: true },
+                ]}
+              />
+
+              {r.remarks && <Box sx={{ fontSize: "12px", mb: 0.5 }}>Note: {r.remarks}</Box>}
+              <Box sx={{ display: "flex", justifyContent: "space-between", fontSize: "11px", mt: 1 }}>
+                <span>{r.receivedBy ? `Received by: ${r.receivedBy}` : ""}</span>
+                <span>Thank you!</span>
               </Box>
-            </Box>
+            </PrintSheet>
           </Paper>
         )}
       </Box>

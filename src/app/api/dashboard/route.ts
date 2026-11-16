@@ -3,6 +3,8 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { FeeStatus, AttendanceStatus } from "@prisma/client";
+import { hasPermission, Permission } from "@/lib/permissions";
+import { getFinanceSummary } from "@/lib/finance";
 
 export async function GET(request: NextRequest) {
   try {
@@ -223,7 +225,22 @@ export async function GET(request: NextRequest) {
       };
     });
 
+    // This month's finance (only for users who can see Finance)
+    const canViewFinance = hasPermission(
+      session.user.role,
+      Permission.VIEW_FINANCE,
+      (session.user as { permissions?: string[] }).permissions
+    );
+    const nowForFinance = new Date();
+    const finance = canViewFinance
+      ? await getFinanceSummary(
+          new Date(nowForFinance.getFullYear(), nowForFinance.getMonth(), 1),
+          new Date(nowForFinance.getFullYear(), nowForFinance.getMonth() + 1, 1)
+        )
+      : null;
+
     return NextResponse.json({
+      finance,
       stats: {
         totalStudents,
         activeStudents,

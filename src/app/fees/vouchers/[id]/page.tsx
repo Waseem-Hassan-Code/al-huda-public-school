@@ -34,7 +34,7 @@ import MainLayout from "@/components/layout/MainLayout";
 import { formatDate, formatCurrency } from "@/lib/utils";
 import ReceivePaymentDialog from "@/components/dialogs/ReceivePaymentDialog";
 import VoucherSlip from "@/components/fees/VoucherSlip";
-import { periodLabel, rs, round2 } from "@/lib/fee-utils";
+import { dueLabel, isSessionFeeVoucher, periodLabel, rs, round2 } from "@/lib/fee-utils";
 
 interface FeeItem {
   id: string;
@@ -269,10 +269,10 @@ export default function VoucherDetailPage({
                     <CalendarIcon color="error" />
                     <Box>
                       <Typography variant="caption" color="text.secondary">
-                        Due Date
+                        {isSessionFeeVoucher(voucher) ? "Payable" : "Due Date"}
                       </Typography>
                       <Typography color="error.main">
-                        {formatDate(voucher.dueDate)}
+                        {isSessionFeeVoucher(voucher) ? dueLabel(voucher) : formatDate(voucher.dueDate)}
                       </Typography>
                     </Box>
                   </Box>

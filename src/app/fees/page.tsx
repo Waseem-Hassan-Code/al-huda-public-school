@@ -45,6 +45,7 @@ import {
 } from "@/lib/utils";
 import ReceivePaymentDialog from "@/components/dialogs/ReceivePaymentDialog";
 import { toast } from "sonner";
+import { periodLabel } from "@/lib/fee-utils";
 
 interface FeeVoucher {
   id: string;
@@ -277,7 +278,7 @@ export default function FeesPage() {
       label: "Period",
       minWidth: 120,
       renderCell: (row: FeeVoucher) =>
-        `${getMonthName(row.month - 1)} ${row.year}`,
+        periodLabel(row),
     },
     {
       id: "totalAmount",

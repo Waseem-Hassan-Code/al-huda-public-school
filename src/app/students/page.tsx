@@ -203,6 +203,12 @@ export default function StudentsPage() {
     return student.feeVouchers.some((voucher) => {
       if (voucher.balanceDue <= 0) return false;
 
+      // Session fees are payable all session: overdue only after their due date
+      if (voucher.month === 13) {
+        const due = (voucher as { dueDate?: string }).dueDate;
+        return !!due && new Date(due) < today;
+      }
+
       // Create date from voucher month and year
       const voucherDate = new Date(voucher.year, voucher.month - 1, 1);
 

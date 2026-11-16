@@ -145,6 +145,9 @@ export async function PUT(
       sectionId,
       status,
       monthlyFee,
+      // Fee plan: "MONTHLY" or "SESSION" (one agreed fee for the whole session)
+      feePlan,
+      sessionFee,
       // Guardian fields
       guardianName,
       guardianRelation,
@@ -198,6 +201,17 @@ export async function PUT(
     if (status !== undefined) updateData.status = status;
     if (monthlyFee !== undefined)
       updateData.monthlyFee = parseFloat(monthlyFee) || 0;
+    if (feePlan !== undefined) {
+      if (feePlan !== "MONTHLY" && feePlan !== "SESSION") {
+        return NextResponse.json({ error: 'feePlan must be "MONTHLY" or "SESSION"' }, { status: 400 });
+      }
+      updateData.feePlan = feePlan;
+    }
+    if (sessionFee !== undefined) {
+      const fee = parseFloat(sessionFee) || 0;
+      if (fee < 0) return NextResponse.json({ error: "Session fee can't be negative" }, { status: 400 });
+      updateData.sessionFee = fee;
+    }
 
     // Guardian fields
     if (guardianName !== undefined) updateData.guardianName = guardianName;

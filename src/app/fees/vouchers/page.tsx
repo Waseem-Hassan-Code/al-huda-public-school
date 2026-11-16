@@ -56,6 +56,7 @@ import { debounce, formatCurrency, formatDate } from "@/lib/utils";
 import { toast } from "sonner";
 import ReceivePaymentDialog from "@/components/dialogs/ReceivePaymentDialog";
 import QuickReceiveButton from "@/components/fees/QuickReceiveButton";
+import SessionFeeDialog from "@/components/fees/SessionFeeDialog";
 import { periodLabel } from "@/lib/fee-utils";
 
 interface FeeVoucher {
@@ -121,6 +122,7 @@ const MONTHS = [
 // Month filter special values
 const ALL_MONTHS = -1;
 const OPENING_BALANCES = 0;
+const SESSION_FEES = 13; // session fee vouchers are stored as month 13
 
 interface VoucherSummary {
   totalAmount: number;
@@ -155,6 +157,7 @@ export default function FeeVouchersPage() {
   const [summary, setSummary] = useState<VoucherSummary | null>(null);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [receiveFor, setReceiveFor] = useState<{ studentId: string; voucherId?: string } | null>(null);
+  const [sessionFeeOpen, setSessionFeeOpen] = useState(false);
   const [classes, setClasses] = useState<Class[]>([]);
   const [students, setStudents] = useState<Student[]>([]);
   const [loading, setLoading] = useState(true);
@@ -190,6 +193,9 @@ export default function FeeVouchersPage() {
         if (statusFilter) params.append("status", statusFilter);
         if (month === OPENING_BALANCES) {
           params.append("month", "0");
+        } else if (month === SESSION_FEES) {
+          // All session fee vouchers (any session)
+          params.append("month", "13");
         } else {
           if (month !== ALL_MONTHS) params.append("month", month.toString());
           params.append("year", year.toString());
@@ -302,7 +308,7 @@ export default function FeeVouchersPage() {
   };
 
   const handleOpenGenerateDialog = () => {
-    if (filterMonth < 1) {
+    if (filterMonth < 1 || filterMonth > 12) {
       toast.error("Choose a month in the filters first, then generate vouchers for it");
       return;
     }
@@ -381,6 +387,8 @@ export default function FeeVouchersPage() {
       ? `All of ${filterYear}`
       : filterMonth === OPENING_BALANCES
         ? "Opening balances"
+        : filterMonth === SESSION_FEES
+          ? "Session fees"
         : `${MONTHS[filterMonth - 1]} ${filterYear}`;
 
   const columns: SimpleColumn[] = [
@@ -626,6 +634,9 @@ export default function FeeVouchersPage() {
               </IconButton>
             </Tooltip>
             <QuickReceiveButton onSuccess={refresh} />
+            <Button variant="outlined" onClick={() => setSessionFeeOpen(true)}>
+              Generate session fees
+            </Button>
             <Button
               variant="contained"
               startIcon={<AddIcon />}
@@ -900,6 +911,7 @@ export default function FeeVouchersPage() {
                 >
                   <MenuItem value={ALL_MONTHS}>All months</MenuItem>
                   <MenuItem value={OPENING_BALANCES}>Opening balances</MenuItem>
+                  <MenuItem value={SESSION_FEES}>Session fees</MenuItem>
                   {MONTHS.map((month, idx) => (
                     <MenuItem key={idx} value={idx + 1}>
                       {month}
@@ -915,7 +927,7 @@ export default function FeeVouchersPage() {
                 type="number"
                 label="Year"
                 value={filterYear}
-                disabled={filterMonth === OPENING_BALANCES}
+                disabled={filterMonth === OPENING_BALANCES || filterMonth === SESSION_FEES}
                 onChange={(e) =>
                   handleFilterChange("year", parseInt(e.target.value))
                 }
@@ -1219,6 +1231,14 @@ export default function FeeVouchersPage() {
           </DialogActions>
         </Dialog>
       </Box>
+      <SessionFeeDialog
+        open={sessionFeeOpen}
+        onClose={() => setSessionFeeOpen(false)}
+        onDone={() => {
+          setSessionFeeOpen(false);
+          refresh();
+        }}
+      />
       <ReceivePaymentDialog
         open={!!receiveFor}
         studentId={receiveFor?.studentId ?? null}

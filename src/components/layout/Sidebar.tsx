@@ -39,6 +39,7 @@ import {
   Message as MessageIcon,
   Sync as SyncIcon,
   CalendarMonth as CalendarMonthIcon,
+  AccountBalanceWallet as AccountBalanceWalletIcon,
 } from "@mui/icons-material";
 import { useRouter, usePathname } from "next/navigation";
 import { useTranslation } from "react-i18next";
@@ -176,6 +177,12 @@ export default function Sidebar() {
           permission: Permission.MANAGE_FEE_STRUCTURE,
         },
       ],
+    },
+    {
+      text: "Finance",
+      icon: <AccountBalanceWalletIcon />,
+      path: "/finance",
+      permission: Permission.VIEW_FINANCE,
     },
     {
       text: t("common.attendance"),
