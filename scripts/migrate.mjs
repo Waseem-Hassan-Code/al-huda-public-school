@@ -166,6 +166,14 @@ function baselineExistingDatabase() {
   }
 }
 
+function migrationAlreadyInBaseline(name) {
+  const migrationPath = path.join(migrationsDir, name, "migration.sql");
+  if (!existsSync(migrationPath) || !existsSync(baselineFile)) return false;
+  const migrationSql = normalize(readFileSync(migrationPath, "utf8"));
+  const baselineSql = normalize(readFileSync(baselineFile, "utf8"));
+  return migrationSql && baselineSql.includes(migrationSql);
+}
+
 // SQL needed to bring the database in line with schema.prisma ("" when in sync)
 function pendingSchemaChanges() {
   const r = prisma(
@@ -267,6 +275,27 @@ export async function runMigrations({ autoCreate = false } = {}) {
     baselineExistingDatabase();
     deploy = prisma(["migrate", "deploy"], true);
     process.stdout.write(deploy.stdout ?? "");
+  }
+
+  if (deploy.status !== 0) {
+    const details = `${deploy.stdout}${deploy.stderr}`;
+    const alreadyApplied = migrationFolders()
+      .filter((name) => name !== BASELINE)
+      .filter((name) => migrationAlreadyInBaseline(name));
+
+    if (alreadyApplied.length && /42P07|already exists/i.test(details)) {
+      for (const name of alreadyApplied) {
+        log(`Migration ${name} is already included in ${BASELINE}. Marking it as applied.`);
+        const resolve = prisma(["migrate", "resolve", "--applied", name], true);
+        process.stdout.write(resolve.stdout ?? "");
+        if (resolve.status !== 0) {
+          process.stderr.write(resolve.stderr ?? "");
+          throw new Error(`Could not resolve ${name} as already applied.`);
+        }
+      }
+      deploy = prisma(["migrate", "deploy"], true);
+      process.stdout.write(deploy.stdout ?? "");
+    }
   }
 
   if (deploy.status !== 0) {

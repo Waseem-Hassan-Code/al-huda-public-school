@@ -47,7 +47,6 @@ async function main() {
   // Create sequences
   const sequences = [
     { id: "student", value: 0, prefix: "AHPS" },
-    { id: "teacher", value: 0, prefix: "AHPS-T" },
     { id: "fee_voucher", value: 0, prefix: "FV" },
     { id: "payment", value: 0, prefix: "REC" },
     { id: "complaint", value: 0, prefix: "CMP" },
@@ -465,118 +464,6 @@ async function main() {
     });
   }
   console.log("✅ Fee structures created");
-
-  // Create sample Teachers
-  const teachersData = [
-    {
-      firstName: "Fatima",
-      lastName: "Ahmed",
-      gender: Gender.FEMALE,
-      cnic: "42101-1234567-1",
-      phone: "+92-321-1234567",
-      email: "fatima.ahmed@school.com",
-      qualification: "M.A English, B.Ed",
-      specialization: "English Literature",
-      designation: "Senior Teacher",
-      basicSalary: 45000,
-    },
-    {
-      firstName: "Muhammad",
-      lastName: "Hassan",
-      gender: Gender.MALE,
-      cnic: "42101-2345678-2",
-      phone: "+92-321-2345678",
-      email: "m.hassan@school.com",
-      qualification: "M.Sc Mathematics",
-      specialization: "Mathematics",
-      designation: "Teacher",
-      basicSalary: 40000,
-    },
-    {
-      firstName: "Ayesha",
-      lastName: "Khan",
-      gender: Gender.FEMALE,
-      cnic: "42101-3456789-3",
-      phone: "+92-321-3456789",
-      email: "ayesha.khan@school.com",
-      qualification: "M.Sc Physics",
-      specialization: "Physics",
-      designation: "Teacher",
-      basicSalary: 42000,
-    },
-    {
-      firstName: "Ahmad",
-      lastName: "Ali",
-      gender: Gender.MALE,
-      cnic: "42101-4567890-4",
-      phone: "+92-321-4567890",
-      email: "ahmad.ali@school.com",
-      qualification: "M.A Urdu",
-      specialization: "Urdu Literature",
-      designation: "Teacher",
-      basicSalary: 38000,
-    },
-    {
-      firstName: "Zainab",
-      lastName: "Fatima",
-      gender: Gender.FEMALE,
-      cnic: "42101-5678901-5",
-      phone: "+92-321-5678901",
-      email: "zainab.fatima@school.com",
-      qualification: "M.Sc Chemistry",
-      specialization: "Chemistry",
-      designation: "Teacher",
-      basicSalary: 40000,
-    },
-  ];
-
-  let teacherCount = 0;
-  for (const teacherData of teachersData) {
-    teacherCount++;
-    const employeeId = `AHPS-T-${String(teacherCount).padStart(3, "0")}`;
-
-    // Create user account for teacher
-    const teacherUser = await prisma.user.create({
-      data: {
-        email: teacherData.email,
-        username: teacherData.email.split("@")[0],
-        name: `${teacherData.firstName} ${teacherData.lastName}`,
-        password: hashedPassword,
-        role: Role.TEACHER,
-        phone: teacherData.phone,
-        isActive: true,
-        isSeeded: true,
-        createdById: superAdmin.id,
-      },
-    });
-
-    await prisma.teacher.create({
-      data: {
-        employeeId,
-        userId: teacherUser.id,
-        firstName: teacherData.firstName,
-        lastName: teacherData.lastName,
-        gender: teacherData.gender,
-        cnic: teacherData.cnic,
-        phone: teacherData.phone,
-        email: teacherData.email,
-        address: "Karachi, Pakistan",
-        qualification: teacherData.qualification,
-        specialization: teacherData.specialization,
-        designation: teacherData.designation,
-        basicSalary: teacherData.basicSalary,
-        experience: Math.floor(Math.random() * 10) + 1,
-        createdById: superAdmin.id,
-      },
-    });
-  }
-
-  // Update sequence
-  await prisma.sequence.update({
-    where: { id: "teacher" },
-    data: { value: teacherCount },
-  });
-  console.log("✅ Teachers created");
 
   console.log("✅ Seed completed successfully!");
 }
