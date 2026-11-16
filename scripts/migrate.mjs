@@ -223,6 +223,12 @@ async function autoCreateMigration() {
     log("Note: renaming a field or model looks like drop + add, which deletes that data.");
     const ok = await confirm('[migrate] Type "yes" to create and apply this migration: ');
     if (!ok) {
+      if (!process.stdin.isTTY) {
+        throw new Error(
+          "Schema change can lose data, so it was not applied automatically and the app was not started. " +
+            "Run `npm run db:deploy -- --auto-create` in a terminal on this PC and type yes, then start the app again."
+        );
+      }
       throw new Error(
         "Schema change not applied. Undo it in schema.prisma, or run `npm run dev` again and type yes. " +
           "To keep data on a rename, create the migration by hand: `npm run db:migrate -- --create-only --name rename_x`, " +
@@ -234,7 +240,7 @@ async function autoCreateMigration() {
   const name = migrationName(sql);
   mkdirSync(path.join(migrationsDir, name), { recursive: true });
   writeFileSync(path.join(migrationsDir, name, "migration.sql"), sql, "utf8");
-  log(`Created migration prisma/migrations/${name}. Commit it so production gets the change.`);
+  log(`Created migration prisma/migrations/${name} (kept on this PC only, not in git).`);
 
   const deploy = prisma(["migrate", "deploy"], true);
   process.stdout.write(deploy.stdout ?? "");

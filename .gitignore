@@ -42,3 +42,6 @@ next-env.d.ts
 
 # uploads (student/teacher images)
 /public/uploads/
+
+# database migrations: each PC keeps its own history (created automatically on start)
+/prisma/migrations/

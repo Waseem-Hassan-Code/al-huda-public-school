@@ -7,7 +7,10 @@ import { runMigrations } from "./migrate.mjs";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 try {
-  await runMigrations(); // production: apply committed migrations only
+  // Migrations aren't in git: each PC creates its own from schema.prisma.
+  // Safe changes (new tables/columns) are applied automatically. A change that
+  // can lose data is refused here (no one is there to confirm it).
+  await runMigrations({ autoCreate: true });
 } catch (err) {
   console.error(`[migrate] ${err.message}`);
   process.exit(1);
